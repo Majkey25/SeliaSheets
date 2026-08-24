@@ -43,7 +43,7 @@ class ElementFlowTest {
             val page = viewModel.awaitState("page load") { it.selectedPage != null }.selectedPage!!
 
             onMain { viewModel.addText(page.id, "Force = mass × acceleration") }
-            val added = viewModel.awaitState("text add") { it.elements.size == 1 }
+            val added = viewModel.awaitState("text add") { it.elements.size == 1 && it.canUndo }
             assertEquals("Force = mass × acceleration", added.elements.single().text)
 
             onMain(viewModel::undo)

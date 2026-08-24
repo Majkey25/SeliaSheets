@@ -12,6 +12,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import cz.majkey.perko.data.CoverColor
+import cz.majkey.perko.data.CoverPattern
 
 @RunWith(AndroidJUnit4::class)
 class SettingsRepositoryTest {
@@ -24,8 +26,17 @@ class SettingsRepositoryTest {
         val repository = SettingsRepository(store)
 
         assertEquals(12f, repository.settings.first().penWidth)
-        repository.update { it.copy(theme = AppTheme.DARK) }
-        assertEquals(AppTheme.DARK, repository.settings.first().theme)
+        repository.update {
+            it.copy(
+                theme = AppTheme.DARK,
+                defaultCoverColor = CoverColor.SAGE,
+                defaultCoverPattern = CoverPattern.GRID,
+            )
+        }
+        val saved = repository.settings.first()
+        assertEquals(AppTheme.DARK, saved.theme)
+        assertEquals(CoverColor.SAGE, saved.defaultCoverColor)
+        assertEquals(CoverPattern.GRID, saved.defaultCoverPattern)
         file.delete()
     }
 }

@@ -12,7 +12,7 @@
 
 Péřko turns an Android tablet or phone into a private paper notebook.
 
-Create multiple notebooks with original covers, choose ruled, grid, dot, or blank paper, and organize real ordered pages. Write with a stylus using pressure and tilt, switch between pen, pencil, and highlighter, erase complete strokes, select with a lasso, and undo or redo up to 100 editing steps.
+Start with an illustrated Ruled notes, Grid notebook, Dotted journal, or Blank sketchbook template. A live preview shows the real cover, paper, and orientation before creation. Customize the result and organize real ordered pages. Write with a stylus using pressure and tilt, switch between pen, pencil, and highlighter, erase complete strokes, select with a lasso, and undo or redo up to 100 editing steps.
 
 Add text and images selected through Android Photo Picker. Annotate directly over imported images. Replace selected ink with a clean line, arrow, ellipse, rectangle, or triangle. Calculate arithmetic locally and place the result on the page. Export the complete notebook — paper, ink, text, images, shapes, and math — to a PDF location you choose.
 

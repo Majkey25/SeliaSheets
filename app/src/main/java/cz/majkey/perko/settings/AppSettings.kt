@@ -2,6 +2,8 @@ package cz.majkey.perko.settings
 
 import cz.majkey.perko.data.PageOrientation
 import cz.majkey.perko.data.PaperTemplate
+import cz.majkey.perko.data.CoverColor
+import cz.majkey.perko.data.CoverPattern
 
 internal enum class DefaultTool { PEN, PENCIL, HIGHLIGHTER }
 
@@ -12,6 +14,8 @@ internal data class AppSettings(
     val penWidth: Float = 4f,
     val highlighterWidth: Float = 22f,
     val fingerDrawing: Boolean = false,
+    val defaultCoverColor: CoverColor = CoverColor.PERIWINKLE,
+    val defaultCoverPattern: CoverPattern = CoverPattern.SOLID,
     val defaultPaper: PaperTemplate = PaperTemplate.RULED,
     val defaultOrientation: PageOrientation = PageOrientation.PORTRAIT,
     val theme: AppTheme = AppTheme.SYSTEM,

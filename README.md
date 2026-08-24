@@ -17,6 +17,7 @@ Péřko is a private, offline-first Android notebook built for tablets and stylu
 - Low-latency AndroidX Ink with pressure, tilt, stylus eraser, palm cancellation, and motion prediction.
 - Pen, pencil, highlighter, stroke eraser, lasso selection, bounded movement, and 100-step undo/redo.
 - Multiple notebooks with original covers, search, favorites, trash, ordered pages, and page duplication with content.
+- Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
 - Private image import through Android Photo Picker with MIME, dimension, allocation, and corruption checks.
 - Persisted text, images, clean lines/arrows/ellipses/rectangles/triangles, and local calculator blocks.
@@ -37,6 +38,10 @@ Péřko is a private, offline-first Android notebook built for tablets and stylu
 | Local math | App details |
 | --- | --- |
 | ![Local math](docs/qa/screenshots/tablet-math.png) | ![App details](docs/qa/screenshots/tablet-app-details.png) |
+
+| Visual notebook creator | Visual defaults |
+| --- | --- |
+| ![Notebook creator](docs/qa/screenshots/tablet-new-notebook.png) | ![Visual settings](docs/qa/screenshots/tablet-settings-defaults.png) |
 
 ## Privacy
 
