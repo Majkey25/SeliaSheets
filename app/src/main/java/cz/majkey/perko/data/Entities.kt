@@ -84,6 +84,14 @@ internal data class StrokeEntity(
     val inputs: ByteArray,
 )
 
+internal data class StrokePayload(
+    val brushKind: String,
+    val colorArgb: Int,
+    val size: Float,
+    val epsilon: Float,
+    val inputs: ByteArray,
+)
+
 @Entity(
     tableName = "elements",
     foreignKeys = [

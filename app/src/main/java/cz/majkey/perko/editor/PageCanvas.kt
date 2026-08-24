@@ -21,17 +21,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.ink.strokes.Stroke
 import cz.majkey.perko.R
 import cz.majkey.perko.data.PageEntity
 import cz.majkey.perko.data.PaperTemplate
+import cz.majkey.perko.data.StrokeEntity
 
 @Composable
-internal fun PageCanvas(page: PageEntity?, pageNumber: Int, modifier: Modifier = Modifier) {
+internal fun PageCanvas(
+    page: PageEntity?,
+    pageNumber: Int,
+    strokes: List<StrokeEntity>,
+    fingerDrawing: Boolean,
+    onStrokeFinished: (Stroke) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
             targetState = page,
@@ -39,7 +50,7 @@ internal fun PageCanvas(page: PageEntity?, pageNumber: Int, modifier: Modifier =
             label = "page",
         ) { target ->
             if (target != null) {
-                Paper(target, pageNumber)
+                Paper(target, pageNumber, strokes, fingerDrawing, onStrokeFinished)
             }
         }
     }
@@ -50,8 +61,15 @@ private fun pageTransition(): ContentTransform =
         (slideOutHorizontally(tween(220)) { -it / 5 } + fadeOut(tween(140)))
 
 @Composable
-private fun Paper(page: PageEntity, pageNumber: Int) {
+private fun Paper(
+    page: PageEntity,
+    pageNumber: Int,
+    strokes: List<StrokeEntity>,
+    fingerDrawing: Boolean,
+    onStrokeFinished: (Stroke) -> Unit,
+) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
+    val decodedStrokes = remember(strokes) { strokes.map(::decodeStroke) }
     BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         val availableRatio = maxWidth / maxHeight
         val paperModifier =
@@ -68,6 +86,23 @@ private fun Paper(page: PageEntity, pageNumber: Int) {
         ) {
             Box {
                 PaperPattern(page.paper, Modifier.fillMaxSize())
+                AndroidView(
+                    factory = { context -> InkCanvasView(context) },
+                    update = { view ->
+                        view.setPageSize(page.widthPoints, page.heightPoints)
+                        view.fingerDrawing = fingerDrawing
+                        view.listener =
+                            object : InkCanvasView.Listener {
+                                override fun onStrokeFinished(stroke: Stroke) {
+                                    onStrokeFinished(stroke)
+                                }
+
+                                override fun onStrokeCanceled(pointerId: Int) = Unit
+                            }
+                        view.setStrokes(decodedStrokes)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
                 Text(
                     text = stringResource(R.string.page_number, pageNumber),
                     style = MaterialTheme.typography.labelSmall,
@@ -78,6 +113,17 @@ private fun Paper(page: PageEntity, pageNumber: Int) {
         }
     }
 }
+
+private fun decodeStroke(value: StrokeEntity): Stroke =
+    InkCodec.decode(
+        EncodedStroke(
+            brushKind = BrushKind.valueOf(value.brushKind),
+            colorArgb = value.colorArgb,
+            size = value.size,
+            epsilon = value.epsilon,
+            inputs = value.inputs,
+        ),
+    )
 
 @Composable
 private fun PaperPattern(value: String, modifier: Modifier) {

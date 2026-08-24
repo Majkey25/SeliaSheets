@@ -22,6 +22,9 @@ internal class PerkoRepository(
     fun observePages(notebookId: String): Flow<List<PageEntity>> =
         notebooks.observePages(notebookId)
 
+    fun observeStrokes(notebookId: String): Flow<List<StrokeEntity>> =
+        pageContent.observeStrokes(notebookId)
+
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()
         require(title.isNotEmpty())
@@ -63,6 +66,28 @@ internal class PerkoRepository(
         requireNotNull(notebooks.getNotebook(id)) { "Notebook not found" }
 
     suspend fun getPages(notebookId: String): List<PageEntity> = notebooks.getPages(notebookId)
+
+    suspend fun getStrokes(pageId: String): List<StrokeEntity> = pageContent.getStrokes(pageId)
+
+    suspend fun addStroke(pageId: String, payload: StrokePayload): String {
+        val id = idFactory()
+        database.withTransaction {
+            requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.insertStroke(
+                StrokeEntity(
+                    id = id,
+                    pageId = pageId,
+                    zIndex = (pageContent.getMaxStrokeZIndex(pageId) ?: -1) + 1,
+                    brushKind = payload.brushKind,
+                    colorArgb = payload.colorArgb,
+                    size = payload.size,
+                    epsilon = payload.epsilon,
+                    inputs = payload.inputs,
+                ),
+            )
+        }
+        return id
+    }
 
     suspend fun addPage(notebookId: String): String {
         val notebook = getNotebook(notebookId)

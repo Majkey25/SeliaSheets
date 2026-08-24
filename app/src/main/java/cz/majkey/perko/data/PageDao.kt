@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 internal interface PageDao {
@@ -19,6 +20,22 @@ internal interface PageDao {
 
     @Query("SELECT * FROM strokes WHERE pageId IN (:pageIds) ORDER BY zIndex")
     suspend fun getStrokes(pageIds: List<String>): List<StrokeEntity>
+
+    @Query("SELECT * FROM strokes WHERE pageId = :pageId ORDER BY zIndex")
+    suspend fun getStrokes(pageId: String): List<StrokeEntity>
+
+    @Query("SELECT MAX(zIndex) FROM strokes WHERE pageId = :pageId")
+    suspend fun getMaxStrokeZIndex(pageId: String): Int?
+
+    @Query(
+        """
+        SELECT strokes.* FROM strokes
+        INNER JOIN pages ON pages.id = strokes.pageId
+        WHERE pages.notebookId = :notebookId
+        ORDER BY strokes.zIndex
+        """,
+    )
+    fun observeStrokes(notebookId: String): Flow<List<StrokeEntity>>
 
     @Insert
     suspend fun insertElement(element: ElementEntity)

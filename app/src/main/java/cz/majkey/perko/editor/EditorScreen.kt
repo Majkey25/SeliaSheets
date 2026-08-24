@@ -112,6 +112,11 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                 PageCanvas(
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
+                    strokes = state.selectedStrokes,
+                    fingerDrawing = state.notebook?.fingerDrawing == true,
+                    onStrokeFinished = { stroke ->
+                        state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
+                    },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
@@ -127,6 +132,11 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                 PageCanvas(
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
+                    strokes = state.selectedStrokes,
+                    fingerDrawing = state.notebook?.fingerDrawing == true,
+                    onStrokeFinished = { stroke ->
+                        state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
+                    },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             }
