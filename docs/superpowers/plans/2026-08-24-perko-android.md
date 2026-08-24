@@ -4,7 +4,7 @@
 
 **Goal:** Ship an offline, tablet-first Android notebook with persistent pages, low-latency stylus ink, text and images, shape cleanup, local arithmetic, PDF export, emulator evidence, and a verified GitHub beta release.
 
-**Architecture:** One Android application module uses Compose for adaptive screens, Room for transactional document metadata, private files for imported images, and AndroidX Ink for stroke capture, rendering, and serialization. Small page-scoped state holders own editing history. Optional ML Kit models recognize Czech or English handwriting and four geometric shapes without uploading note content.
+**Architecture:** One Android application module uses Compose for adaptive screens, Room for transactional document metadata, private files for imported images, and AndroidX Ink for stroke capture, rendering, and serialization. Small page-scoped state holders own editing history. The interface is English only. Optional ML Kit models recognize Czech or English handwriting and four geometric shapes without uploading note content.
 
 **Tech Stack:** JDK 17, AGP 9.1.1, Gradle 9.3.1, built-in Kotlin 2.3.20, KSP2 2.3.10, Compose UI 1.12.0, Material 3 1.4.0, Activity 1.13.0, Lifecycle 2.11.0, Room 2.8.4, Preferences DataStore 1.2.1, AndroidX Ink 1.0.0, ML Kit Digital Ink Recognition 19.0.0.
 
@@ -64,7 +64,6 @@ app/src/main/java/cz/majkey/perko/
   ui/PerkoTheme.kt                          original restrained visual system
   ui/Icons.kt                               original vector icons
 app/src/main/res/values/strings.xml          English strings
-app/src/main/res/values-cs/strings.xml       Czech strings
 app/src/test/...                             pure JVM checks
 app/src/androidTest/...                      Room, Compose, stylus, and export checks
 .github/workflows/android.yml                build and test CI
@@ -87,7 +86,6 @@ README.md, CHANGELOG.md, PRIVACY.md           public project documentation
 - Create: `app/src/main/java/cz/majkey/perko/PerkoApp.kt`
 - Create: `app/src/main/java/cz/majkey/perko/ui/PerkoTheme.kt`
 - Create: `app/src/main/res/values/strings.xml`
-- Create: `app/src/main/res/values-cs/strings.xml`
 - Test: `app/src/androidTest/java/cz/majkey/perko/AppLaunchTest.kt`
 
 **Interfaces:**
@@ -442,7 +440,7 @@ Remove-Item Env:ANDROID_SERIAL
 .\gradlew.bat :app:lintDebug :app:assembleDebug --console=plain
 ```
 
-Expected: the checks pass and the library is usable in Czech and English locales.
+Expected: the checks pass and the library stays in English under English and Czech system locales.
 
 - [ ] **Step 6: Commit the library slice**
 
@@ -1187,7 +1185,7 @@ The expanded section also shows installed version, privacy, third-party notices,
 
 Use warm paper `#FBF8F1`, workspace `#ECEAE5`, graphite `#202124`, cobalt `#3156D9`, and error `#B3261E`. Use system typography. Keep page corners at 2 dp, controls at 8 to 12 dp, and no gradient or glass effect.
 
-No visible string remains hardcoded. Czech keeps UTF-8 diacritics. Map Ctrl+Z, Ctrl+Shift+Z, PageUp, and PageDown. Verify visible focus. Respect Android animator scale and the Reduce motion setting.
+No visible string remains hardcoded. The interface stays English under every system locale. Map Ctrl+Z, Ctrl+Shift+Z, PageUp, and PageDown. Verify visible focus. Respect Android animator scale and the Reduce motion setting.
 
 - [ ] **Step 7: Run settings and accessibility gates**
 

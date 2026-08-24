@@ -7,7 +7,7 @@
 - The first public build is `v0.1.0-beta.1` under Apache-2.0.
 - Android emulator QA is the only device QA in scope. No physical phone or tablet is accessed.
 - The app is offline-first. Network access is used only to download optional ML Kit handwriting and shape models on explicit user action.
-- The initial languages are Czech and English, selected from Android system locale.
+- The interface and public store copy are English only. Optional handwriting recognition supports Czech and English input.
 
 ## Objective
 
