@@ -74,6 +74,9 @@ internal class PerkoRepository(
 
     suspend fun getElements(pageId: String): List<ElementEntity> = pageContent.getElements(pageId)
 
+    suspend fun getAssetReferenceCount(assetId: String): Int =
+        pageContent.getAssetReferenceCount(assetId)
+
     suspend fun addStroke(pageId: String, payload: StrokePayload): String {
         val id = idFactory()
         database.withTransaction {
@@ -242,10 +245,18 @@ internal class PerkoRepository(
         val newId = idFactory()
         database.withTransaction {
             val source = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val sourceStrokes = pageContent.getStrokes(pageId)
+            val sourceElements = pageContent.getElements(pageId)
             val pages = notebooks.getPages(source.notebookId).toMutableList()
             val duplicate = source.copy(id = newId, pageIndex = source.pageIndex + 1)
             pages.add(source.pageIndex + 1, duplicate)
             notebooks.insertPage(duplicate.copy(pageIndex = pages.size + 10_000))
+            sourceStrokes.forEach { stroke ->
+                pageContent.insertStroke(stroke.copy(id = idFactory(), pageId = newId))
+            }
+            sourceElements.forEach { element ->
+                pageContent.insertElement(element.copy(id = idFactory(), pageId = newId))
+            }
             replacePageOrder(source.notebookId, pages)
             touch(requireNotNull(notebooks.getNotebook(source.notebookId)))
         }

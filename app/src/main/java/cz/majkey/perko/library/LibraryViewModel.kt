@@ -4,9 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cz.majkey.perko.data.CreateNotebookRequest
+import cz.majkey.perko.data.AssetStore
 import cz.majkey.perko.data.NotebookEntity
 import cz.majkey.perko.data.PerkoDatabase
 import cz.majkey.perko.data.PerkoRepository
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -22,6 +24,7 @@ internal data class LibraryUiState(
 
 internal class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = PerkoRepository(PerkoDatabase.get(application))
+    private val assets = AssetStore(File(application.filesDir, "assets"))
     private val query = MutableStateFlow("")
     private val trash = MutableStateFlow(false)
     private val failed = MutableStateFlow(false)
@@ -74,12 +77,23 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun deleteNotebook(id: String) = mutate {
+        val assetIds = repository.loadNotebook(id).elements.mapNotNull { it.assetId }.distinct()
         repository.deleteNotebook(id)
+        deleteUnusedAssets(assetIds)
     }
 
     private fun mutate(block: suspend () -> Unit) {
         viewModelScope.launch {
             failed.value = runCatching { block() }.isFailure
+        }
+    }
+
+    private suspend fun deleteUnusedAssets(assetIds: List<String>) {
+        assetIds.forEach { assetId ->
+            if (repository.getAssetReferenceCount(assetId) == 0) {
+                val file = assets.file(assetId)
+                check(!file.exists() || file.delete()) { "Asset could not be deleted" }
+            }
         }
     }
 }

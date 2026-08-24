@@ -162,6 +162,27 @@ class PerkoRepositoryTest {
         assertEquals("RECTANGLE", repository.getElements(page.id).single().shapeKind)
     }
 
+    @Test
+    fun duplicatedPageCopiesInkAndElementsWithNewIds() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        repository.addStroke(
+            page.id,
+            StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1)),
+        )
+        repository.addElement(
+            page.id,
+            ElementDraft(ElementKind.TEXT, 10f, 20f, 100f, 60f, text = "Copied"),
+        )
+
+        val duplicateId = repository.duplicatePage(page.id)
+
+        assertEquals(1, repository.getStrokes(duplicateId).size)
+        assertEquals("Copied", repository.getElements(duplicateId).single().text)
+        assertTrue(repository.getStrokes(duplicateId).single().id != repository.getStrokes(page.id).single().id)
+        assertTrue(repository.getElements(duplicateId).single().id != repository.getElements(page.id).single().id)
+    }
+
     private fun request() =
         CreateNotebookRequest(
             title = "Physics",

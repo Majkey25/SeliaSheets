@@ -82,4 +82,7 @@ internal interface PageDao {
         """,
     )
     fun observeElements(notebookId: String): Flow<List<ElementEntity>>
+
+    @Query("SELECT COUNT(*) FROM elements WHERE assetId = :assetId")
+    suspend fun getAssetReferenceCount(assetId: String): Int
 }

@@ -148,7 +148,14 @@ internal class EditorViewModel(
 
     fun deletePage(id: String) = mutate {
         val wasSelected = state.value.selectedPage?.id == id
+        val assetIds = repository.getElements(id).mapNotNull { it.assetId }.distinct()
         repository.deletePage(id)
+        assetIds.forEach { assetId ->
+            if (repository.getAssetReferenceCount(assetId) == 0) {
+                val file = assets.file(assetId)
+                check(!file.exists() || file.delete()) { "Asset could not be deleted" }
+            }
+        }
         if (wasSelected || historyPageId == id) resetHistory()
     }
 
