@@ -25,6 +25,9 @@ internal class PerkoRepository(
     fun observeStrokes(notebookId: String): Flow<List<StrokeEntity>> =
         pageContent.observeStrokes(notebookId)
 
+    fun observeElements(notebookId: String): Flow<List<ElementEntity>> =
+        pageContent.observeElements(notebookId)
+
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()
         require(title.isNotEmpty())
@@ -69,10 +72,12 @@ internal class PerkoRepository(
 
     suspend fun getStrokes(pageId: String): List<StrokeEntity> = pageContent.getStrokes(pageId)
 
+    suspend fun getElements(pageId: String): List<ElementEntity> = pageContent.getElements(pageId)
+
     suspend fun addStroke(pageId: String, payload: StrokePayload): String {
         val id = idFactory()
         database.withTransaction {
-            requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.insertStroke(
                 StrokeEntity(
                     id = id,
@@ -85,21 +90,103 @@ internal class PerkoRepository(
                     inputs = payload.inputs,
                 ),
             )
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
         }
         return id
     }
 
     suspend fun deleteStrokes(pageId: String, ids: Set<String>) {
         if (ids.isEmpty()) return
-        pageContent.deleteStrokes(pageId, ids)
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.deleteStrokes(pageId, ids)
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
     }
 
     suspend fun replaceStrokes(pageId: String, strokes: List<StrokeEntity>) {
         require(strokes.all { it.pageId == pageId })
         database.withTransaction {
-            requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.deleteStrokes(pageId)
             if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+    }
+
+    suspend fun addElement(pageId: String, draft: ElementDraft): String {
+        validateElement(draft)
+        val id = idFactory()
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.insertElement(
+                ElementEntity(
+                    id = id,
+                    pageId = pageId,
+                    zIndex = (pageContent.getMaxElementZIndex(pageId) ?: -1) + 1,
+                    kind = draft.kind.name,
+                    x = draft.x,
+                    y = draft.y,
+                    width = draft.width,
+                    height = draft.height,
+                    rotation = draft.rotation,
+                    text = draft.text,
+                    assetId = draft.assetId,
+                    shapeKind = draft.shapeKind,
+                    expression = draft.expression,
+                    resultText = draft.resultText,
+                ),
+            )
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+        return id
+    }
+
+    suspend fun updateElement(element: ElementEntity) {
+        validateElement(element)
+        database.withTransaction {
+            requireNotNull(pageContent.getElement(element.id)) { "Element not found" }
+            pageContent.updateElement(element)
+            val page = requireNotNull(notebooks.getPage(element.pageId)) { "Page not found" }
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+    }
+
+    suspend fun deleteElement(id: String): ElementEntity {
+        val element = requireNotNull(pageContent.getElement(id)) { "Element not found" }
+        database.withTransaction {
+            pageContent.deleteElement(element)
+            val page = requireNotNull(notebooks.getPage(element.pageId)) { "Page not found" }
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+        return element
+    }
+
+    suspend fun replaceElements(pageId: String, elements: List<ElementEntity>) {
+        require(elements.all { it.pageId == pageId })
+        elements.forEach(::validateElement)
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.deleteElements(pageId)
+            if (elements.isNotEmpty()) pageContent.insertElements(elements)
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+    }
+
+    suspend fun replacePageContent(
+        pageId: String,
+        strokes: List<StrokeEntity>,
+        elements: List<ElementEntity>,
+    ) {
+        require(strokes.all { it.pageId == pageId } && elements.all { it.pageId == pageId })
+        elements.forEach(::validateElement)
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.deleteStrokes(pageId)
+            pageContent.deleteElements(pageId)
+            if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
+            if (elements.isNotEmpty()) pageContent.insertElements(elements)
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
         }
     }
 
@@ -203,4 +290,40 @@ internal class PerkoRepository(
 
     private fun pageSize(orientation: PageOrientation): Pair<Int, Int> =
         if (orientation == PageOrientation.PORTRAIT) 595 to 842 else 842 to 595
+
+    private fun validateElement(draft: ElementDraft) {
+        require(
+            draft.x.isFinite() &&
+                draft.y.isFinite() &&
+                draft.width.isFinite() &&
+                draft.height.isFinite() &&
+                draft.rotation.isFinite() &&
+                draft.width > 0f &&
+                draft.height > 0f,
+        )
+        when (draft.kind) {
+            ElementKind.TEXT -> require(!draft.text.isNullOrBlank() && draft.text.length <= 10_000)
+            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank())
+            ElementKind.SHAPE -> require(!draft.shapeKind.isNullOrBlank())
+            ElementKind.MATH -> require(!draft.expression.isNullOrBlank() && !draft.resultText.isNullOrBlank())
+        }
+    }
+
+    private fun validateElement(element: ElementEntity) {
+        validateElement(
+            ElementDraft(
+                kind = ElementKind.valueOf(element.kind),
+                x = element.x,
+                y = element.y,
+                width = element.width,
+                height = element.height,
+                rotation = element.rotation,
+                text = element.text,
+                assetId = element.assetId,
+                shapeKind = element.shapeKind,
+                expression = element.expression,
+                resultText = element.resultText,
+            ),
+        )
+    }
 }

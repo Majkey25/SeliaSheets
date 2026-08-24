@@ -1,6 +1,9 @@
 package cz.majkey.perko.editor
 
 import android.app.Application
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -29,6 +32,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -74,6 +78,23 @@ internal fun EditorRoute(notebookId: String, onBack: () -> Unit) {
 private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<PageEntity?>(null) }
+    var textPageId by remember { mutableStateOf<String?>(null) }
+    var imagePageId by remember { mutableStateOf<String?>(null) }
+    val imagePicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            val pageId = imagePageId
+            imagePageId = null
+            if (uri != null && pageId != null) viewModel.importImage(pageId, uri)
+        }
+    textPageId?.let { pageId ->
+        TextElementDialog(
+            onDismiss = { textPageId = null },
+            onSave = { text ->
+                viewModel.addText(pageId, text)
+                textPageId = null
+            },
+        )
+    }
     deleteTarget?.let { page ->
         DeletePageDialog(
             onDismiss = { deleteTarget = null },
@@ -100,6 +121,15 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     onSelectTool = viewModel::selectTool,
                     onUndo = viewModel::undo,
                     onRedo = viewModel::redo,
+                    onAddText = { textPageId = state.selectedPage?.id },
+                    onAddImage = {
+                        imagePageId = state.selectedPage?.id
+                        if (imagePageId != null) {
+                            imagePicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
+                        }
+                    },
                 )
             }
         },
@@ -124,6 +154,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
                     strokes = state.selectedStrokes,
+                    elements = state.selectedElements,
                     selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
@@ -139,6 +170,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     onMoveSelection = { delta ->
                         state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
+                    assetFile = viewModel::assetFile,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
@@ -155,6 +187,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
                     strokes = state.selectedStrokes,
+                    elements = state.selectedElements,
                     selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
@@ -170,6 +203,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     onMoveSelection = { delta ->
                         state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
+                    assetFile = viewModel::assetFile,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             }
@@ -183,6 +217,8 @@ private fun EditorToolBar(
     onSelectTool: (EditorTool) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onAddText: () -> Unit,
+    onAddImage: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
@@ -216,6 +252,20 @@ private fun EditorToolBar(
                 )
             }
         }
+        Surface(onClick = onAddText, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
+            Text(
+                stringResource(R.string.tool_text),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
+        Surface(onClick = onAddImage, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
+            Text(
+                stringResource(R.string.tool_image),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
         if (state.selectedStrokeIds.isNotEmpty()) {
             Text(
                 stringResource(R.string.selected_strokes, state.selectedStrokeIds.size),
@@ -225,6 +275,31 @@ private fun EditorToolBar(
             )
         }
     }
+}
+
+@Composable
+private fun TextElementDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.add_text)) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(10_000) },
+                label = { Text(stringResource(R.string.text_content)) },
+                minLines = 3,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text) }, enabled = text.isNotBlank()) {
+                Text(stringResource(R.string.add))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable

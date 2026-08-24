@@ -49,12 +49,37 @@ internal interface PageDao {
     @Insert
     suspend fun insertElement(element: ElementEntity)
 
+    @Insert
+    suspend fun insertElements(elements: List<ElementEntity>)
+
     @Update
     suspend fun updateElement(element: ElementEntity)
 
     @Delete
     suspend fun deleteElement(element: ElementEntity)
 
+    @Query("DELETE FROM elements WHERE pageId = :pageId")
+    suspend fun deleteElements(pageId: String)
+
     @Query("SELECT * FROM elements WHERE pageId IN (:pageIds) ORDER BY zIndex")
     suspend fun getElements(pageIds: List<String>): List<ElementEntity>
+
+    @Query("SELECT * FROM elements WHERE pageId = :pageId ORDER BY zIndex")
+    suspend fun getElements(pageId: String): List<ElementEntity>
+
+    @Query("SELECT * FROM elements WHERE id = :id")
+    suspend fun getElement(id: String): ElementEntity?
+
+    @Query("SELECT MAX(zIndex) FROM elements WHERE pageId = :pageId")
+    suspend fun getMaxElementZIndex(pageId: String): Int?
+
+    @Query(
+        """
+        SELECT elements.* FROM elements
+        INNER JOIN pages ON pages.id = elements.pageId
+        WHERE pages.notebookId = :notebookId
+        ORDER BY elements.zIndex
+        """,
+    )
+    fun observeElements(notebookId: String): Flow<List<ElementEntity>>
 }

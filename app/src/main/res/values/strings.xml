@@ -64,4 +64,10 @@
     <string name="tool_eraser">Eraser</string>
     <string name="tool_lasso">Lasso</string>
     <string name="selected_strokes">%1$d selected</string>
+    <string name="tool_text">Text</string>
+    <string name="tool_image">Image</string>
+    <string name="add_text">Add text</string>
+    <string name="text_content">Text</string>
+    <string name="add">Add</string>
+    <string name="inserted_image">Inserted image</string>
 </resources>

@@ -108,6 +108,33 @@ class PerkoRepositoryTest {
         assertEquals(snapshot.map(StrokeEntity::id), repository.getStrokes(page.id).map(StrokeEntity::id))
     }
 
+    @Test
+    fun textElementTransformPersists() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val id =
+            repository.addElement(
+                page.id,
+                ElementDraft(
+                    kind = ElementKind.TEXT,
+                    x = 80f,
+                    y = 120f,
+                    width = 220f,
+                    height = 80f,
+                    text = "Velocity = distance / time",
+                ),
+            )
+
+        val element = repository.getElements(page.id).single()
+        repository.updateElement(element.copy(x = 140f, rotation = 12f))
+
+        val saved = repository.getElements(page.id).single()
+        assertEquals(id, saved.id)
+        assertEquals(140f, saved.x)
+        assertEquals(12f, saved.rotation)
+        assertEquals("Velocity = distance / time", saved.text)
+    }
+
     private fun request() =
         CreateNotebookRequest(
             title = "Physics",

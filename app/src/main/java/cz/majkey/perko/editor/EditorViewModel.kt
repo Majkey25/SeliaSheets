@@ -1,15 +1,21 @@
 package cz.majkey.perko.editor
 
 import android.app.Application
+import android.net.Uri
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import cz.majkey.perko.data.AssetStore
+import cz.majkey.perko.data.ElementDraft
+import cz.majkey.perko.data.ElementEntity
+import cz.majkey.perko.data.ElementKind
 import cz.majkey.perko.data.NotebookEntity
 import cz.majkey.perko.data.PageEntity
 import cz.majkey.perko.data.PerkoDatabase
 import cz.majkey.perko.data.PerkoRepository
 import cz.majkey.perko.data.StrokeEntity
 import cz.majkey.perko.data.StrokePayload
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -20,6 +26,7 @@ internal data class EditorUiState(
     val notebook: NotebookEntity? = null,
     val pages: List<PageEntity> = emptyList(),
     val strokes: List<StrokeEntity> = emptyList(),
+    val elements: List<ElementEntity> = emptyList(),
     val selectedPageId: String? = null,
     val tool: EditorTool = EditorTool.PEN,
     val selectedStrokeIds: Set<String> = emptySet(),
@@ -32,7 +39,21 @@ internal data class EditorUiState(
 
     val selectedStrokes: List<StrokeEntity>
         get() = strokes.filter { it.pageId == selectedPage?.id }
+
+    val selectedElements: List<ElementEntity>
+        get() = elements.filter { it.pageId == selectedPage?.id }
 }
+
+private data class EditorContent(
+    val pages: List<PageEntity>,
+    val strokes: List<StrokeEntity>,
+    val elements: List<ElementEntity>,
+)
+
+private data class PageSnapshot(
+    val strokes: List<StrokeEntity>,
+    val elements: List<ElementEntity>,
+)
 
 private data class EditorControls(
     val tool: EditorTool = EditorTool.PEN,
@@ -45,25 +66,35 @@ private data class EditorControls(
 internal class EditorViewModel(application: Application, private val notebookId: String) :
     AndroidViewModel(application) {
     private val repository = PerkoRepository(PerkoDatabase.get(application))
+    private val assets = AssetStore(File(application.filesDir, "assets"))
+    private val imageImporter = ImageImporter(application.contentResolver, assets)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls())
     private var historyPageId: String? = null
-    private var pageHistory: PageHistory<List<StrokeEntity>>? = null
+    private var pageHistory: PageHistory<PageSnapshot>? = null
+
+    private val content =
+        combine(
+            repository.observePages(notebookId),
+            repository.observeStrokes(notebookId),
+            repository.observeElements(notebookId),
+            ::EditorContent,
+        )
 
     val state =
         combine(
                 repository.observeNotebook(notebookId),
-                repository.observePages(notebookId),
-                repository.observeStrokes(notebookId),
+                content,
                 selectedPageId,
                 controls,
-            ) { notebook, pages, strokes, selected, editorControls ->
-                val validSelection = selected?.takeIf { id -> pages.any { it.id == id } }
+            ) { notebook, document, selected, editorControls ->
+                val validSelection = selected?.takeIf { id -> document.pages.any { it.id == id } }
                 EditorUiState(
                     notebook = notebook,
-                    pages = pages,
-                    strokes = strokes,
-                    selectedPageId = validSelection ?: pages.firstOrNull()?.id,
+                    pages = document.pages,
+                    strokes = document.strokes,
+                    elements = document.elements,
+                    selectedPageId = validSelection ?: document.pages.firstOrNull()?.id,
                     tool = editorControls.tool,
                     selectedStrokeIds = editorControls.selectedStrokeIds,
                     canUndo = editorControls.canUndo,
@@ -120,7 +151,7 @@ internal class EditorViewModel(application: Application, private val notebookId:
                 inputs = encoded.inputs,
             ),
         )
-        history.push(repository.getStrokes(pageId))
+        history.push(snapshot(pageId))
         updateHistoryControls(history)
     }
 
@@ -128,13 +159,13 @@ internal class EditorViewModel(application: Application, private val notebookId:
         if (points.isEmpty()) return@mutate
         val history = history(pageId)
         val ids =
-            history.current
+            history.current.strokes
                 .map(StrokeEntity::toStrokePath)
                 .filter { stroke -> points.any { point -> hitStroke(point, 16f, stroke) } }
                 .mapTo(mutableSetOf(), StrokePath::id)
         if (ids.isEmpty()) return@mutate
         repository.deleteStrokes(pageId, ids)
-        history.push(repository.getStrokes(pageId))
+        history.push(snapshot(pageId))
         controls.value = controls.value.copy(selectedStrokeIds = controls.value.selectedStrokeIds - ids)
         updateHistoryControls(history)
     }
@@ -150,7 +181,7 @@ internal class EditorViewModel(application: Application, private val notebookId:
         if (selectedIds.isEmpty()) return@mutate
         val history = history(pageId)
         val selectedPoints =
-            history.current
+            history.current.strokes
                 .filter { it.id in selectedIds }
                 .flatMap { it.toStrokePath().points }
         if (selectedPoints.isEmpty()) return@mutate
@@ -158,18 +189,75 @@ internal class EditorViewModel(application: Application, private val notebookId:
         val dx = delta.x.coerceIn(-selectedPoints.minOf { it.x }, page.widthPoints - selectedPoints.maxOf { it.x })
         val dy = delta.y.coerceIn(-selectedPoints.minOf { it.y }, page.heightPoints - selectedPoints.maxOf { it.y })
         if (dx == 0f && dy == 0f) return@mutate
-        val moved = history.current.map { stroke -> if (stroke.id in selectedIds) stroke.translated(dx, dy) else stroke }
+        val moved =
+            history.current.strokes.map { stroke ->
+                if (stroke.id in selectedIds) stroke.translated(dx, dy) else stroke
+            }
         repository.replaceStrokes(pageId, moved)
-        history.push(moved)
+        history.push(history.current.copy(strokes = moved))
         updateHistoryControls(history)
     }
+
+    fun addText(pageId: String, text: String) = mutate {
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return@mutate
+        val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
+        val history = history(pageId)
+        repository.addElement(
+            pageId,
+            ElementDraft(
+                kind = ElementKind.TEXT,
+                x = page.widthPoints * 0.15f,
+                y = page.heightPoints * 0.2f,
+                width = page.widthPoints * 0.7f,
+                height = (64f + normalized.length / 40 * 24f).coerceAtMost(page.heightPoints * 0.5f),
+                text = normalized,
+            ),
+        )
+        history.push(snapshot(pageId))
+        updateHistoryControls(history)
+    }
+
+    fun importImage(pageId: String, uri: Uri) = mutate {
+        val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
+        val asset = imageImporter.importImage(uri).getOrThrow()
+        val history = history(pageId)
+        runCatching {
+                val scale =
+                    minOf(
+                        page.widthPoints * 0.7f / asset.width,
+                        page.heightPoints * 0.7f / asset.height,
+                    )
+                val width = asset.width * scale
+                val height = asset.height * scale
+                repository.addElement(
+                    pageId,
+                    ElementDraft(
+                        kind = ElementKind.IMAGE,
+                        x = (page.widthPoints - width) / 2f,
+                        y = (page.heightPoints - height) / 2f,
+                        width = width,
+                        height = height,
+                        assetId = asset.id,
+                    ),
+                )
+            }
+            .onFailure {
+                asset.file.delete()
+                throw it
+            }
+        history.push(snapshot(pageId))
+        updateHistoryControls(history)
+    }
+
+    fun assetFile(id: String): File = assets.file(id)
 
     fun undo() {
         val pageId = state.value.selectedPage?.id ?: return
         mutate {
             val history = history(pageId)
             val snapshot = history.undo() ?: return@mutate
-            repository.replaceStrokes(pageId, snapshot)
+            repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements)
             controls.value = controls.value.copy(selectedStrokeIds = emptySet())
             updateHistoryControls(history)
         }
@@ -180,16 +268,22 @@ internal class EditorViewModel(application: Application, private val notebookId:
         mutate {
             val history = history(pageId)
             val snapshot = history.redo() ?: return@mutate
-            repository.replaceStrokes(pageId, snapshot)
+            repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements)
             controls.value = controls.value.copy(selectedStrokeIds = emptySet())
             updateHistoryControls(history)
         }
     }
 
-    private fun history(pageId: String): PageHistory<List<StrokeEntity>> {
+    private fun history(pageId: String): PageHistory<PageSnapshot> {
         if (historyPageId != pageId || pageHistory == null) {
             historyPageId = pageId
-            pageHistory = PageHistory(state.value.strokes.filter { it.pageId == pageId })
+            pageHistory =
+                PageHistory(
+                    PageSnapshot(
+                        strokes = state.value.strokes.filter { it.pageId == pageId },
+                        elements = state.value.elements.filter { it.pageId == pageId },
+                    ),
+                )
         }
         return requireNotNull(pageHistory)
     }
@@ -201,9 +295,12 @@ internal class EditorViewModel(application: Application, private val notebookId:
             controls.value.copy(selectedStrokeIds = emptySet(), canUndo = false, canRedo = false)
     }
 
-    private fun updateHistoryControls(history: PageHistory<List<StrokeEntity>>) {
+    private fun updateHistoryControls(history: PageHistory<PageSnapshot>) {
         controls.value = controls.value.copy(canUndo = history.canUndo, canRedo = history.canRedo)
     }
+
+    private suspend fun snapshot(pageId: String): PageSnapshot =
+        PageSnapshot(repository.getStrokes(pageId), repository.getElements(pageId))
 
     private fun mutate(block: suspend () -> Unit) {
         viewModelScope.launch {

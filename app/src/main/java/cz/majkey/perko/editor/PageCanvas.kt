@@ -1,5 +1,6 @@
 package cz.majkey.perko.editor
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
@@ -9,36 +10,51 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.strokes.Stroke
 import cz.majkey.perko.R
+import cz.majkey.perko.data.ElementEntity
+import cz.majkey.perko.data.ElementKind
 import cz.majkey.perko.data.PageEntity
 import cz.majkey.perko.data.PaperTemplate
 import cz.majkey.perko.data.StrokeEntity
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun PageCanvas(
     page: PageEntity?,
     pageNumber: Int,
     strokes: List<StrokeEntity>,
+    elements: List<ElementEntity>,
     selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
     tool: EditorTool,
@@ -46,6 +62,7 @@ internal fun PageCanvas(
     onEraseFinished: (List<CanvasPoint>) -> Unit,
     onLassoFinished: (List<CanvasPoint>) -> Unit,
     onMoveSelection: (CanvasPoint) -> Unit,
+    assetFile: (String) -> File,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -59,6 +76,7 @@ internal fun PageCanvas(
                     target,
                     pageNumber,
                     strokes,
+                    elements,
                     selectedStrokeIds,
                     fingerDrawing,
                     tool,
@@ -66,6 +84,7 @@ internal fun PageCanvas(
                     onEraseFinished,
                     onLassoFinished,
                     onMoveSelection,
+                    assetFile,
                 )
             }
         }
@@ -81,6 +100,7 @@ private fun Paper(
     page: PageEntity,
     pageNumber: Int,
     strokes: List<StrokeEntity>,
+    elements: List<ElementEntity>,
     selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
     tool: EditorTool,
@@ -88,6 +108,7 @@ private fun Paper(
     onEraseFinished: (List<CanvasPoint>) -> Unit,
     onLassoFinished: (List<CanvasPoint>) -> Unit,
     onMoveSelection: (CanvasPoint) -> Unit,
+    assetFile: (String) -> File,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
     val decodedStrokes = remember(strokes) { strokes.map(StrokeEntity::toInkStroke) }
@@ -112,6 +133,7 @@ private fun Paper(
         ) {
             Box {
                 PaperPattern(page.paper, Modifier.fillMaxSize())
+                ElementLayer(page, elements, assetFile)
                 AndroidView(
                     factory = { context -> InkCanvasView(context) },
                     update = { view ->
@@ -152,6 +174,74 @@ private fun Paper(
             }
         }
     }
+}
+
+@Composable
+private fun ElementLayer(
+    page: PageEntity,
+    elements: List<ElementEntity>,
+    assetFile: (String) -> File,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val scaleX = maxWidth.value / page.widthPoints
+        val scaleY = maxHeight.value / page.heightPoints
+        elements.forEach { element ->
+            key(element.id) {
+                val modifier =
+                    Modifier
+                        .offset((element.x * scaleX).dp, (element.y * scaleY).dp)
+                        .width((element.width * scaleX).dp)
+                        .height((element.height * scaleY).dp)
+                        .rotate(element.rotation)
+                when (runCatching { ElementKind.valueOf(element.kind) }.getOrNull()) {
+                    ElementKind.TEXT,
+                    ElementKind.MATH,
+                    -> Surface(
+                        color = Color(0xE6FFFEFA),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = modifier,
+                    ) {
+                        Text(
+                            text = element.resultText ?: element.text.orEmpty(),
+                            color = Color(0xFF202124),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                    ElementKind.IMAGE -> element.assetId?.let { id ->
+                        StoredImage(assetFile(id), modifier)
+                    }
+                    ElementKind.SHAPE,
+                    null,
+                    -> Unit
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoredImage(file: File, modifier: Modifier) {
+    val bitmap by
+        produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file.path, file.lastModified()) {
+            value = withContext(Dispatchers.IO) { decodePreview(file)?.asImageBitmap() }
+        }
+    bitmap?.let { image ->
+        Image(
+            bitmap = image,
+            contentDescription = stringResource(R.string.inserted_image),
+            contentScale = ContentScale.Fit,
+            modifier = modifier.clip(RoundedCornerShape(4.dp)),
+        )
+    }
+}
+
+private fun decodePreview(file: File): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.path, bounds)
+    var sample = 1
+    while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
+    return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
 private fun brushFor(tool: EditorTool) =

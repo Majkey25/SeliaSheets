@@ -92,6 +92,22 @@ internal data class StrokePayload(
     val inputs: ByteArray,
 )
 
+internal enum class ElementKind { TEXT, IMAGE, SHAPE, MATH }
+
+internal data class ElementDraft(
+    val kind: ElementKind,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val rotation: Float = 0f,
+    val text: String? = null,
+    val assetId: String? = null,
+    val shapeKind: String? = null,
+    val expression: String? = null,
+    val resultText: String? = null,
+)
+
 @Entity(
     tableName = "elements",
     foreignKeys = [
