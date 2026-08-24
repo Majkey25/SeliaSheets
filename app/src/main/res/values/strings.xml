@@ -70,4 +70,11 @@
     <string name="text_content">Text</string>
     <string name="add">Add</string>
     <string name="inserted_image">Inserted image</string>
+    <string name="tool_shape">Shape</string>
+    <string name="clean_shape">Clean up selection</string>
+    <string name="shape_line">Line</string>
+    <string name="shape_arrow">Arrow</string>
+    <string name="shape_ellipse">Ellipse</string>
+    <string name="shape_rectangle">Rectangle</string>
+    <string name="shape_triangle">Triangle</string>
 </resources>

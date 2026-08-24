@@ -31,6 +31,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -211,10 +213,61 @@ private fun ElementLayer(
                     ElementKind.IMAGE -> element.assetId?.let { id ->
                         StoredImage(assetFile(id), modifier)
                     }
-                    ElementKind.SHAPE,
-                    null,
-                    -> Unit
+                    ElementKind.SHAPE -> CleanShape(element, modifier)
+                    null -> Unit
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleanShape(element: ElementEntity, modifier: Modifier) {
+    val kind = element.shapeKind?.let { runCatching { ShapeKind.valueOf(it) }.getOrNull() } ?: return
+    Canvas(modifier) {
+        val color = Color(0xFF202124)
+        val stroke = DrawStroke(width = 3.dp.toPx())
+        val inset = 3.dp.toPx()
+        when (kind) {
+            ShapeKind.LINE,
+            ShapeKind.ARROW,
+            -> {
+                val start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f)
+                val end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f)
+                drawLine(color, start, end, strokeWidth = stroke.width)
+                if (kind == ShapeKind.ARROW) {
+                    val head = minOf(18.dp.toPx(), size.width / 3f)
+                    drawLine(
+                        color,
+                        end,
+                        androidx.compose.ui.geometry.Offset(end.x - head, end.y - head * 0.55f),
+                        strokeWidth = stroke.width,
+                    )
+                    drawLine(
+                        color,
+                        end,
+                        androidx.compose.ui.geometry.Offset(end.x - head, end.y + head * 0.55f),
+                        strokeWidth = stroke.width,
+                    )
+                }
+            }
+            ShapeKind.ELLIPSE -> drawOval(color, style = stroke)
+            ShapeKind.RECTANGLE ->
+                drawRect(
+                    color,
+                    topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2),
+                    style = stroke,
+                )
+            ShapeKind.TRIANGLE -> {
+                val path =
+                    Path().apply {
+                        moveTo(size.width / 2f, inset)
+                        lineTo(size.width - inset, size.height - inset)
+                        lineTo(inset, size.height - inset)
+                        close()
+                    }
+                drawPath(path, color, style = stroke)
             }
         }
     }

@@ -135,6 +135,33 @@ class PerkoRepositoryTest {
         assertEquals("Velocity = distance / time", saved.text)
     }
 
+    @Test
+    fun shapeReplacementRemovesSelectedStrokeAtomically() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val strokeId =
+            repository.addStroke(
+                page.id,
+                StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1)),
+            )
+
+        repository.replaceStrokesWithElement(
+            page.id,
+            setOf(strokeId),
+            ElementDraft(
+                kind = ElementKind.SHAPE,
+                x = 10f,
+                y = 20f,
+                width = 200f,
+                height = 100f,
+                shapeKind = "RECTANGLE",
+            ),
+        )
+
+        assertTrue(repository.getStrokes(page.id).isEmpty())
+        assertEquals("RECTANGLE", repository.getElements(page.id).single().shapeKind)
+    }
+
     private fun request() =
         CreateNotebookRequest(
             title = "Physics",

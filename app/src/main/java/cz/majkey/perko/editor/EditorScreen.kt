@@ -80,6 +80,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
     var deleteTarget by remember { mutableStateOf<PageEntity?>(null) }
     var textPageId by remember { mutableStateOf<String?>(null) }
     var imagePageId by remember { mutableStateOf<String?>(null) }
+    var shapeDialogOpen by remember { mutableStateOf(false) }
     val imagePicker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             val pageId = imagePageId
@@ -92,6 +93,15 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
             onSave = { text ->
                 viewModel.addText(pageId, text)
                 textPageId = null
+            },
+        )
+    }
+    if (shapeDialogOpen) {
+        ShapeDialog(
+            onDismiss = { shapeDialogOpen = false },
+            onSelect = { kind ->
+                viewModel.cleanSelectedShape(kind)
+                shapeDialogOpen = false
             },
         )
     }
@@ -130,6 +140,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                             )
                         }
                     },
+                    onCleanShape = { shapeDialogOpen = true },
                 )
             }
         },
@@ -219,6 +230,7 @@ private fun EditorToolBar(
     onRedo: () -> Unit,
     onAddText: () -> Unit,
     onAddImage: () -> Unit,
+    onCleanShape: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
@@ -266,6 +278,9 @@ private fun EditorToolBar(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             )
         }
+        TextButton(onClick = onCleanShape, enabled = state.selectedStrokeIds.isNotEmpty()) {
+            Text(stringResource(R.string.tool_shape))
+        }
         if (state.selectedStrokeIds.isNotEmpty()) {
             Text(
                 stringResource(R.string.selected_strokes, state.selectedStrokeIds.size),
@@ -276,6 +291,39 @@ private fun EditorToolBar(
         }
     }
 }
+
+@Composable
+private fun ShapeDialog(onDismiss: () -> Unit, onSelect: (ShapeKind) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.clean_shape)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ShapeKind.entries.forEach { kind ->
+                    TextButton(onClick = { onSelect(kind) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(shapeLabel(kind), modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun shapeLabel(kind: ShapeKind): String =
+    stringResource(
+        when (kind) {
+            ShapeKind.LINE -> R.string.shape_line
+            ShapeKind.ARROW -> R.string.shape_arrow
+            ShapeKind.ELLIPSE -> R.string.shape_ellipse
+            ShapeKind.RECTANGLE -> R.string.shape_rectangle
+            ShapeKind.TRIANGLE -> R.string.shape_triangle
+        },
+    )
 
 @Composable
 private fun TextElementDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {

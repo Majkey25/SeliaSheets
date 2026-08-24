@@ -4,7 +4,7 @@
 
 **Goal:** Ship an offline, tablet-first Android notebook with persistent pages, low-latency stylus ink, text and images, shape cleanup, local arithmetic, PDF export, emulator evidence, and a verified GitHub beta release.
 
-**Architecture:** One Android application module uses Compose for adaptive screens, Room for transactional document metadata, private files for imported images, and AndroidX Ink for stroke capture, rendering, and serialization. Small page-scoped state holders own editing history. The interface is English only. Optional ML Kit models recognize Czech or English handwriting and four geometric shapes without uploading note content.
+**Architecture:** One Android application module uses Compose for adaptive screens, Room for transactional document metadata, private files for imported images, and AndroidX Ink for stroke capture, rendering, and serialization. Small page-scoped state holders own editing history. The interface is English only. Optional ML Kit models recognize Czech or English handwriting without uploading note content; confirmed shape cleanup uses local geometry.
 
 **Tech Stack:** JDK 17, AGP 9.1.1, Gradle 9.3.1, built-in Kotlin 2.3.20, KSP2 2.3.10, Compose UI 1.12.0, Material 3 1.4.0, Activity 1.13.0, Lifecycle 2.11.0, Room 2.8.4, Preferences DataStore 1.2.1, AndroidX Ink 1.0.0, ML Kit Digital Ink Recognition 19.0.0.
 
@@ -57,7 +57,7 @@ app/src/main/java/cz/majkey/perko/
   editor/StrokeHitTest.kt                   lasso and stroke eraser geometry
   editor/MathEvaluator.kt                   safe arithmetic parser
   editor/ImageImporter.kt                   MIME, bounds, and decode validation
-  editor/ShapeRecognizer.kt                 line geometry and optional ML shapes
+  editor/ShapeCleanup.kt                    deterministic line and shape cleanup
   editor/DigitalInkModels.kt                model download and recognition
   editor/PageRenderer.kt                    shared screen and PDF page drawing
   editor/PdfExporter.kt                     complete paginated PDF renderer

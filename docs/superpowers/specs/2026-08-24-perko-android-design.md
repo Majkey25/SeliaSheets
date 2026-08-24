@@ -6,7 +6,7 @@
 - The public name is `Péřko`, the repository is `Majkey25/Perko`, and the package ID is `cz.majkey.perko`.
 - The first public build is `v0.1.0-beta.1` under Apache-2.0.
 - Android emulator QA is the only device QA in scope. No physical phone or tablet is accessed.
-- The app is offline-first. Network access is used only to download optional ML Kit handwriting and shape models on explicit user action.
+- The app is offline-first. Network access is used only to download optional ML Kit handwriting models on explicit user action.
 - The interface and public store copy are English only. Optional handwriting recognition supports Czech and English input.
 
 ## Objective
@@ -55,7 +55,7 @@ Folders, tags, cloud sync, accounts, and collaboration are outside the beta. Sea
 ### Shape cleanup
 
 - A draw-and-hold action can replace one selected stroke group with a line, arrow, ellipse, rectangle, or triangle.
-- Detect a straight line locally with geometry. Use the optional ML Kit `zxx-Zsym-x-shapes` model for the other supported shapes.
+- Detect a straight line locally with geometry. A confirmed lasso selection can be replaced deterministically with a line, arrow, ellipse, rectangle, or triangle without a downloaded model.
 - Show a preview and allow immediate undo. If the model is unavailable or confidence is ambiguous, keep the original ink.
 
 ### Math
@@ -106,7 +106,7 @@ Folders, tags, cloud sync, accounts, and collaboration are outside the beta. Sea
 - A repository class coordinates Room transactions and image files. Do not add a service, factory, or interface layer with one implementation.
 - A page-scoped state holder owns selection and the bounded undo stack.
 - Preferences DataStore 1.2.1 stores validated settings. Autosave safety settings are not user-configurable.
-- ML Kit Digital Ink Recognition 19.0.0 owns optional handwriting and shape recognition models.
+- ML Kit Digital Ink Recognition 19.0.0 owns optional handwriting recognition models. Shape cleanup remains deterministic and offline.
 - PDF export runs on `Dispatchers.IO`. No blocking file or database work runs on the main thread.
 
 ### Data model

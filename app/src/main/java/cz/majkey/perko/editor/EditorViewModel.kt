@@ -16,6 +16,8 @@ import cz.majkey.perko.data.PerkoRepository
 import cz.majkey.perko.data.StrokeEntity
 import cz.majkey.perko.data.StrokePayload
 import java.io.File
+import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -251,6 +253,49 @@ internal class EditorViewModel(application: Application, private val notebookId:
     }
 
     fun assetFile(id: String): File = assets.file(id)
+
+    fun cleanSelectedShape(kind: ShapeKind) {
+        val page = state.value.selectedPage ?: return
+        mutate {
+            val selectedIds = controls.value.selectedStrokeIds
+            if (selectedIds.isEmpty()) return@mutate
+            val history = history(page.id)
+            val paths =
+                history.current.strokes
+                    .filter { it.id in selectedIds }
+                    .map(StrokeEntity::toStrokePath)
+            val box = shapeBox(paths) ?: return@mutate
+            val draft =
+                if (kind == ShapeKind.LINE || kind == ShapeKind.ARROW) {
+                    val start = paths.first().points.first()
+                    val end = paths.last().points.last()
+                    ElementDraft(
+                        kind = ElementKind.SHAPE,
+                        x = start.x,
+                        y = start.y - 12f,
+                        width = hypot(end.x - start.x, end.y - start.y).coerceAtLeast(4f),
+                        height = 24f,
+                        rotation = Math.toDegrees(atan2(end.y - start.y, end.x - start.x).toDouble()).toFloat(),
+                        shapeKind = kind.name,
+                    )
+                } else {
+                    val width = box.width.coerceAtLeast(24f).coerceAtMost(page.widthPoints.toFloat())
+                    val height = box.height.coerceAtLeast(24f).coerceAtMost(page.heightPoints.toFloat())
+                    ElementDraft(
+                        kind = ElementKind.SHAPE,
+                        x = box.left.coerceIn(0f, page.widthPoints - width),
+                        y = box.top.coerceIn(0f, page.heightPoints - height),
+                        width = width,
+                        height = height,
+                        shapeKind = kind.name,
+                    )
+                }
+            repository.replaceStrokesWithElement(page.id, selectedIds, draft)
+            history.push(snapshot(page.id))
+            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            updateHistoryControls(history)
+        }
+    }
 
     fun undo() {
         val pageId = state.value.selectedPage?.id ?: return

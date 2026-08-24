@@ -120,21 +120,37 @@ internal class PerkoRepository(
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.insertElement(
-                ElementEntity(
-                    id = id,
-                    pageId = pageId,
-                    zIndex = (pageContent.getMaxElementZIndex(pageId) ?: -1) + 1,
-                    kind = draft.kind.name,
-                    x = draft.x,
-                    y = draft.y,
-                    width = draft.width,
-                    height = draft.height,
-                    rotation = draft.rotation,
-                    text = draft.text,
-                    assetId = draft.assetId,
-                    shapeKind = draft.shapeKind,
-                    expression = draft.expression,
-                    resultText = draft.resultText,
+                elementFromDraft(
+                    id,
+                    pageId,
+                    (pageContent.getMaxElementZIndex(pageId) ?: -1) + 1,
+                    draft,
+                ),
+            )
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+        return id
+    }
+
+    suspend fun replaceStrokesWithElement(
+        pageId: String,
+        strokeIds: Set<String>,
+        draft: ElementDraft,
+    ): String {
+        require(strokeIds.isNotEmpty())
+        validateElement(draft)
+        val id = idFactory()
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val existingIds = pageContent.getStrokes(pageId).mapTo(mutableSetOf(), StrokeEntity::id)
+            require(existingIds.containsAll(strokeIds)) { "Stroke not found" }
+            pageContent.deleteStrokes(pageId, strokeIds)
+            pageContent.insertElement(
+                elementFromDraft(
+                    id,
+                    pageId,
+                    (pageContent.getMaxElementZIndex(pageId) ?: -1) + 1,
+                    draft,
                 ),
             )
             touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
@@ -326,4 +342,27 @@ internal class PerkoRepository(
             ),
         )
     }
+
+    private fun elementFromDraft(
+        id: String,
+        pageId: String,
+        zIndex: Int,
+        draft: ElementDraft,
+    ) =
+        ElementEntity(
+            id = id,
+            pageId = pageId,
+            zIndex = zIndex,
+            kind = draft.kind.name,
+            x = draft.x,
+            y = draft.y,
+            width = draft.width,
+            height = draft.height,
+            rotation = draft.rotation,
+            text = draft.text,
+            assetId = draft.assetId,
+            shapeKind = draft.shapeKind,
+            expression = draft.expression,
+            resultText = draft.resultText,
+        )
 }
