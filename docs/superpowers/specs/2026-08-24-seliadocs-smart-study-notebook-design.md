@@ -1,10 +1,10 @@
-# SheetNotes smart study notebook design
+# SeliaDocs smart study notebook design
 
 Status: Approved in chat on August 24, 2026
 
 ## Purpose
 
-SheetNotes is an offline-first Android notebook for students. It treats a tablet as a backpack of subject notebooks instead of a collection of unrelated note cards.
+SeliaDocs is an offline-first Android notebook for students. It treats a tablet as a backpack of subject notebooks instead of a collection of unrelated note cards.
 
 The app must support two jobs without exposing two separate products:
 
@@ -15,9 +15,9 @@ The editor remains useful without an account, a network connection, or a recogni
 
 ## Product identity and platform limits
 
-- Public name: `SheetNotes`
-- GitHub repository: `Majkey25/SheetNotes`
-- Android application ID: `com.majkeylab.sheetnotes`
+- Public name: `SeliaDocs`
+- GitHub repository: `Majkey25/SeliaDocs`
+- Android application ID: `com.majkeylab.seliadocs`
 - UI language for the first release: English
 - Minimum Android version: Android 10, API 29
 - Compile and target SDK: Android 17, API 37
@@ -26,7 +26,7 @@ The editor remains useful without an account, a network connection, or a recogni
 - Storage model: private local storage with user-directed import, export, backup, and restore
 - Business model for the first release: free, with an optional Buy Me a Coffee link
 
-The package rebrand must finish before the first public release. Set the Android namespace and every Kotlin package to `com.majkeylab.sheetnotes`. Rename the main app, theme, repository, database, Room schema directory, and database file from `Perko` names to `SheetNotes` names. No public installation uses the new application ID yet, so Package 0 performs this rename before the first Room migration. The repository must not ship with contradictory package instructions.
+The package rebrand must finish before the first public release. Set the Android namespace and every Kotlin package to `com.majkeylab.seliadocs`. Rename the main app, theme, repository, database, Room schema directory, and database file from `Perko` names to `SeliaDocs` names. No public installation uses the new application ID yet, so Package 0 performs this rename before the first Room migration. The repository must not ship with contradictory package instructions.
 
 ## Research findings
 
@@ -56,7 +56,7 @@ These findings support a notebook-first design with local data ownership. They d
 
 ## Chosen product model
 
-SheetNotes uses one content hierarchy:
+SeliaDocs uses one content hierarchy:
 
 ```text
 Library
@@ -88,7 +88,7 @@ Moving a chapter moves its pages as one ordered group. Deleting a non-empty chap
 
 A page stores an optional title, a chapter ID, an order index, a page mode, bookmark state, timestamps, and mode-specific data.
 
-SheetNotes supports three page modes:
+SeliaDocs supports three page modes:
 
 - `PAPER`: fixed-size paper with vector ink and positioned elements;
 - `FLOW`: a reflowing block document for typed notes, checklists, headings, and long-form writing;
@@ -98,7 +98,7 @@ The app does not convert a page between modes after the user adds content. Users
 
 ### Inbox
 
-SheetNotes creates the Inbox notebook when the user creates the first Quick Note. A Quick Note creates a `FLOW` page without showing the notebook creator.
+SeliaDocs creates the Inbox notebook when the user creates the first Quick Note. A Quick Note creates a `FLOW` page without showing the notebook creator.
 
 The Inbox is visible in the library. Users can move an Inbox page into another notebook and chapter.
 
@@ -106,11 +106,11 @@ The Inbox is visible in the library. Users can move an Inbox page into another n
 
 ### Separate mini-apps for notebooks, documents, boards, and PDFs
 
-This model offers flexibility, but each content type needs separate navigation, search, backup, and settings. SheetNotes keeps one hierarchy and uses page modes instead.
+This model offers flexibility, but each content type needs separate navigation, search, backup, and settings. SeliaDocs keeps one hierarchy and uses page modes instead.
 
 ### One infinite canvas for every note
 
-An infinite canvas simplifies free placement. It weakens page navigation, printing, PDF export, and the physical notebook model. SheetNotes may add a board page later, but an infinite canvas is not the default.
+An infinite canvas simplifies free placement. It weakens page navigation, printing, PDF export, and the physical notebook model. SeliaDocs may add a board page later, but an infinite canvas is not the default.
 
 ### A cloud account as the primary data model
 
@@ -252,7 +252,7 @@ The current repository already stores element transforms and has repository meth
 
 ### Shapes
 
-The user draws a shape and holds the stylus at the end. SheetNotes replaces a confident match with a clean shape in one undoable action.
+The user draws a shape and holds the stylus at the end. SeliaDocs replaces a confident match with a clean shape in one undoable action.
 
 Supported initial shapes are:
 
@@ -268,7 +268,7 @@ Low-confidence input remains unchanged. A short hint offers manual cleanup. The 
 
 A table is an editable page element. It stores rows, columns, cell text, column widths, row heights, borders, background colors, merged-cell metadata, and its page transform.
 
-Users can insert a table from Insert. SheetNotes may also detect a grid made from straight strokes. Grid conversion requires user confirmation.
+Users can insert a table from Insert. SeliaDocs may also detect a grid made from straight strokes. Grid conversion requires user confirmation.
 
 The first table release supports text cells, row and column insertion, row and column deletion, resizing, and basic merging. Spreadsheet formulas are out of scope.
 
@@ -306,7 +306,7 @@ Search filters include content type, bookmark state, date, chapter, and page mod
 
 ### Indexed sources
 
-SheetNotes indexes:
+SeliaDocs indexes:
 
 - notebook titles;
 - chapter titles;
@@ -373,7 +373,7 @@ The first smart math release supports:
 
 Variable evaluation follows page reading order from top to bottom. A result that depends on an undefined variable shows an explicit error.
 
-Ambiguous handwritten symbols open a confirmation panel. The panel shows the interpreted expression and alternative symbols. SheetNotes never displays a guessed answer as confirmed math.
+Ambiguous handwritten symbols open a confirmation panel. The panel shows the interpreted expression and alternative symbols. SeliaDocs never displays a guessed answer as confirmed math.
 
 Matrices, multi-line fractions, symbolic algebra, and step-by-step proofs require a specialized math engine. They are not part of the first smart math release.
 
@@ -418,15 +418,15 @@ Audio linked to ink is a later subsystem. It adds microphone permission, large a
 
 ### No generic AI chat
 
-SheetNotes does not add a global chatbot. Future summary or quiz generation requires a separate approved design with explicit model, privacy, cost, and offline behavior.
+SeliaDocs does not add a global chatbot. Future summary or quiz generation requires a separate approved design with explicit model, privacy, cost, and offline behavior.
 
 ## Backup, restore, and portability
 
-PDF export is not a backup. SheetNotes provides both an editable archive and portable exports.
+PDF export is not a backup. SeliaDocs provides both an editable archive and portable exports.
 
 ### Editable archive
 
-The extension is `.sheetnotes`. The file is a ZIP archive with this structure:
+The extension is `.seliadocs`. The file is a ZIP archive with this structure:
 
 ```text
 manifest.json
@@ -457,7 +457,7 @@ The export screen shows progress, item counts, estimated size, destination, comp
 
 Import into library is the default. It validates the archive, remaps colliding IDs, copies assets, and adds the imported notebooks without changing existing notebooks.
 
-Replace library is an advanced action. Before replacement, SheetNotes creates a local rollback archive. The app swaps the validated staged library into place only after every database row and asset is ready.
+Replace library is an advanced action. Before replacement, SeliaDocs creates a local rollback archive. The app swaps the validated staged library into place only after every database row and asset is ready.
 
 ### Archive validation
 
@@ -476,7 +476,7 @@ The importer must:
 - remove staged files after success or failure;
 - rebuild search and thumbnail indexes after import.
 
-The user chooses the destination and source through Android's Storage Access Framework. SheetNotes does not request broad storage access.
+The user chooses the destination and source through Android's Storage Access Framework. SeliaDocs does not request broad storage access.
 
 ### Portable export
 
@@ -626,7 +626,7 @@ The work is split into independently releasable packages.
 
 ### Package 0: Release baseline
 
-- finish the SheetNotes identity;
+- finish the SeliaDocs identity;
 - fix Android system Back behavior;
 - fix the Android 10 multi-notebook action-menu failure;
 - reconcile README, privacy, store assets, package references, and release artifacts;
@@ -684,7 +684,7 @@ The work is split into independently releasable packages.
 - publish signed APK and AAB assets in a GitHub prerelease;
 - complete the Google Play listing, declarations, screenshots, and testing track;
 - report any Play account testing gate as an external blocker with live evidence;
-- close and remove only SheetNotes emulators and regenerable build data after remote artifacts are verified.
+- close and remove only SeliaDocs emulators and regenerable build data after remote artifacts are verified.
 
 ## Features excluded from this design
 
