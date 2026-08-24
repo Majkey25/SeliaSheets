@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 val releaseSigningProperties =
-    providers.environmentVariable("PERKO_KEYSTORE_PROPERTIES").orNull
+    providers.environmentVariable("SELIADOCS_KEYSTORE_PROPERTIES").orNull
         ?.let(::file)
         ?.takeIf { it.isFile }
         ?.let { propertiesFile ->
@@ -16,11 +16,11 @@ plugins {
 }
 
 android {
-    namespace = "cz.majkey.perko"
+    namespace = "com.majkeylab.seliadocs"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "cz.majkey.perko"
+        applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
         versionCode = 1

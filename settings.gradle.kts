@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Perko"
+rootProject.name = "SeliaDocs"
 include(":app")

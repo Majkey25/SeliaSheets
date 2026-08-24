@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Péřko</string>
+    <string name="app_name">SeliaDocs</string>
     <string name="new_notebook">New notebook</string>
     <string name="notebook_name">Notebook name</string>
     <string name="create">Create</string>
@@ -107,7 +107,7 @@
     <string name="autosave_details">Autosave is always enabled. Notebooks and imported images stay in private app storage.</string>
     <string name="storage_usage">Storage used: %1$s</string>
     <string name="version_name">Version %1$s</string>
-    <string name="offline_disclosure">Péřko works without an account. Notes remain on this device unless you explicitly export them.</string>
+    <string name="offline_disclosure">SeliaDocs works without an account. Notes remain on this device unless you explicitly export them.</string>
     <string name="privacy_policy">Privacy policy</string>
     <string name="source_code">Source code</string>
     <string name="third_party_notices">Built with Jetpack Compose, Room, DataStore, and AndroidX Ink. Apache-2.0 project license.</string>
