@@ -12,6 +12,9 @@ internal interface PageDao {
     @Insert
     suspend fun insertStroke(stroke: StrokeEntity)
 
+    @Insert
+    suspend fun insertStrokes(strokes: List<StrokeEntity>)
+
     @Update
     suspend fun updateStroke(stroke: StrokeEntity)
 
@@ -26,6 +29,12 @@ internal interface PageDao {
 
     @Query("SELECT MAX(zIndex) FROM strokes WHERE pageId = :pageId")
     suspend fun getMaxStrokeZIndex(pageId: String): Int?
+
+    @Query("DELETE FROM strokes WHERE pageId = :pageId AND id IN (:ids)")
+    suspend fun deleteStrokes(pageId: String, ids: Set<String>)
+
+    @Query("DELETE FROM strokes WHERE pageId = :pageId")
+    suspend fun deleteStrokes(pageId: String)
 
     @Query(
         """

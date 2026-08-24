@@ -6,7 +6,9 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.Stroke
+import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInputBatch
+import cz.majkey.perko.data.StrokeEntity
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -67,4 +69,42 @@ internal object InkCodec {
                     StockBrushes.HighlighterVersion.V1,
                 )
         }
+}
+
+internal fun StrokeEntity.toInkStroke(): Stroke =
+    InkCodec.decode(
+        EncodedStroke(
+            brushKind = BrushKind.valueOf(brushKind),
+            colorArgb = colorArgb,
+            size = size,
+            epsilon = epsilon,
+            inputs = inputs,
+        ),
+    )
+
+internal fun StrokeEntity.toStrokePath(): StrokePath {
+    val batch = toInkStroke().inputs
+    return StrokePath(id, (0 until batch.size).map { index -> CanvasPoint(batch[index].x, batch[index].y) })
+}
+
+internal fun StrokeEntity.translated(dx: Float, dy: Float): StrokeEntity {
+    val stroke = toInkStroke()
+    val movedInputs =
+        MutableStrokeInputBatch().apply {
+            repeat(stroke.inputs.size) { index ->
+                val input = stroke.inputs[index]
+                add(
+                    input.toolType,
+                    input.x + dx,
+                    input.y + dy,
+                    input.elapsedTimeMillis,
+                    input.strokeUnitLengthCm,
+                    input.pressure,
+                    input.tiltRadians,
+                    input.orientationRadians,
+                )
+            }
+        }
+    val encoded = InkCodec.encode(Stroke(stroke.brush, movedInputs))
+    return copy(inputs = encoded.inputs)
 }

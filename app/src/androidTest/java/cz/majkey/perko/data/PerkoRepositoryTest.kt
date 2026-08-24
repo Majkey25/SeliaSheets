@@ -91,6 +91,23 @@ class PerkoRepositoryTest {
         assertArrayEquals(payload.inputs, saved.inputs)
     }
 
+    @Test
+    fun strokeBatchCanBeDeletedAndRestored() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val payload =
+            StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1))
+        repository.addStroke(page.id, payload)
+        repository.addStroke(page.id, payload.copy(inputs = byteArrayOf(2)))
+        val snapshot = repository.getStrokes(page.id)
+
+        repository.deleteStrokes(page.id, setOf(snapshot.first().id))
+        assertEquals(listOf(snapshot.last().id), repository.getStrokes(page.id).map(StrokeEntity::id))
+
+        repository.replaceStrokes(page.id, snapshot)
+        assertEquals(snapshot.map(StrokeEntity::id), repository.getStrokes(page.id).map(StrokeEntity::id))
+    }
+
     private fun request() =
         CreateNotebookRequest(
             title = "Physics",

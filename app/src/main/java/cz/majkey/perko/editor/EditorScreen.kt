@@ -3,6 +3,8 @@ package cz.majkey.perko.editor
 import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,12 +87,21 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            EditorTopBar(
-                title = state.notebook?.title.orEmpty(),
-                failed = state.failed,
-                onBack = onBack,
-                onAddPage = viewModel::addPage,
-            )
+            Column {
+                EditorTopBar(
+                    title = state.notebook?.title.orEmpty(),
+                    failed = state.failed,
+                    onBack = onBack,
+                    onAddPage = viewModel::addPage,
+                )
+                HorizontalDivider()
+                EditorToolBar(
+                    state = state,
+                    onSelectTool = viewModel::selectTool,
+                    onUndo = viewModel::undo,
+                    onRedo = viewModel::redo,
+                )
+            }
         },
     ) { padding ->
         if (state.notebook == null || state.pages.isEmpty()) {
@@ -113,9 +124,20 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
                     strokes = state.selectedStrokes,
+                    selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
+                    tool = state.tool,
                     onStrokeFinished = { stroke ->
                         state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
+                    },
+                    onEraseFinished = { points ->
+                        state.selectedPage?.let { page -> viewModel.eraseStrokes(page.id, points) }
+                    },
+                    onLassoFinished = { points ->
+                        state.selectedPage?.let { page -> viewModel.selectStrokes(page.id, points) }
+                    },
+                    onMoveSelection = { delta ->
+                        state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
@@ -133,9 +155,20 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     page = state.selectedPage,
                     pageNumber = state.pages.indexOf(state.selectedPage) + 1,
                     strokes = state.selectedStrokes,
+                    selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
+                    tool = state.tool,
                     onStrokeFinished = { stroke ->
                         state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
+                    },
+                    onEraseFinished = { points ->
+                        state.selectedPage?.let { page -> viewModel.eraseStrokes(page.id, points) }
+                    },
+                    onLassoFinished = { points ->
+                        state.selectedPage?.let { page -> viewModel.selectStrokes(page.id, points) }
+                    },
+                    onMoveSelection = { delta ->
+                        state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
@@ -143,6 +176,68 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun EditorToolBar(
+    state: EditorUiState,
+    onSelectTool: (EditorTool) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onUndo, enabled = state.canUndo) { Text(stringResource(R.string.undo)) }
+        TextButton(onClick = onRedo, enabled = state.canRedo) { Text(stringResource(R.string.redo)) }
+        VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
+        EditorTool.entries.forEach { tool ->
+            Surface(
+                onClick = { onSelectTool(tool) },
+                color =
+                    if (state.tool == tool) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        Color.Transparent
+                    },
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text(
+                    text = toolLabel(tool),
+                    color =
+                        if (state.tool == tool) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                )
+            }
+        }
+        if (state.selectedStrokeIds.isNotEmpty()) {
+            Text(
+                stringResource(R.string.selected_strokes, state.selectedStrokeIds.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun toolLabel(tool: EditorTool): String =
+    stringResource(
+        when (tool) {
+            EditorTool.PEN -> R.string.tool_pen
+            EditorTool.PENCIL -> R.string.tool_pencil
+            EditorTool.HIGHLIGHTER -> R.string.tool_highlighter
+            EditorTool.ERASER -> R.string.tool_eraser
+            EditorTool.LASSO -> R.string.tool_lasso
+        },
+    )
 
 @Composable
 private fun EditorTopBar(

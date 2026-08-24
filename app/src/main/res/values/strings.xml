@@ -56,4 +56,12 @@
     <string name="delete_page_message">This permanently deletes this page and its contents.</string>
     <string name="editor_loading">Opening notebook…</string>
     <string name="editor_error">The page could not be changed.</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
+    <string name="tool_pen">Pen</string>
+    <string name="tool_pencil">Pencil</string>
+    <string name="tool_highlighter">Highlighter</string>
+    <string name="tool_eraser">Eraser</string>
+    <string name="tool_lasso">Lasso</string>
+    <string name="selected_strokes">%1$d selected</string>
 </resources>

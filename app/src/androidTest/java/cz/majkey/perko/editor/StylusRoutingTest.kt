@@ -85,6 +85,92 @@ class StylusRoutingTest {
         assertTrue(finished.isEmpty())
     }
 
+    @Test
+    fun hardwareEraserEmitsEraseGestureWithoutInk() {
+        val erased = CountDownLatch(1)
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                        override fun onEraseFinished(points: List<CanvasPoint>) {
+                            if (points.isNotEmpty()) erased.countDown()
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(
+                    stylusEvent(
+                        downTime,
+                        downTime,
+                        MotionEvent.ACTION_DOWN,
+                        40f,
+                        50f,
+                        toolType = MotionEvent.TOOL_TYPE_ERASER,
+                    ),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(
+                        downTime,
+                        downTime + 16,
+                        MotionEvent.ACTION_UP,
+                        100f,
+                        120f,
+                        toolType = MotionEvent.TOOL_TYPE_ERASER,
+                    ),
+                )
+            }
+            assertTrue(erased.await(3, TimeUnit.SECONDS))
+        }
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
+    fun lassoReturnsPageCoordinates() {
+        val lasso = mutableListOf<CanvasPoint>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.tool = EditorTool.LASSO
+                view.setPageSize(1_000, 1_000)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) = Unit
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                        override fun onLassoFinished(points: List<CanvasPoint>) {
+                            lasso += points
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 50f, 50f),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 100f, 100f),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 150f, 150f),
+                )
+            }
+        }
+
+        assertTrue(lasso.contains(CanvasPoint(300f, 300f)))
+    }
+
     private fun stylusEvent(
         downTime: Long,
         eventTime: Long,
@@ -92,11 +178,12 @@ class StylusRoutingTest {
         x: Float,
         y: Float,
         flags: Int = 0,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
     ): MotionEvent {
         val properties =
             MotionEvent.PointerProperties().apply {
                 id = 0
-                toolType = MotionEvent.TOOL_TYPE_STYLUS
+                this.toolType = toolType
             }
         val coordinates =
             MotionEvent.PointerCoords().apply {

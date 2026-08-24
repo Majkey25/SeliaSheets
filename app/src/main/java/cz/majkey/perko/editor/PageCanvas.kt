@@ -39,8 +39,13 @@ internal fun PageCanvas(
     page: PageEntity?,
     pageNumber: Int,
     strokes: List<StrokeEntity>,
+    selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
+    tool: EditorTool,
     onStrokeFinished: (Stroke) -> Unit,
+    onEraseFinished: (List<CanvasPoint>) -> Unit,
+    onLassoFinished: (List<CanvasPoint>) -> Unit,
+    onMoveSelection: (CanvasPoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -50,7 +55,18 @@ internal fun PageCanvas(
             label = "page",
         ) { target ->
             if (target != null) {
-                Paper(target, pageNumber, strokes, fingerDrawing, onStrokeFinished)
+                Paper(
+                    target,
+                    pageNumber,
+                    strokes,
+                    selectedStrokeIds,
+                    fingerDrawing,
+                    tool,
+                    onStrokeFinished,
+                    onEraseFinished,
+                    onLassoFinished,
+                    onMoveSelection,
+                )
             }
         }
     }
@@ -65,11 +81,21 @@ private fun Paper(
     page: PageEntity,
     pageNumber: Int,
     strokes: List<StrokeEntity>,
+    selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
+    tool: EditorTool,
     onStrokeFinished: (Stroke) -> Unit,
+    onEraseFinished: (List<CanvasPoint>) -> Unit,
+    onLassoFinished: (List<CanvasPoint>) -> Unit,
+    onMoveSelection: (CanvasPoint) -> Unit,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
-    val decodedStrokes = remember(strokes) { strokes.map(::decodeStroke) }
+    val decodedStrokes = remember(strokes) { strokes.map(StrokeEntity::toInkStroke) }
+    val selected =
+        remember(strokes, selectedStrokeIds) {
+            strokes.mapIndexedNotNull { index, stroke -> index.takeIf { stroke.id in selectedStrokeIds } }.toSet()
+        }
+    val activeBrush = remember(tool) { brushFor(tool) }
     BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         val availableRatio = maxWidth / maxHeight
         val paperModifier =
@@ -91,6 +117,8 @@ private fun Paper(
                     update = { view ->
                         view.setPageSize(page.widthPoints, page.heightPoints)
                         view.fingerDrawing = fingerDrawing
+                        view.tool = tool
+                        view.brush = activeBrush
                         view.listener =
                             object : InkCanvasView.Listener {
                                 override fun onStrokeFinished(stroke: Stroke) {
@@ -98,8 +126,20 @@ private fun Paper(
                                 }
 
                                 override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                                override fun onEraseFinished(points: List<CanvasPoint>) {
+                                    onEraseFinished(points)
+                                }
+
+                                override fun onLassoFinished(points: List<CanvasPoint>) {
+                                    onLassoFinished(points)
+                                }
+
+                                override fun onMoveSelection(delta: CanvasPoint) {
+                                    onMoveSelection(delta)
+                                }
                             }
-                        view.setStrokes(decodedStrokes)
+                        view.setStrokes(decodedStrokes, selected)
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -114,16 +154,15 @@ private fun Paper(
     }
 }
 
-private fun decodeStroke(value: StrokeEntity): Stroke =
-    InkCodec.decode(
-        EncodedStroke(
-            brushKind = BrushKind.valueOf(value.brushKind),
-            colorArgb = value.colorArgb,
-            size = value.size,
-            epsilon = value.epsilon,
-            inputs = value.inputs,
-        ),
-    )
+private fun brushFor(tool: EditorTool) =
+    when (tool) {
+        EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
+        EditorTool.PENCIL -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF4A4A4A.toInt(), 2.2f)
+        EditorTool.HIGHLIGHTER -> InkCodec.createBrush(BrushKind.HIGHLIGHTER, 0x66FFD54F, 22f)
+        EditorTool.ERASER,
+        EditorTool.LASSO,
+        -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
+    }
 
 @Composable
 private fun PaperPattern(value: String, modifier: Modifier) {

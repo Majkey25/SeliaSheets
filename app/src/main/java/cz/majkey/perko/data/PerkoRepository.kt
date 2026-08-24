@@ -89,6 +89,20 @@ internal class PerkoRepository(
         return id
     }
 
+    suspend fun deleteStrokes(pageId: String, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        pageContent.deleteStrokes(pageId, ids)
+    }
+
+    suspend fun replaceStrokes(pageId: String, strokes: List<StrokeEntity>) {
+        require(strokes.all { it.pageId == pageId })
+        database.withTransaction {
+            requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            pageContent.deleteStrokes(pageId)
+            if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
+        }
+    }
+
     suspend fun addPage(notebookId: String): String {
         val notebook = getNotebook(notebookId)
         val id = idFactory()
