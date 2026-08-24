@@ -1,6 +1,6 @@
 # Google Play data safety
 
-Answers for version `0.1.0-beta.1` (`cz.majkey.perko`). Recheck them whenever dependencies or behavior change.
+Answers for version `0.1.0-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
 
 ## Collection and sharing
 
@@ -21,4 +21,4 @@ Answers for version `0.1.0-beta.1` (`cz.majkey.perko`). Recheck them whenever de
 
 ## Policy URL
 
-https://majkey25.github.io/Perko/privacy/
+https://majkey25.github.io/SeliaDocs/privacy/

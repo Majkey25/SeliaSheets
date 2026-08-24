@@ -8,10 +8,10 @@
 
 ## Signing
 
-Release signing is configured only when `PERKO_KEYSTORE_PROPERTIES` points to a local properties file with:
+Release signing is configured only when `SELIADOCS_KEYSTORE_PROPERTIES` points to a local properties file with:
 
 ```properties
-storeFile=C:/absolute/path/perko-upload.jks
+storeFile=C:/absolute/path/seliadocs-upload.jks
 storePassword=...
 keyAlias=perko-upload
 keyPassword=...

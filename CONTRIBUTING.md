@@ -1,6 +1,6 @@
 # Contributing
 
-Péřko is in beta. Please open an issue before a large change so scope and interaction behavior can be agreed first.
+SeliaDocs is in beta. Please open an issue before a large change so scope and interaction behavior can be agreed first.
 
 ## Development
 

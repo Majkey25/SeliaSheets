@@ -1,15 +1,15 @@
-# Péřko
+# SeliaDocs
 
-[![Android CI](https://github.com/Majkey25/Perko/actions/workflows/android.yml/badge.svg)](https://github.com/Majkey25/Perko/actions/workflows/android.yml)
+[![Android CI](https://github.com/Majkey25/SeliaDocs/actions/workflows/android.yml/badge.svg)](https://github.com/Majkey25/SeliaDocs/actions/workflows/android.yml)
 [![Android 10+](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com/about/versions/10)
-[![Release](https://img.shields.io/github/v/release/Majkey25/Perko?include_prereleases)](https://github.com/Majkey25/Perko/releases)
+[![Release](https://img.shields.io/github/v/release/Majkey25/SeliaDocs?include_prereleases)](https://github.com/Majkey25/SeliaDocs/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 <p align="center">
-  <img src="branding/perko-android-icon-preview.png" width="220" alt="Péřko notebook and stylus icon">
+  <img src="branding/seliadocs-android-icon-preview.png" width="220" alt="SeliaDocs notebook and stylus icon">
 </p>
 
-Péřko is a private, offline-first Android notebook built for tablets and styluses while remaining fully usable on phones. It combines physical page organization, low-latency ink, text and images, deterministic shape cleanup, local arithmetic, and complete PDF export in one restrained paper workspace.
+SeliaDocs is a private, offline-first Android notebook built for tablets and styluses while remaining fully usable on phones. It combines physical page organization, low-latency ink, text and images, deterministic shape cleanup, local arithmetic, and complete PDF export in one restrained paper workspace.
 
 ## Highlights
 
@@ -45,7 +45,7 @@ Péřko is a private, offline-first Android notebook built for tablets and stylu
 
 ## Privacy
 
-Notebook content and imported media stay in private app storage. Péřko has no `INTERNET` permission. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
+Notebook content and imported media stay in private app storage. SeliaDocs has no `INTERNET` permission. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
 
 ## Build
 
@@ -59,7 +59,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-The beta was validated on dedicated Android 17 tablet and Android 10 phone emulators. Both targets passed the same 24-test instrumentation suite. The complete evidence and screenshots are in [the acceptance report](docs/qa/2026-08-24-emulator-acceptance.md).
+The beta was validated on dedicated Android 17 tablet and Android 10 phone emulators. Both targets passed the same 28-test instrumentation suite. The complete evidence and screenshots are in [the acceptance report](docs/qa/2026-08-24-emulator-acceptance.md).
 
 ## Scope
 
@@ -69,7 +69,7 @@ This beta deliberately omits accounts, cloud sync, collaboration, and handwritin
 
 Optional support does not unlock features or change priority: [Buy Me a Coffee](https://www.buymeacoffee.com/majkey).
 
-For bugs and feature requests, use [GitHub Issues](https://github.com/Majkey25/Perko/issues). For privacy questions, email [majkeylab@gmail.com](mailto:majkeylab@gmail.com).
+For bugs and feature requests, use [GitHub Issues](https://github.com/Majkey25/SeliaDocs/issues). For privacy questions, email [majkeylab@gmail.com](mailto:majkeylab@gmail.com).
 
 ## License
 

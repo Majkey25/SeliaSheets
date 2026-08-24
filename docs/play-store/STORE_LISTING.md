@@ -2,7 +2,7 @@
 
 ## Main listing
 
-**App name:** Péřko
+**App name:** SeliaDocs
 
 **Default language:** English (United States)
 
@@ -10,7 +10,7 @@
 
 **Full description**
 
-Péřko turns an Android tablet or phone into a private paper notebook.
+SeliaDocs turns an Android tablet or phone into a private paper notebook.
 
 Start with an illustrated Ruled notes, Grid notebook, Dotted journal, or Blank sketchbook template. A live preview shows the real cover, paper, and orientation before creation. Customize the result and organize real ordered pages. Write with a stylus using pressure and tilt, switch between pen, pencil, and highlighter, erase complete strokes, select with a lasso, and undo or redo up to 100 editing steps.
 
@@ -25,7 +25,7 @@ Privacy is the default:
 - private on-device notebook storage;
 - user-controlled PDF export.
 
-Péřko supports Android 10 and newer and uses an adaptive interface for phones and large tablet canvases.
+SeliaDocs supports Android 10 and newer and uses an adaptive interface for phones and large tablet canvases.
 
 This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud sync are not included.
 
@@ -44,8 +44,8 @@ This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud 
 ## Contact
 
 - Email: majkeylab@gmail.com
-- Website: https://github.com/Majkey25/Perko
-- Privacy policy: https://majkey25.github.io/Perko/privacy/
+- Website: https://github.com/Majkey25/SeliaDocs
+- Privacy policy: https://majkey25.github.io/SeliaDocs/privacy/
 
 ## Release notes
 

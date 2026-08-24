@@ -1,4 +1,4 @@
-# Péřko Android Implementation Plan
+# SeliaDocs Android Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Use `cz.majkey.perko`, `minSdk = 29`, `compileSdk = 37`, and `targetSdk = 37`.
+- Use application ID `com.majkeylab.seliadocs`, `minSdk = 29`, `compileSdk = 37`, and `targetSdk = 37`.
 - Use only stable dependency versions named above. Do not add a dependency-injection, navigation, formatting, logging, or math library.
 - Keep the product offline-first. Network access is only for explicit ML Kit model downloads.
 - Store imported media in private app storage. Never request all-files access.
@@ -148,7 +148,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "cz.majkey.perko"
+        applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
         versionCode = 1
@@ -181,7 +181,7 @@ class AppLaunchTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
     @Test fun libraryTitleIsVisible() {
-        rule.onNodeWithText("Péřko").assertIsDisplayed()
+        rule.onNodeWithText("SeliaDocs").assertIsDisplayed()
     }
 }
 ```
@@ -227,7 +227,7 @@ $env:ANDROID_SERIAL = 'emulator-5590'
 Remove-Item Env:ANDROID_SERIAL
 ```
 
-Expected: all tasks pass and `app-debug.apk` has package `cz.majkey.perko`.
+Expected: all tasks pass and `app-debug.apk` has package `com.majkeylab.seliadocs`.
 
 - [ ] **Step 9: Commit the launchable scaffold**
 
@@ -1291,7 +1291,7 @@ test: verify phone and tablet workflows
 - Create: `docs/release/v0.1.0-beta.1.md`
 
 **Interfaces:**
-- Produces: public `Majkey25/Perko`, passing CI, tag `v0.1.0-beta.1`, and a signed APK with a verified SHA-256.
+- Produces: public `Majkey25/SeliaDocs`, passing CI, tag `v0.1.0-beta.1`, and a signed APK with a verified SHA-256.
 
 - [ ] **Step 1: Write public documentation from verified behavior**
 

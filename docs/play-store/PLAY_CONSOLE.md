@@ -2,14 +2,14 @@
 
 ## App setup
 
-- Package: `cz.majkey.perko`
-- App name: `Péřko`
+- Package: `com.majkeylab.seliadocs`
+- App name: `SeliaDocs`
 - Default language: English (United States)
 - App or game: App
 - Free or paid: Free
 - Category: Productivity
 - Contact email: `majkeylab@gmail.com`
-- Privacy policy: `https://majkey25.github.io/Perko/privacy/`
+- Privacy policy: `https://majkey25.github.io/SeliaDocs/privacy/`
 
 ## Declarations
 

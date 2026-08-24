@@ -110,4 +110,4 @@ The screen begins with a short heading and description, not a card dashboard. Gr
 
 ## Final cleanup
 
-After GitHub/Google Play work is complete, stop only Péřko emulators and locally started Péřko HTTP/browser-test services. Remove regenerable project build directories and Péřko AVD data only after release artifacts, screenshots, source, signing material, and repository state are verified. Do not touch physical devices or unrelated emulators.
+After GitHub/Google Play work is complete, stop only SeliaDocs emulators and locally started SeliaDocs HTTP/browser-test services. Remove regenerable project build directories and SeliaDocs AVD data only after release artifacts, screenshots, source, signing material, and repository state are verified. Do not touch physical devices or unrelated emulators.

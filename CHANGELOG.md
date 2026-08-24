@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Péřko are documented here.
+All notable changes to SeliaDocs are documented here.
 
 ## [0.1.0-beta.1] - 2026-08-24
 
@@ -13,4 +13,4 @@ All notable changes to Péřko are documented here.
 - English settings, theme and drawing defaults, privacy links, and optional support control.
 - Android 10 through Android 17 support with API 29 and API 37 emulator acceptance evidence.
 
-[0.1.0-beta.1]: https://github.com/Majkey25/Perko/releases/tag/v0.1.0-beta.1
+[0.1.0-beta.1]: https://github.com/Majkey25/SeliaDocs/releases/tag/v0.1.0-beta.1

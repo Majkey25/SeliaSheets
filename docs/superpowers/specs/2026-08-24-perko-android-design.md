@@ -1,9 +1,9 @@
-# Spec: Péřko Android notebook
+# Spec: SeliaDocs Android notebook
 
 ## Assumptions
 
 - The app is an original Android product inspired by proven note-taking interactions. It does not copy Apple or Samsung branding, icons, assets, names, or exact screen layouts.
-- The public name is `Péřko`, the repository is `Majkey25/Perko`, and the package ID is `cz.majkey.perko`.
+- The public name is `SeliaDocs`, the repository is `Majkey25/SeliaDocs`, and the application ID is `com.majkeylab.seliadocs`.
 - The first public build is `v0.1.0-beta.1` under Apache-2.0.
 - Android emulator QA is the only device QA in scope. No physical phone or tablet is accessed.
 - The app is offline-first. Network access is used only to download optional ML Kit handwriting models on explicit user action.

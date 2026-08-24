@@ -1,4 +1,4 @@
-# Péřko v0.1.0-beta.1 emulator acceptance
+# SeliaDocs v0.1.0-beta.1 emulator acceptance
 
 Date: 2026-08-24
 
@@ -9,7 +9,7 @@ Date: 2026-08-24
 | Tablet | `Perko_Tablet_API_37` | `emulator-5590` | 17 / API 37 | Pass |
 | Phone | `Perko_Phone_API_29` | `emulator-5594` | 10 / API 29 | Pass |
 
-No physical phone or tablet was accessed. The initially observed `emulator-5592` belonged to `TuneItAll_API_29`; its results were discarded after concurrent foreign instrumentation was confirmed in logcat. API 29 acceptance was repeated on the isolated Péřko AVD at port 5594.
+No physical phone or tablet was accessed. The initially observed `emulator-5592` belonged to `TuneItAll_API_29`; its results were discarded after concurrent foreign instrumentation was confirmed in logcat. API 29 acceptance was repeated on the isolated SeliaDocs AVD at port 5594.
 
 ## Automated evidence
 
