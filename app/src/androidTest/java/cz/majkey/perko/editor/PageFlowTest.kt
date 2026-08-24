@@ -42,7 +42,7 @@ class PageFlowTest {
     private fun createNotebook(title: String) {
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextInput(title)
-        rule.onNodeWithText("Create").performClick()
+        rule.onNodeWithText("Create notebook").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }

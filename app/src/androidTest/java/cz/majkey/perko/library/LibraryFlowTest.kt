@@ -1,6 +1,7 @@
 package cz.majkey.perko.library
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -71,10 +72,20 @@ class LibraryFlowTest {
         }
     }
 
+    @Test
+    fun gridTemplateSelectsGridPortraitDefaults() {
+        rule.onNodeWithContentDescription("New notebook").performClick()
+
+        rule.onNodeWithText("Grid notebook").performClick()
+
+        rule.onNodeWithContentDescription("Paper option: Grid").assertIsSelected()
+        rule.onNodeWithContentDescription("Orientation option: Portrait").assertIsSelected()
+    }
+
     private fun createNotebook(title: String) {
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextInput(title)
-        rule.onNodeWithText("Create").performClick()
+        rule.onNodeWithText("Create notebook").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }

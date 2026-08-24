@@ -54,6 +54,7 @@ import cz.majkey.perko.data.CoverColor
 import cz.majkey.perko.data.CoverPattern
 import cz.majkey.perko.data.NotebookEntity
 import cz.majkey.perko.settings.AppSettings
+import cz.majkey.perko.ui.coverColorValue
 
 @Composable
 internal fun LibraryScreen(
@@ -424,11 +425,6 @@ private fun CoverPatternOverlay(patternValue: String, modifier: Modifier) {
 }
 
 private fun notebookCoverColor(value: String): Color =
-    when (runCatching { CoverColor.valueOf(value) }.getOrNull()) {
-        CoverColor.PERIWINKLE -> Color(0xFFA0B1D7)
-        CoverColor.GRAPHITE -> Color(0xFFB7B5B2)
-        CoverColor.SAGE -> Color(0xFFB7C4AF)
-        CoverColor.SALMON -> Color(0xFFE9A092)
-        CoverColor.SAND -> Color(0xFFD9C7AA)
-        null -> Color(0xFFA0B1D7)
-    }
+    coverColorValue(
+        runCatching { CoverColor.valueOf(value) }.getOrDefault(CoverColor.PERIWINKLE),
+    )

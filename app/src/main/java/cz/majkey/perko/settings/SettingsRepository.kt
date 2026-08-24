@@ -11,6 +11,8 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import cz.majkey.perko.data.PageOrientation
 import cz.majkey.perko.data.PaperTemplate
+import cz.majkey.perko.data.CoverColor
+import cz.majkey.perko.data.CoverPattern
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -32,6 +34,10 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
             penWidth = preferences[Keys.penWidth] ?: 4f,
             highlighterWidth = preferences[Keys.highlighterWidth] ?: 22f,
             fingerDrawing = preferences[Keys.fingerDrawing] ?: false,
+            defaultCoverColor =
+                enumValue(preferences[Keys.defaultCoverColor], CoverColor.PERIWINKLE),
+            defaultCoverPattern =
+                enumValue(preferences[Keys.defaultCoverPattern], CoverPattern.SOLID),
             defaultPaper = enumValue(preferences[Keys.defaultPaper], PaperTemplate.RULED),
             defaultOrientation =
                 enumValue(preferences[Keys.defaultOrientation], PageOrientation.PORTRAIT),
@@ -44,6 +50,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.penWidth] = value.penWidth
         preferences[Keys.highlighterWidth] = value.highlighterWidth
         preferences[Keys.fingerDrawing] = value.fingerDrawing
+        preferences[Keys.defaultCoverColor] = value.defaultCoverColor.name
+        preferences[Keys.defaultCoverPattern] = value.defaultCoverPattern.name
         preferences[Keys.defaultPaper] = value.defaultPaper.name
         preferences[Keys.defaultOrientation] = value.defaultOrientation.name
         preferences[Keys.theme] = value.theme.name
@@ -58,6 +66,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val penWidth = floatPreferencesKey("pen_width")
         val highlighterWidth = floatPreferencesKey("highlighter_width")
         val fingerDrawing = booleanPreferencesKey("finger_drawing")
+        val defaultCoverColor = stringPreferencesKey("default_cover_color")
+        val defaultCoverPattern = stringPreferencesKey("default_cover_pattern")
         val defaultPaper = stringPreferencesKey("default_paper")
         val defaultOrientation = stringPreferencesKey("default_orientation")
         val theme = stringPreferencesKey("theme")
