@@ -190,7 +190,7 @@ git commit -m "feat: index handwritten page content"
 
 - [ ] **Step 1: Write tests that preserve raw ink by default**
 
-Open Convert, select another candidate, cancel, and assert the strokes remain. Copy as text also preserves strokes. Replace deletes selected strokes and inserts one text element in one history step.
+Open Convert, select another candidate, cancel, and assert the strokes remain. Copy as text also preserves strokes. Replace deletes selected strokes and inserts one normal paragraph block at the selection's reading position in one history step. It must not create a positioned text box.
 
 - [ ] **Step 2: Add Convert to the lasso action menu**
 

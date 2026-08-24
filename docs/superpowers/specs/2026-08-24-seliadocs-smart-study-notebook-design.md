@@ -90,8 +90,8 @@ A page stores an optional title, a chapter ID, an order index, a page mode, book
 
 SeliaDocs supports three page modes:
 
-- `PAPER`: fixed-size paper with vector ink and positioned elements;
-- `FLOW`: a reflowing block document for typed notes, checklists, headings, and long-form writing;
+- `PAPER`: fixed-size paper with a full-page structured text layer, vector ink overlay, and positioned non-text elements;
+- `FLOW`: a continuous full-width document for normal typing, checklists, headings, tables, and long-form writing, with optional inline paper sections;
 - `PDF`: a page backed by an imported PDF page with a separate editable annotation layer.
 
 The app does not convert a page between modes after the user adds content. Users can copy content into a page with another mode.
@@ -190,6 +190,8 @@ Each paper page supports Fit width, Fit page, and manual zoom. Fit width is the 
 
 Two-finger horizontal swipes change pages. One-finger movement pans only when finger drawing is disabled or Pan is active. Stylus input never changes pages.
 
+The page viewport also shows Previous and Next page-edge controls when the pointer, stylus, keyboard focus, or accessibility service reaches an edge. `Page Up` and `Page Down` change pages from a hardware keyboard. Page controls never cover writable page content.
+
 A page change uses a 140 to 180 ms horizontal slide with a page-edge shadow. Reduced motion replaces the slide with an immediate change.
 
 ## Tool palette
@@ -199,6 +201,7 @@ The palette is icon-first. Every icon has an accessible label and a minimum 48 d
 The primary row contains:
 
 - Pen
+- Type
 - Highlighter
 - Eraser
 - Lasso
@@ -211,7 +214,7 @@ Pencil remains a pen preset instead of a separate top-level destination. The act
 
 Insert contains:
 
-- Text
+- Label
 - Image
 - Checklist
 - Table
@@ -223,7 +226,36 @@ The palette may dock at the top or bottom. A left-handed setting mirrors context
 
 The app preserves the current AndroidX Ink implementation for pressure, tilt, stylus eraser, palm cancellation, and motion prediction.
 
+Type is a primary tool. It is never hidden inside Insert. Pen and Type remain visible at every supported editor width.
+
+### Finger and stylus behavior
+
+When a stylus is present, the stylus writes and one finger pans or selects by default. The Draw with finger setting lets one finger write instead. Two fingers always pan, zoom, or turn pages.
+
+Without a stylus, selecting Pen makes one finger write. Two fingers pan, zoom, or turn pages. Selecting Type makes one finger position the cursor, select text, scroll, and activate formatting controls.
+
+Switching between Pen and Type does not move, flatten, or convert existing content.
+
 ## Content and editing
+
+### Full-page typing
+
+Selecting Type and tapping a page places a normal text cursor in the page text layer. The app opens the keyboard and types directly on the page. It does not open a dialog and does not create a resizable text box.
+
+The page text layer supports:
+
+- title, heading, subheading, body, quote, and code styles;
+- bold, italic, underline, strikethrough, text color, and highlight;
+- left, center, and right alignment;
+- indentation, bullets, numbering, and checklists;
+- links, inline math, find, and replace;
+- platform text selection, copy, cut, paste, spellcheck, and keyboard shortcuts.
+
+On a `PAPER` page, text flows inside page margins and ink remains a separate overlay. Text is page-local so editing an earlier paragraph cannot move handwriting on later pages. When typing reaches the page end, Continue on new page creates the next paper page and moves only the active paragraph remainder.
+
+On a `FLOW` page, text and structured blocks reflow continuously. An inline paper section provides a handwriting area inside the document. This is the preferred mode for a normal note, essay, or book chapter.
+
+Insert > Label creates an optional positioned text label for diagrams. Label is not the default typing tool.
 
 ### Vector ink
 
@@ -287,7 +319,7 @@ A flow page stores ordered blocks. Initial block kinds are:
 - divider;
 - embedded paper section.
 
-Flow pages support long-form writing and device rotation without manual repositioning. Paper sections let users add handwriting inside a typed document without making the whole document a free canvas.
+Flow pages use the same full-width typing surface as normal note apps. They support rich formatting, long-form writing, find and replace, and device rotation without manual repositioning. Paper sections let users add handwriting inside a typed document without making the whole document a free canvas.
 
 ## Search and recognition
 
@@ -488,6 +520,7 @@ The design adds these entities:
 
 - `ChapterEntity`
 - `BlockEntity`
+- `TextMarkEntity`
 - `MaterialEntity`
 - `SearchSourceEntity`
 - `SearchTextEntity` with Room FTS4
@@ -508,6 +541,8 @@ The design adds these entities:
 - `materialPageIndex: Int?`
 
 `ElementKind` gains `TABLE` after element transforms work in the UI.
+
+Normal typed content uses `BlockEntity` and `TextMarkEntity`. `ElementKind.TEXT` becomes `ElementKind.LABEL` for positioned diagram labels. Migration 1 to 2 preserves existing pre-release text elements as labels.
 
 The first schema change requires a real Room migration and a migration test. The app must not use destructive migration.
 

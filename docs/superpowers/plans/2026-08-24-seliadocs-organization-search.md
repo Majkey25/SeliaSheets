@@ -74,7 +74,19 @@ internal data class BlockEntity(
     val kind: String,
     val text: String?,
     val checked: Boolean,
+    val indent: Int,
+    val alignment: String,
     val payloadId: String?,
+)
+
+@Entity(tableName = "text_marks", indices = [Index("blockId")])
+internal data class TextMarkEntity(
+    @PrimaryKey val id: String,
+    val blockId: String,
+    val start: Int,
+    val end: Int,
+    val kind: String,
+    val value: String?,
 )
 ```
 
@@ -96,6 +108,7 @@ UPDATE pages SET createdAt = COALESCE((SELECT createdAt FROM notebooks WHERE not
 UPDATE pages SET updatedAt = COALESCE((SELECT updatedAt FROM notebooks WHERE notebooks.id = pages.notebookId), 0);
 CREATE INDEX IF NOT EXISTS index_pages_chapterId ON pages(chapterId);
 CREATE TABLE IF NOT EXISTS blocks (...);
+CREATE TABLE IF NOT EXISTS text_marks (...);
 ```
 
 Use the exact columns and foreign keys from the entity schema in the final migration strings.
@@ -172,17 +185,18 @@ git commit -m "feat: manage chapters and page metadata"
 - Create: `app/src/main/java/com/majkeylab/seliadocs/flow/FlowEditor.kt`
 - Create: `app/src/main/java/com/majkeylab/seliadocs/flow/FlowViewModel.kt`
 - Create: `app/src/main/java/com/majkeylab/seliadocs/flow/BlockKind.kt`
+- Create: `app/src/main/java/com/majkeylab/seliadocs/flow/PageTextLayer.kt`
 - Modify: `app/src/main/java/com/majkeylab/seliadocs/data/PageDao.kt`
 - Modify: `app/src/main/java/com/majkeylab/seliadocs/data/SeliaDocsRepository.kt`
 - Create: `app/src/androidTest/java/com/majkeylab/seliadocs/flow/FlowEditorTest.kt`
 
 **Interfaces:**
 - Consumes: `BlockEntity`, page ID, and repository transactions.
-- Produces: ordered heading, paragraph, checklist, bulleted-list, numbered-list, image, math, divider, and paper-section blocks.
+- Produces: normal full-page typing on paper pages and ordered heading, paragraph, checklist, bulleted-list, numbered-list, image, table, math, divider, and paper-section blocks on flow pages.
 
 - [ ] **Step 1: Write failing block tests**
 
-Test insertion, text update, checklist toggle, reorder, deletion, and process restart. Assert contiguous `orderIndex` values.
+Test direct cursor placement, normal typing without a text-box dialog, rich text marks, insertion, text update, checklist toggle, reorder, deletion, and process restart. Assert contiguous `orderIndex` values.
 
 - [ ] **Step 2: Add block DAO and repository operations**
 
@@ -196,7 +210,11 @@ suspend fun deleteBlock(id: String)
 
 - [ ] **Step 3: Build the flow editor with Compose lazy content**
 
-Use one `LazyColumn`. Keep text state in the ViewModel and save after IME commit or focus loss. Do not create a separate rich-text engine. Heading and list style are block kinds.
+Use one `LazyColumn` for flow pages and one page-width text layer for paper pages. Keep text state in the ViewModel and save after IME commit or focus loss. Block kinds define paragraph structure. `TextMarkEntity` stores bold, italic, underline, strikethrough, text color, highlight, code, and link ranges.
+
+Use platform text selection, clipboard, spellcheck, and IME behavior. Add formatting actions for title, heading, subheading, body, quote, code, alignment, indentation, bullets, numbering, checklist, link, inline math, find, and replace.
+
+On paper pages, render blocks inside page margins under the ink layer. When the active paragraph exceeds the bottom margin, offer Continue on new page and move only the paragraph remainder after confirmation.
 
 - [ ] **Step 4: Add paper-section blocks**
 
@@ -281,11 +299,11 @@ git commit -m "feat: add chapter and page navigation"
 
 - [ ] **Step 1: Write phone and tablet shell tests**
 
-Assert the primary tools Pen, Highlighter, Eraser, Lasso, Shape, Insert, Undo, and Redo are reachable without horizontal scrolling. Assert Insert exposes Text, Image, Checklist, Table, Math, New page, and Import PDF.
+Assert the primary tools Pen, Type, Highlighter, Eraser, Lasso, Shape, Insert, Undo, and Redo are reachable without horizontal scrolling. Assert tapping Type places a cursor without a dialog. Assert Insert exposes Label, Image, Checklist, Table, Math, New page, and Import PDF.
 
 - [ ] **Step 2: Extract the app bar and palette from `EditorScreen.kt`**
 
-Use icon buttons with at least 48 dp targets and content descriptions. Pencil becomes a pen preset. The active tool opens color, width, opacity, and tool-specific controls.
+Use icon buttons with at least 48 dp targets and content descriptions. Pen and Type remain visible at every width. Pencil becomes a pen preset. The active tool opens writing or formatting controls.
 
 - [ ] **Step 3: Implement viewport modes**
 
@@ -303,7 +321,9 @@ Clamp manual zoom and page offsets. Fit width is the tablet default. Fit page re
 
 - [ ] **Step 4: Add two-finger page changes**
 
-One-finger input continues to draw or pan according to the active tool. Stylus input never changes pages. A two-finger horizontal swipe changes one page only after it crosses the configured distance and velocity threshold.
+With a stylus, the stylus writes and one finger pans unless Draw with finger is enabled. Without a stylus, Pen makes one finger write and Type makes one finger position or select text. Two fingers always pan, zoom, or turn pages. A two-finger horizontal swipe changes one page only after it crosses the configured distance and velocity threshold.
+
+Add Previous and Next page-edge controls and hardware `Page Up` and `Page Down`. Keep controls outside page content and expose accessible labels.
 
 - [ ] **Step 5: Add the page transition**
 

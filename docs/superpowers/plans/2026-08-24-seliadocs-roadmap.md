@@ -40,7 +40,7 @@
 
 **Entry gate:** Foundation backup and selected-page loading are green.
 
-**Exit gate:** Room schema 3 validates, chapters and flow pages survive migration and backup, Quick Note uses one Inbox, editor and Settings adapt to phone and tablet, FTS scopes work, and restore rebuilds search from source.
+**Exit gate:** Room schema 3 validates, chapters and flow pages survive migration and backup, Quick Note uses one Inbox, Type provides direct full-page writing without a default text box, finger and stylus modes work, editor and Settings adapt to phone and tablet, page turning works, FTS scopes work, and restore rebuilds search from source.
 
 - [ ] Complete every organization and search checkbox.
 - [ ] Review migrations 1 to 2 and 2 to 3.
