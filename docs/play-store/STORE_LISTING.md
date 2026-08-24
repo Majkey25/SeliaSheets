@@ -2,14 +2,11 @@
 
 ## Main listing
 
-**App name**  
-Péřko
+**App name:** Péřko
 
-**Default language**  
-English (United States)
+**Default language:** English (United States)
 
-**Short description**  
-Private notebooks for handwriting, images, shapes, math, and PDF export.
+**Short description:** Private notebooks for handwriting, images, shapes, math, and PDF export.
 
 **Full description**
 
