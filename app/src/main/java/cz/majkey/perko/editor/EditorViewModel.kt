@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal data class EditorUiState(
     val notebook: NotebookEntity? = null,
@@ -70,6 +71,7 @@ internal class EditorViewModel(application: Application, private val notebookId:
     private val repository = PerkoRepository(PerkoDatabase.get(application))
     private val assets = AssetStore(File(application.filesDir, "assets"))
     private val imageImporter = ImageImporter(application.contentResolver, assets)
+    private val pdfExporter = PdfExporter(assets)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls())
     private var historyPageId: String? = null
@@ -316,6 +318,16 @@ internal class EditorViewModel(application: Application, private val notebookId:
         )
         history.push(snapshot(pageId))
         updateHistoryControls(history)
+    }
+
+    fun exportPdf(uri: Uri) = mutate {
+        val content = repository.loadNotebook(notebookId)
+        val resolver = getApplication<Application>().contentResolver
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            resolver.openOutputStream(uri, "w").use { output ->
+                pdfExporter.write(content, requireNotNull(output) { "PDF destination unavailable" })
+            }
+        }
     }
 
     fun undo() {

@@ -88,6 +88,10 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
             imagePageId = null
             if (uri != null && pageId != null) viewModel.importImage(pageId, uri)
         }
+    val pdfExporter =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+            if (uri != null) viewModel.exportPdf(uri)
+        }
     textPageId?.let { pageId ->
         TextElementDialog(
             onDismiss = { textPageId = null },
@@ -134,6 +138,10 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     failed = state.failed,
                     onBack = onBack,
                     onAddPage = viewModel::addPage,
+                    onExport = {
+                        val title = state.notebook?.title.orEmpty().ifBlank { "Perko notebook" }
+                        pdfExporter.launch("${safeFileName(title)}.pdf")
+                    },
                 )
                 HorizontalDivider()
                 EditorToolBar(
@@ -424,6 +432,7 @@ private fun EditorTopBar(
     failed: Boolean,
     onBack: () -> Unit,
     onAddPage: () -> Unit,
+    onExport: () -> Unit,
 ) {
     val addDescription = stringResource(R.string.add_page)
     Surface(color = MaterialTheme.colorScheme.surface) {
@@ -445,6 +454,7 @@ private fun EditorTopBar(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            TextButton(onClick = onExport) { Text(stringResource(R.string.export_pdf)) }
             TextButton(
                 onClick = onAddPage,
                 modifier = Modifier.semantics { contentDescription = addDescription },
@@ -454,6 +464,9 @@ private fun EditorTopBar(
         }
     }
 }
+
+private fun safeFileName(value: String): String =
+    value.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().take(100).ifBlank { "Perko notebook" }
 
 @Composable
 private fun PageRail(
