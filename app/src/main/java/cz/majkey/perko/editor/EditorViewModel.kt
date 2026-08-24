@@ -118,6 +118,16 @@ internal class EditorViewModel(
         resetHistory()
     }
 
+    fun selectPreviousPage() {
+        val index = state.value.pages.indexOf(state.value.selectedPage)
+        state.value.pages.getOrNull(index - 1)?.let { selectPage(it.id) }
+    }
+
+    fun selectNextPage() {
+        val index = state.value.pages.indexOf(state.value.selectedPage)
+        state.value.pages.getOrNull(index + 1)?.let { selectPage(it.id) }
+    }
+
     fun selectTool(tool: EditorTool) {
         controls.value =
             controls.value.copy(

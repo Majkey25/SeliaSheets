@@ -45,6 +45,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -148,6 +155,29 @@ private fun EditorScreen(
     }
 
     Scaffold(
+        modifier =
+            Modifier.onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when {
+                    event.isCtrlPressed && event.key == Key.Z && event.isShiftPressed -> {
+                        viewModel.redo()
+                        true
+                    }
+                    event.isCtrlPressed && event.key == Key.Z -> {
+                        viewModel.undo()
+                        true
+                    }
+                    event.key == Key.PageUp -> {
+                        viewModel.selectPreviousPage()
+                        true
+                    }
+                    event.key == Key.PageDown -> {
+                        viewModel.selectNextPage()
+                        true
+                    }
+                    else -> false
+                }
+            },
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             Column {
