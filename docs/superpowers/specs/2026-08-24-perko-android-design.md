@@ -11,7 +11,7 @@
 
 ## Objective
 
-Build a tablet-first, phone-capable notebook for Android 13 through Android 17. Users can create notebooks with original covers, manage physical pages, write or draw with a stylus, add text and images, clean simple shapes, solve basic arithmetic, and export a notebook to PDF.
+Build a tablet-first, phone-capable notebook for Android 10 through Android 17. Users can create notebooks with original covers, manage physical pages, write or draw with a stylus, add text and images, clean simple shapes, solve basic arithmetic, and export a notebook to PDF.
 
 The app must reopen with saved content intact, remain usable without an account, and expose failures instead of discarding edits or inventing results.
 
@@ -124,7 +124,7 @@ Room transactions keep page ordering and deletion consistent. Deleting a noteboo
 - Android Gradle Plugin 9.1.1.
 - Gradle 9.3.1.
 - Kotlin 2.3.20.
-- `compileSdk = 37`, `targetSdk = 37`, `minSdk = 33`.
+- `compileSdk = 37`, `targetSdk = 37`, `minSdk = 29`.
 - Jetpack Compose UI 1.12.0 and Material 3 1.4.0.
 - AndroidX Ink 1.0.0.
 - Room 2.8.4.
@@ -192,7 +192,7 @@ No `Any`, unchecked casts, duplicate serialization, hidden `null` results, globa
 
 ### Emulator checks
 
-- API 33 phone-sized emulator: compact navigation, touch drawing toggle, import failure, autosave, relaunch, and PDF export.
+- API 29 phone-sized emulator: compact navigation, touch drawing toggle, system document-picker fallback, import failure, autosave, relaunch, and PDF export.
 - API 37 tablet emulator: library grid, creation flow, page rail, page transition, text and image transforms, drawing, erase, undo, redo, reorder, and restart persistence.
 - Inject `MotionEvent` fixtures with stylus, eraser, pressure, tilt, and palm flags to verify input routing. Emulator QA does not claim physical pen latency.
 - Test optional-model success after download and explicit unavailable and offline behavior when the model is absent.
@@ -231,7 +231,7 @@ No `Any`, unchecked casts, duplicate serialization, hidden `null` results, globa
 
 ## Success criteria
 
-- App installs and launches on API 33 and API 37 emulators.
+- App installs and launches on API 29 and API 37 emulators.
 - A user can create, rename, duplicate, favorite, trash, and restore multiple notebooks.
 - Covers and all four page templates render on phone and tablet layouts.
 - Pages can be added, reordered, duplicated, deleted, and changed with accessible motion.

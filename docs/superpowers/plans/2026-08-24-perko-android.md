@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Use `cz.majkey.perko`, `minSdk = 33`, `compileSdk = 37`, and `targetSdk = 37`.
+- Use `cz.majkey.perko`, `minSdk = 29`, `compileSdk = 37`, and `targetSdk = 37`.
 - Use only stable dependency versions named above. Do not add a dependency-injection, navigation, formatting, logging, or math library.
 - Keep the product offline-first. Network access is only for explicit ML Kit model downloads.
 - Store imported media in private app storage. Never request all-files access.
@@ -98,10 +98,10 @@ README.md, CHANGELOG.md, PRIVACY.md           public project documentation
 Run:
 
 ```powershell
-& 'C:\Users\mates\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat' 'platforms;android-37.0' 'system-images;android-37.0;google_apis;x86_64'
+& 'C:\Users\mates\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat' 'platforms;android-29' 'system-images;android-29;google_apis;x86_64' 'platforms;android-37.0' 'system-images;android-37.0;google_apis;x86_64'
 ```
 
-Expected: both packages finish with no SDK Manager error. Do not install a 37.2 beta package.
+Expected: all four packages finish with no SDK Manager error. Do not install a 37.2 beta package.
 
 - [ ] **Step 2: Create dedicated phone and tablet AVDs**
 
@@ -109,7 +109,7 @@ Run each command. Enter `no` if `avdmanager` asks for a custom hardware profile.
 
 ```powershell
 & 'C:\Users\mates\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\avdmanager.bat' create avd --name Perko_Tablet_API_37 --package 'system-images;android-37.0;google_apis;x86_64' --device pixel_tablet --force
-& 'C:\Users\mates\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\avdmanager.bat' create avd --name Perko_Phone_API_33 --package 'system-images;android-33;google_apis;x86_64' --device pixel_6 --force
+& 'C:\Users\mates\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\avdmanager.bat' create avd --name Perko_Phone_API_29 --package 'system-images;android-29;google_apis;x86_64' --device pixel_4 --force
 ```
 
 Expected: `emulator.exe -list-avds` lists both names.
@@ -151,7 +151,7 @@ android {
 
     defaultConfig {
         applicationId = "cz.majkey.perko"
-        minSdk = 33
+        minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0-beta.1"
@@ -1206,7 +1206,7 @@ feat(settings): add app details and controls
 
 ---
 
-### Task 13: Run API 33 and API 37 acceptance QA
+### Task 13: Run API 29 and API 37 acceptance QA
 
 **Files:**
 - Create: `docs/qa/2026-08-24-emulator-acceptance.md`
@@ -1220,7 +1220,7 @@ feat(settings): add app details and controls
 
 ```powershell
 Start-Process -FilePath 'C:\Users\mates\AppData\Local\Android\Sdk\emulator\emulator.exe' -ArgumentList '-avd Perko_Tablet_API_37 -port 5590 -no-snapshot-save' -WindowStyle Hidden
-Start-Process -FilePath 'C:\Users\mates\AppData\Local\Android\Sdk\emulator\emulator.exe' -ArgumentList '-avd Perko_Phone_API_33 -port 5592 -no-snapshot-save' -WindowStyle Hidden
+Start-Process -FilePath 'C:\Users\mates\AppData\Local\Android\Sdk\emulator\emulator.exe' -ArgumentList '-avd Perko_Phone_API_29 -port 5592 -no-snapshot-save' -WindowStyle Hidden
 ```
 
 Wait with bounded ADB polling until both report `sys.boot_completed=1`.
@@ -1246,7 +1246,7 @@ adb -s emulator-5592 install -r app\build\outputs\apk\debug\app-debug.apk
 
 On API 37 tablet: create a notebook, draw pressure strokes, add text and a valid image, calculate `2+3=`, add and reorder pages, change drawing and paper settings, verify App details, verify the Buy Me a Coffee external intent, export PDF, force-stop, relaunch, and verify persistence.
 
-On API 33 phone: create a touch-enabled notebook, draw with a finger, test compact page navigation, corrupt image rejection, invalid math, division by zero, and interrupted export.
+On API 29 phone: create a touch-enabled notebook, draw with a finger, use the document-picker fallback, test compact page navigation, corrupt image rejection, invalid math, division by zero, and interrupted export.
 
 Regression: create a second notebook, reopen the first, and continue editing its existing page.
 
@@ -1297,7 +1297,7 @@ test: verify phone and tablet workflows
 
 - [ ] **Step 1: Write public documentation from verified behavior**
 
-README sections: product screenshot, exact features, Android 13 or newer requirement, install steps, privacy, known beta limits, development commands, and license. Badges: Android CI, latest release, API 33+, Apache-2.0. Do not claim physical stylus measurements.
+README sections: product screenshot, exact features, Android 10 or newer requirement, install steps, privacy, known beta limits, development commands, and license. Badges: Android CI, latest release, API 29+, Apache-2.0. Do not claim physical stylus measurements.
 
 `PRIVACY.md` states that notebooks stay on device, imported files are copied privately, and ML Kit downloads models but recognition runs locally.
 
@@ -1335,7 +1335,7 @@ README sections: product screenshot, exact features, Android 13 or newer require
 - [ ] **Step 3: Create the public repository without pushing**
 
 ```powershell
-gh repo create Majkey25/Perko --public --description 'Offline stylus-first notebooks for Android 13 and newer'
+gh repo create Majkey25/Perko --public --description 'Offline stylus-first notebooks for Android 10 and newer'
 ```
 
 Expected: `gh repo view Majkey25/Perko` returns the new empty repository. Do not push before local gates pass.
@@ -1399,7 +1399,7 @@ If adding evidence would make the documented commit differ from the tag, keep th
 ## Completion gate
 
 - [ ] Every spec success criterion maps to passing automated or live evidence.
-- [ ] API 33 phone and API 37 tablet scenarios pass.
+- [ ] API 29 phone and API 37 tablet scenarios pass.
 - [ ] The full unit, lint, debug, release, and connected commands exit zero after the final code change.
 - [ ] The public CI run passes for the tagged commit.
 - [ ] The downloaded release APK matches its checksum and signature, installs, launches, and reopens saved content.
