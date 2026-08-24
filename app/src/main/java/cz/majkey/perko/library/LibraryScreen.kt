@@ -53,11 +53,14 @@ import cz.majkey.perko.R
 import cz.majkey.perko.data.CoverColor
 import cz.majkey.perko.data.CoverPattern
 import cz.majkey.perko.data.NotebookEntity
+import cz.majkey.perko.settings.AppSettings
 
 @Composable
 internal fun LibraryScreen(
     viewModel: LibraryViewModel,
+    settings: AppSettings,
     onOpenNotebook: (String) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
@@ -66,6 +69,7 @@ internal fun LibraryScreen(
 
     if (createOpen) {
         CreateNotebookDialog(
+            defaults = settings,
             onDismiss = { createOpen = false },
             onCreate = {
                 viewModel.createNotebook(it)
@@ -100,6 +104,7 @@ internal fun LibraryScreen(
                 state = state,
                 onQueryChange = viewModel::setQuery,
                 onTrashChange = viewModel::setTrash,
+                onSettings = onSettings,
             )
         },
         floatingActionButton = {
@@ -156,6 +161,7 @@ private fun LibraryTopBar(
     state: LibraryUiState,
     onQueryChange: (String) -> Unit,
     onTrashChange: (Boolean) -> Unit,
+    onSettings: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -169,6 +175,7 @@ private fun LibraryTopBar(
                 TextButton(onClick = { onTrashChange(!state.trash) }) {
                     Text(stringResource(if (state.trash) R.string.active_notebooks else R.string.trash))
                 }
+                TextButton(onClick = onSettings) { Text(stringResource(R.string.settings)) }
             }
             OutlinedTextField(
                 value = state.query,

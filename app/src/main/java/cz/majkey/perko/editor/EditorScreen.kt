@@ -61,21 +61,39 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import cz.majkey.perko.R
 import cz.majkey.perko.data.PageEntity
+import cz.majkey.perko.settings.AppSettings
+import cz.majkey.perko.settings.DefaultTool
 
 @Composable
-internal fun EditorRoute(notebookId: String, onBack: () -> Unit) {
+internal fun EditorRoute(
+    notebookId: String,
+    settings: AppSettings,
+    onBack: () -> Unit,
+    onSettings: () -> Unit,
+) {
     val application = LocalContext.current.applicationContext as Application
+    val initialTool =
+        when (settings.defaultTool) {
+            DefaultTool.PEN -> EditorTool.PEN
+            DefaultTool.PENCIL -> EditorTool.PENCIL
+            DefaultTool.HIGHLIGHTER -> EditorTool.HIGHLIGHTER
+        }
     val factory =
-        remember(application, notebookId) {
-            viewModelFactory { initializer { EditorViewModel(application, notebookId) } }
+        remember(application, notebookId, initialTool) {
+            viewModelFactory { initializer { EditorViewModel(application, notebookId, initialTool) } }
         }
     val editorViewModel: EditorViewModel =
         viewModel(key = "editor-$notebookId", factory = factory)
-    EditorScreen(viewModel = editorViewModel, onBack = onBack)
+    EditorScreen(viewModel = editorViewModel, settings = settings, onBack = onBack, onSettings = onSettings)
 }
 
 @Composable
-private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
+private fun EditorScreen(
+    viewModel: EditorViewModel,
+    settings: AppSettings,
+    onBack: () -> Unit,
+    onSettings: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<PageEntity?>(null) }
     var textPageId by remember { mutableStateOf<String?>(null) }
@@ -138,6 +156,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     failed = state.failed,
                     onBack = onBack,
                     onAddPage = viewModel::addPage,
+                    onSettings = onSettings,
                     onExport = {
                         val title = state.notebook?.title.orEmpty().ifBlank { "Perko notebook" }
                         pdfExporter.launch("${safeFileName(title)}.pdf")
@@ -188,6 +207,9 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
+                    penWidth = settings.penWidth,
+                    highlighterWidth = settings.highlighterWidth,
+                    pageTransitionEnabled = settings.pageTransition,
                     onStrokeFinished = { stroke ->
                         state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
                     },
@@ -221,6 +243,9 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                     selectedStrokeIds = state.selectedStrokeIds,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
+                    penWidth = settings.penWidth,
+                    highlighterWidth = settings.highlighterWidth,
+                    pageTransitionEnabled = settings.pageTransition,
                     onStrokeFinished = { stroke ->
                         state.selectedPage?.let { page -> viewModel.addStroke(page.id, stroke) }
                     },
@@ -432,6 +457,7 @@ private fun EditorTopBar(
     failed: Boolean,
     onBack: () -> Unit,
     onAddPage: () -> Unit,
+    onSettings: () -> Unit,
     onExport: () -> Unit,
 ) {
     val addDescription = stringResource(R.string.add_page)
@@ -454,6 +480,7 @@ private fun EditorTopBar(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            TextButton(onClick = onSettings) { Text(stringResource(R.string.settings)) }
             TextButton(onClick = onExport) { Text(stringResource(R.string.export_pdf)) }
             TextButton(
                 onClick = onAddPage,

@@ -32,18 +32,21 @@ import cz.majkey.perko.data.CoverPattern
 import cz.majkey.perko.data.CreateNotebookRequest
 import cz.majkey.perko.data.PageOrientation
 import cz.majkey.perko.data.PaperTemplate
+import cz.majkey.perko.settings.AppSettings
 
 @Composable
 internal fun CreateNotebookDialog(
+    defaults: AppSettings,
     onDismiss: () -> Unit,
     onCreate: (CreateNotebookRequest) -> Unit,
 ) {
     var title by remember { mutableStateOf("") }
     var coverColor by remember { mutableStateOf(CoverColor.PERIWINKLE) }
     var coverPattern by remember { mutableStateOf(CoverPattern.SOLID) }
-    var paper by remember { mutableStateOf(PaperTemplate.RULED) }
-    var orientation by remember { mutableStateOf(PageOrientation.PORTRAIT) }
-    var fingerDrawing by remember { mutableStateOf(false) }
+    var paper by remember(defaults.defaultPaper) { mutableStateOf(defaults.defaultPaper) }
+    var orientation by
+        remember(defaults.defaultOrientation) { mutableStateOf(defaults.defaultOrientation) }
+    var fingerDrawing by remember(defaults.fingerDrawing) { mutableStateOf(defaults.fingerDrawing) }
     val fallbackTitle = stringResource(R.string.untitled_notebook)
     val nameDescription = stringResource(R.string.notebook_name)
 

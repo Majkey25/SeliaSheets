@@ -65,6 +65,7 @@ dependencies {
     implementation("androidx.ink:ink-storage:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
     implementation("androidx.input:input-motionprediction:1.0.0")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.compose.ui:ui:1.12.0")

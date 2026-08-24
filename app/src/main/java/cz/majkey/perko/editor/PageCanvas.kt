@@ -3,6 +3,8 @@ package cz.majkey.perko.editor
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,6 +62,9 @@ internal fun PageCanvas(
     selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
     tool: EditorTool,
+    penWidth: Float,
+    highlighterWidth: Float,
+    pageTransitionEnabled: Boolean,
     onStrokeFinished: (Stroke) -> Unit,
     onEraseFinished: (List<CanvasPoint>) -> Unit,
     onLassoFinished: (List<CanvasPoint>) -> Unit,
@@ -70,7 +75,7 @@ internal fun PageCanvas(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
             targetState = page,
-            transitionSpec = { pageTransition() },
+            transitionSpec = { pageTransition(pageTransitionEnabled) },
             label = "page",
         ) { target ->
             if (target != null) {
@@ -82,6 +87,8 @@ internal fun PageCanvas(
                     selectedStrokeIds,
                     fingerDrawing,
                     tool,
+                    penWidth,
+                    highlighterWidth,
                     onStrokeFinished,
                     onEraseFinished,
                     onLassoFinished,
@@ -93,9 +100,13 @@ internal fun PageCanvas(
     }
 }
 
-private fun pageTransition(): ContentTransform =
-    (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
-        (slideOutHorizontally(tween(220)) { -it / 5 } + fadeOut(tween(140)))
+private fun pageTransition(enabled: Boolean): ContentTransform =
+    if (enabled) {
+        (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
+            (slideOutHorizontally(tween(220)) { -it / 5 } + fadeOut(tween(140)))
+    } else {
+        EnterTransition.None togetherWith ExitTransition.None
+    }
 
 @Composable
 private fun Paper(
@@ -106,6 +117,8 @@ private fun Paper(
     selectedStrokeIds: Set<String>,
     fingerDrawing: Boolean,
     tool: EditorTool,
+    penWidth: Float,
+    highlighterWidth: Float,
     onStrokeFinished: (Stroke) -> Unit,
     onEraseFinished: (List<CanvasPoint>) -> Unit,
     onLassoFinished: (List<CanvasPoint>) -> Unit,
@@ -118,7 +131,7 @@ private fun Paper(
         remember(strokes, selectedStrokeIds) {
             strokes.mapIndexedNotNull { index, stroke -> index.takeIf { stroke.id in selectedStrokeIds } }.toSet()
         }
-    val activeBrush = remember(tool) { brushFor(tool) }
+    val activeBrush = remember(tool, penWidth, highlighterWidth) { brushFor(tool, penWidth, highlighterWidth) }
     BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         val availableRatio = maxWidth / maxHeight
         val paperModifier =
@@ -297,14 +310,16 @@ private fun decodePreview(file: File): android.graphics.Bitmap? {
     return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
-private fun brushFor(tool: EditorTool) =
+private fun brushFor(tool: EditorTool, penWidth: Float, highlighterWidth: Float) =
     when (tool) {
-        EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
-        EditorTool.PENCIL -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF4A4A4A.toInt(), 2.2f)
-        EditorTool.HIGHLIGHTER -> InkCodec.createBrush(BrushKind.HIGHLIGHTER, 0x66FFD54F, 22f)
+        EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), penWidth)
+        EditorTool.PENCIL ->
+            InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF4A4A4A.toInt(), penWidth * 0.55f)
+        EditorTool.HIGHLIGHTER ->
+            InkCodec.createBrush(BrushKind.HIGHLIGHTER, 0x66FFD54F, highlighterWidth)
         EditorTool.ERASER,
         EditorTool.LASSO,
-        -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
+        -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), penWidth)
     }
 
 @Composable

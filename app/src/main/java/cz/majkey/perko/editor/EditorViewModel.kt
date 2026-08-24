@@ -66,14 +66,18 @@ private data class EditorControls(
     val failed: Boolean = false,
 )
 
-internal class EditorViewModel(application: Application, private val notebookId: String) :
+internal class EditorViewModel(
+    application: Application,
+    private val notebookId: String,
+    initialTool: EditorTool = EditorTool.PEN,
+) :
     AndroidViewModel(application) {
     private val repository = PerkoRepository(PerkoDatabase.get(application))
     private val assets = AssetStore(File(application.filesDir, "assets"))
     private val imageImporter = ImageImporter(application.contentResolver, assets)
     private val pdfExporter = PdfExporter(assets)
     private val selectedPageId = MutableStateFlow<String?>(null)
-    private val controls = MutableStateFlow(EditorControls())
+    private val controls = MutableStateFlow(EditorControls(tool = initialTool))
     private var historyPageId: String? = null
     private var pageHistory: PageHistory<PageSnapshot>? = null
 
