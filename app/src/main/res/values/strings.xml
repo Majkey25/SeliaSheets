@@ -77,4 +77,9 @@
     <string name="shape_ellipse">Ellipse</string>
     <string name="shape_rectangle">Rectangle</string>
     <string name="shape_triangle">Triangle</string>
+    <string name="tool_math">Math</string>
+    <string name="add_math">Calculate</string>
+    <string name="math_expression">Expression</string>
+    <string name="invalid_expression">Enter a valid arithmetic expression.</string>
+    <string name="calculate">Calculate</string>
 </resources>

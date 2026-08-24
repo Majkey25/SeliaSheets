@@ -297,6 +297,27 @@ internal class EditorViewModel(application: Application, private val notebookId:
         }
     }
 
+    fun addMath(pageId: String, expression: String) = mutate {
+        val source = expression.trim().let { value -> if (value.endsWith('=')) value else "$value=" }
+        val result = formatMathResult(evaluateExpression(source).getOrThrow())
+        val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
+        val history = history(pageId)
+        repository.addElement(
+            pageId,
+            ElementDraft(
+                kind = ElementKind.MATH,
+                x = page.widthPoints * 0.15f,
+                y = page.heightPoints * 0.35f,
+                width = page.widthPoints * 0.7f,
+                height = 64f,
+                expression = source,
+                resultText = "${source.dropLast(1).trim()} = $result",
+            ),
+        )
+        history.push(snapshot(pageId))
+        updateHistoryControls(history)
+    }
+
     fun undo() {
         val pageId = state.value.selectedPage?.id ?: return
         mutate {

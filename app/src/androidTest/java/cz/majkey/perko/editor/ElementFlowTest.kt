@@ -51,6 +51,10 @@ class ElementFlowTest {
             viewModel.redo()
             val restored = withTimeout(5_000) { viewModel.state.first { it.elements.size == 1 } }
             assertEquals("Force = mass × acceleration", restored.elements.single().text)
+
+            viewModel.addMath(page.id, "(2+3)*4=")
+            val math = withTimeout(5_000) { viewModel.state.first { it.elements.size == 2 } }
+            assertEquals("(2+3)*4 = 20", math.elements.single { it.resultText != null }.resultText)
         } finally {
             repository.deleteNotebook(notebookId)
         }

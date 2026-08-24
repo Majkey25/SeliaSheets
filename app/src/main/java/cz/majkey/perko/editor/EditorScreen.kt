@@ -80,6 +80,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
     var deleteTarget by remember { mutableStateOf<PageEntity?>(null) }
     var textPageId by remember { mutableStateOf<String?>(null) }
     var imagePageId by remember { mutableStateOf<String?>(null) }
+    var mathPageId by remember { mutableStateOf<String?>(null) }
     var shapeDialogOpen by remember { mutableStateOf(false) }
     val imagePicker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -102,6 +103,15 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
             onSelect = { kind ->
                 viewModel.cleanSelectedShape(kind)
                 shapeDialogOpen = false
+            },
+        )
+    }
+    mathPageId?.let { pageId ->
+        MathDialog(
+            onDismiss = { mathPageId = null },
+            onSave = { expression ->
+                viewModel.addMath(pageId, expression)
+                mathPageId = null
             },
         )
     }
@@ -141,6 +151,7 @@ private fun EditorScreen(viewModel: EditorViewModel, onBack: () -> Unit) {
                         }
                     },
                     onCleanShape = { shapeDialogOpen = true },
+                    onAddMath = { mathPageId = state.selectedPage?.id },
                 )
             }
         },
@@ -231,6 +242,7 @@ private fun EditorToolBar(
     onAddText: () -> Unit,
     onAddImage: () -> Unit,
     onCleanShape: () -> Unit,
+    onAddMath: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
@@ -281,6 +293,13 @@ private fun EditorToolBar(
         TextButton(onClick = onCleanShape, enabled = state.selectedStrokeIds.isNotEmpty()) {
             Text(stringResource(R.string.tool_shape))
         }
+        Surface(onClick = onAddMath, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
+            Text(
+                stringResource(R.string.tool_math),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
         if (state.selectedStrokeIds.isNotEmpty()) {
             Text(
                 stringResource(R.string.selected_strokes, state.selectedStrokeIds.size),
@@ -290,6 +309,43 @@ private fun EditorToolBar(
             )
         }
     }
+}
+
+@Composable
+private fun MathDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var expression by remember { mutableStateOf("") }
+    val source = expression.trim().let { value -> if (value.endsWith('=')) value else "$value=" }
+    val valid = expression.isNotBlank() && evaluateExpression(source).isSuccess
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.add_math)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = expression,
+                    onValueChange = { expression = it.take(256) },
+                    label = { Text(stringResource(R.string.math_expression)) },
+                    singleLine = true,
+                    isError = expression.isNotBlank() && !valid,
+                )
+                if (expression.isNotBlank() && !valid) {
+                    Text(
+                        stringResource(R.string.invalid_expression),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(expression) }, enabled = valid) {
+                Text(stringResource(R.string.calculate))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable
