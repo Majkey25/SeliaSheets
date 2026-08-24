@@ -73,6 +73,19 @@ Folders, tags, cloud sync, accounts, and collaboration are outside the beta. Sea
 - Render paper, ink, text, shapes, and images in page order.
 - Use the system document picker for the destination. Do not request broad storage permission.
 
+### Settings and app details
+
+- Open Settings from both the library and the editor.
+- Group settings into Drawing, Paper, Recognition, Export, Interface, Data, and App details. Keep groups collapsed except Drawing on first open.
+- Drawing settings: default tool, pen width and color, highlighter width and color, finger drawing, stylus-button eraser, shape hold delay from 400 to 1,200 ms, and haptics.
+- Paper settings: default template, orientation, page size, paper tint, page shadow, include cover in PDF, and page transition.
+- Recognition settings: Czech or English handwriting language, handwritten math, shape cleanup, and explicit download or removal of each local ML Kit model.
+- Interface settings: system, light, or dark theme; left-handed toolbar; large controls; and system or always-reduced motion.
+- Data settings: trash retention of 7 days, 30 days, or manual deletion; storage usage; and a confirmed Empty trash action. Autosave cannot be disabled.
+- App details show version, privacy policy, third-party notices, source code, Android and ML Kit disclosures, and the emulator-only beta limit.
+- Reuse the verified ScanIt support control exactly: full-width 56 dp yellow `#FFDD00` button, black `#111111` border and content, 24 dp coffee icon, and `Support this app → Buy Me a Coffee` label. It opens `https://www.buymeacoffee.com/majkey` after a short localized notice.
+- Support is optional. It does not unlock features, change support priority, or send notebook data.
+
 ## Visual system
 
 - Mood: quiet paper workspace, not a dashboard.
@@ -92,6 +105,7 @@ Folders, tags, cloud sync, accounts, and collaboration are outside the beta. Sea
 - Imported images live under private app storage and are referenced by generated IDs, never external absolute paths.
 - A repository class coordinates Room transactions and image files. Do not add a service, factory, or interface layer with one implementation.
 - A page-scoped state holder owns selection and the bounded undo stack.
+- Preferences DataStore 1.2.1 stores validated settings. Autosave safety settings are not user-configurable.
 - ML Kit Digital Ink Recognition 19.0.0 owns optional handwriting and shape recognition models.
 - PDF export runs on `Dispatchers.IO`. No blocking file or database work runs on the main thread.
 
@@ -114,6 +128,7 @@ Room transactions keep page ordering and deletion consistent. Deleting a noteboo
 - Jetpack Compose UI 1.12.0 and Material 3 1.4.0.
 - AndroidX Ink 1.0.0.
 - Room 2.8.4.
+- Preferences DataStore 1.2.1.
 - ML Kit Digital Ink Recognition 19.0.0.
 - JUnit and AndroidX Compose testing already supplied by the Android toolchain. No extra formatting or dependency-injection framework.
 
@@ -143,6 +158,7 @@ app/src/main/java/cz/majkey/perko/
   data/                    Room entities, DAO, database, repository
   editor/                  page state, ink, elements, math, export
   library/                 notebook library and creation flow
+  settings/                validated preferences and app details
   ui/                      reusable controls and theme
 app/src/main/res/          strings, icons, XML configuration
 app/src/test/              deterministic JVM tests
@@ -180,6 +196,7 @@ No `Any`, unchecked casts, duplicate serialization, hidden `null` results, globa
 - API 37 tablet emulator: library grid, creation flow, page rail, page transition, text and image transforms, drawing, erase, undo, redo, reorder, and restart persistence.
 - Inject `MotionEvent` fixtures with stylus, eraser, pressure, tilt, and palm flags to verify input routing. Emulator QA does not claim physical pen latency.
 - Test optional-model success after download and explicit unavailable and offline behavior when the model is absent.
+- Verify settings persistence, model download and removal states, the fixed support URL, external URI launch, App details content, and confirmed trash deletion.
 
 ### Required live scenarios
 
@@ -224,6 +241,9 @@ No `Any`, unchecked casts, duplicate serialization, hidden `null` results, globa
 - Supported shapes clean up locally and ambiguous input remains unchanged.
 - Typed arithmetic works offline. Optional handwriting recognition has success and missing-model states.
 - PDF export contains every page. An interrupted or failed export does not lose content.
+- Settings persist across process restart and affect new notebooks or editor presentation as documented.
+- App details show the installed version, privacy, notices, source link, and ML Kit disclosure.
+- The ScanIt-style support button opens only `https://www.buymeacoffee.com/majkey` and unlocks nothing.
 - Unit tests, Android lint, debug build, release build, and connected tests pass.
 - GitHub Actions passes and `v0.1.0-beta.1` contains a verified signed APK, SHA-256, README, screenshots, privacy statement, and changelog.
 
