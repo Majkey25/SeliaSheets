@@ -1,4 +1,13 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+val releaseSigningProperties =
+    providers.environmentVariable("PERKO_KEYSTORE_PROPERTIES").orNull
+        ?.let(::file)
+        ?.takeIf { it.isFile }
+        ?.let { propertiesFile ->
+            Properties().apply { propertiesFile.inputStream().use(::load) }
+        }
 
 plugins {
     id("com.android.application")
@@ -29,9 +38,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (releaseSigningProperties != null) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseSigningProperties.getProperty("storeFile")))
+                storePassword = requireNotNull(releaseSigningProperties.getProperty("storePassword"))
+                keyAlias = requireNotNull(releaseSigningProperties.getProperty("keyAlias"))
+                keyPassword = requireNotNull(releaseSigningProperties.getProperty("keyPassword"))
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
