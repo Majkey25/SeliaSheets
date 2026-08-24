@@ -18,6 +18,9 @@ internal interface NotebookDao {
     @Query("SELECT * FROM notebooks WHERE id = :id")
     suspend fun getNotebook(id: String): NotebookEntity?
 
+    @Query("SELECT * FROM notebooks WHERE id = :id")
+    fun observeNotebook(id: String): Flow<NotebookEntity?>
+
     @Query(
         """
         SELECT * FROM notebooks
@@ -42,6 +45,9 @@ internal interface NotebookDao {
 
     @Query("SELECT * FROM pages WHERE notebookId = :notebookId ORDER BY pageIndex")
     suspend fun getPages(notebookId: String): List<PageEntity>
+
+    @Query("SELECT * FROM pages WHERE notebookId = :notebookId ORDER BY pageIndex")
+    fun observePages(notebookId: String): Flow<List<PageEntity>>
 
     @Query("SELECT MAX(pageIndex) FROM pages WHERE notebookId = :notebookId")
     suspend fun getMaxPageIndex(notebookId: String): Int?

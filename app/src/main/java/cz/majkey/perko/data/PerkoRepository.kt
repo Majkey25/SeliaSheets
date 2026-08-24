@@ -3,6 +3,7 @@ package cz.majkey.perko.data
 import androidx.room.withTransaction
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterNotNull
 
 internal class PerkoRepository(
     private val database: PerkoDatabase,
@@ -14,6 +15,12 @@ internal class PerkoRepository(
 
     fun observeNotebooks(query: String = "", trash: Boolean = false): Flow<List<NotebookEntity>> =
         notebooks.observeNotebooks(query.trim(), trash)
+
+    fun observeNotebook(id: String): Flow<NotebookEntity> =
+        notebooks.observeNotebook(id).filterNotNull()
+
+    fun observePages(notebookId: String): Flow<List<PageEntity>> =
+        notebooks.observePages(notebookId)
 
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()

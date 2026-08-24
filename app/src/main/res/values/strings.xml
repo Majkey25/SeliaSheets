@@ -45,4 +45,15 @@
     <string name="library_error">The notebook could not be changed.</string>
     <string name="back">Back</string>
     <string name="page_editor_placeholder">Page editor</string>
+    <string name="add_page">Add page</string>
+    <string name="page_number">Page %1$d</string>
+    <string name="page_actions">Page %1$d actions</string>
+    <string name="duplicate_page">Duplicate page</string>
+    <string name="delete_page">Delete page</string>
+    <string name="move_page_up">Move up</string>
+    <string name="move_page_down">Move down</string>
+    <string name="delete_page_title">Delete page?</string>
+    <string name="delete_page_message">This permanently deletes this page and its contents.</string>
+    <string name="editor_loading">Opening notebook…</string>
+    <string name="editor_error">The page could not be changed.</string>
 </resources>

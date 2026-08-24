@@ -45,4 +45,15 @@
     <string name="library_error">Sešit se nepodařilo změnit.</string>
     <string name="back">Zpět</string>
     <string name="page_editor_placeholder">Editor stránky</string>
+    <string name="add_page">Přidat stránku</string>
+    <string name="page_number">Stránka %1$d</string>
+    <string name="page_actions">Akce stránky %1$d</string>
+    <string name="duplicate_page">Duplikovat stránku</string>
+    <string name="delete_page">Smazat stránku</string>
+    <string name="move_page_up">Posunout nahoru</string>
+    <string name="move_page_down">Posunout dolů</string>
+    <string name="delete_page_title">Smazat stránku?</string>
+    <string name="delete_page_message">Tato stránka a její obsah budou trvale smazány.</string>
+    <string name="editor_loading">Otevírání sešitu…</string>
+    <string name="editor_error">Stránku se nepodařilo změnit.</string>
 </resources>
