@@ -1,5 +1,6 @@
 package com.majkeylab.seliadocs.editor
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
 import org.junit.Assert.assertEquals
@@ -37,6 +39,9 @@ class PageFlowTest {
         rule.onNodeWithText("Delete page").performClick()
         rule.onNodeWithText("Delete").performClick()
         waitForPageCount(2)
+
+        pressBack()
+        rule.onNodeWithText("SeliaDocs").assertIsDisplayed()
     }
 
     private fun createNotebook(title: String) {

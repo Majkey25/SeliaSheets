@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs
 
 import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +32,13 @@ internal fun SeliaDocsApp() {
     val scope = rememberCoroutineScope()
     var notebookId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = settingsOpen || notebookId != null) {
+        if (settingsOpen) {
+            settingsOpen = false
+        } else {
+            notebookId = null
+        }
+    }
     val darkTheme =
         when (settings.theme) {
             AppTheme.SYSTEM -> isSystemInDarkTheme()
