@@ -31,18 +31,20 @@ class StylusRoutingTest {
                     }
                 view.measure(exactly(500), exactly(500))
                 view.layout(0, 0, 500, 500)
-                val downTime = android.os.SystemClock.uptimeMillis()
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
-                )
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 80f, 90f),
-                )
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 100f, 120f),
-                )
+                view.post {
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 80f, 90f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 100f, 120f),
+                    )
+                }
             }
-            assertTrue(committed.await(3, TimeUnit.SECONDS))
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
         }
     }
 

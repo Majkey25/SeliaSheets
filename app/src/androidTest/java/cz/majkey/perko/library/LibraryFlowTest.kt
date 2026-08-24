@@ -24,7 +24,7 @@ class LibraryFlowTest {
         val title = "Physics ${System.nanoTime()}"
         createNotebook(title)
 
-        rule.onNodeWithContentDescription("Notebook actions: $title").performClick()
+        openActions(title, "Move to trash")
         rule.onNodeWithText("Move to trash").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isEmpty()
@@ -37,7 +37,7 @@ class LibraryFlowTest {
         val renamed = "Organic chemistry ${System.nanoTime()}"
         createNotebook(original)
 
-        rule.onNodeWithContentDescription("Notebook actions: $original").performClick()
+        openActions(original, "Rename")
         rule.onNodeWithText("Rename").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextReplacement(renamed)
         rule.onNodeWithText("Save").performClick()
@@ -53,7 +53,7 @@ class LibraryFlowTest {
         val title = "Delete ${System.nanoTime()}"
         createNotebook(title)
 
-        rule.onNodeWithContentDescription("Notebook actions: $title").performClick()
+        openActions(title, "Move to trash")
         rule.onNodeWithText("Move to trash").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isEmpty()
@@ -62,7 +62,7 @@ class LibraryFlowTest {
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }
-        rule.onNodeWithContentDescription("Notebook actions: $title").performClick()
+        openActions(title, "Delete permanently")
         rule.onNodeWithText("Delete permanently").performClick()
         rule.onNodeWithText("Delete").performClick()
 
@@ -79,5 +79,12 @@ class LibraryFlowTest {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText(title).assertIsDisplayed()
+    }
+
+    private fun openActions(title: String, expectedAction: String) {
+        rule.onNodeWithContentDescription("Notebook actions: $title").performClick()
+        rule.waitUntil(timeoutMillis = 10_000) {
+            rule.onAllNodes(hasText(expectedAction)).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }

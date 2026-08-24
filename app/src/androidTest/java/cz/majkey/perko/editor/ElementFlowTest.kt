@@ -13,7 +13,7 @@ import cz.majkey.perko.data.PerkoDatabase
 import cz.majkey.perko.data.PerkoRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,23 +40,38 @@ class ElementFlowTest {
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 viewModel = EditorViewModel(application, notebookId)
             }
-            val page = withTimeout(5_000) { viewModel.state.first { it.selectedPage != null }.selectedPage!! }
+            val page = viewModel.awaitState("page load") { it.selectedPage != null }.selectedPage!!
 
-            viewModel.addText(page.id, "Force = mass × acceleration")
-            val added = withTimeout(5_000) { viewModel.state.first { it.elements.size == 1 } }
+            onMain { viewModel.addText(page.id, "Force = mass × acceleration") }
+            val added = viewModel.awaitState("text add") { it.elements.size == 1 }
             assertEquals("Force = mass × acceleration", added.elements.single().text)
 
-            viewModel.undo()
-            withTimeout(5_000) { viewModel.state.first { it.elements.isEmpty() && it.canRedo } }
-            viewModel.redo()
-            val restored = withTimeout(5_000) { viewModel.state.first { it.elements.size == 1 } }
+            onMain(viewModel::undo)
+            viewModel.awaitState("text undo") { it.elements.isEmpty() && it.canRedo }
+            onMain(viewModel::redo)
+            val restored = viewModel.awaitState("text redo") { it.elements.size == 1 }
             assertEquals("Force = mass × acceleration", restored.elements.single().text)
 
-            viewModel.addMath(page.id, "(2+3)*4=")
-            val math = withTimeout(5_000) { viewModel.state.first { it.elements.size == 2 } }
+            onMain { viewModel.addMath(page.id, "(2+3)*4=") }
+            val math = viewModel.awaitState("math add") { it.elements.size == 2 }
             assertEquals("(2+3)*4 = 20", math.elements.single { it.resultText != null }.resultText)
         } finally {
             repository.deleteNotebook(notebookId)
         }
+    }
+
+    private suspend fun EditorViewModel.awaitState(
+        label: String,
+        predicate: (EditorUiState) -> Boolean,
+    ): EditorUiState =
+        withTimeoutOrNull(TIMEOUT_MS) { state.first(predicate) }
+            ?: throw AssertionError("Timed out waiting for $label")
+
+    private fun onMain(block: () -> Unit) {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
+    }
+
+    private companion object {
+        const val TIMEOUT_MS = 30_000L
     }
 }

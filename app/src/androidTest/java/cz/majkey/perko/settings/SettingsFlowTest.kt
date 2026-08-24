@@ -24,6 +24,7 @@ class SettingsFlowTest {
         rule.onNode(hasScrollAction()).performScrollToNode(hasText("App details"))
         rule.onNodeWithText("App details").performClick()
 
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("Version 0.1.0-beta.1"))
         rule.onNodeWithText("Version 0.1.0-beta.1").assertIsDisplayed()
         rule.onNode(hasScrollAction()).performScrollToNode(hasText("Support this app → Buy Me a Coffee"))
         rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
