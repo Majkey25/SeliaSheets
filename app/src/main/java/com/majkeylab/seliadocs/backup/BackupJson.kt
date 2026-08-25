@@ -86,6 +86,10 @@ internal object BackupJson {
     }
 
     fun readRecords(input: Reader, consume: (BackupRecord) -> Unit) {
+        records(input).forEach(consume)
+    }
+
+    fun records(input: Reader): Sequence<BackupRecord> = sequence {
         val reader = input as? BufferedReader ?: BufferedReader(input)
         while (true) {
             val line =
@@ -95,9 +99,9 @@ internal object BackupJson {
                     throw failure
                 } catch (failure: Exception) {
                     throw BackupFailure.Malformed(failure)
-                } ?: return
+                } ?: return@sequence
             if (line.isBlank()) continue
-            consume(readRecord(line))
+            yield(readRecord(line))
         }
     }
 

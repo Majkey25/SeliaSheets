@@ -99,6 +99,21 @@ internal sealed class BackupFailure(message: String, cause: Throwable? = null) :
     class MissingField(val field: String) :
         BackupFailure("Missing required backup field: $field")
 
+    class InvalidPath(val entry: String) :
+        BackupFailure("Invalid archive path: $entry")
+
+    class DuplicateEntry(val entry: String) :
+        BackupFailure("Duplicate archive entry: $entry")
+
+    class ChecksumMismatch(val entry: String) :
+        BackupFailure("Checksum mismatch: $entry")
+
+    class InvalidRelationship(val field: String) :
+        BackupFailure("Invalid backup relationship: $field")
+
+    class MissingAsset(val assetId: String) :
+        BackupFailure("Missing backup asset: $assetId")
+
     class Malformed(cause: Throwable? = null) : BackupFailure("Malformed backup data", cause)
 }
 
