@@ -27,6 +27,53 @@ The app keeps these constraints:
 SeliaDocs adopts proven interaction patterns. It does not copy another app's pixels, icons, or
 brand assets.
 
+## Capability parity is explicit
+
+SeliaDocs tracks the relevant user-facing capabilities in Apple Notes, Samsung Notes, OneNote,
+Goodnotes, Notability, MyScript Notes, Flexcil, and Squid. The implementation plan must create a
+capability matrix with one row for each researched capability. Every row has one status:
+
+- **Adopt** means SeliaDocs uses the same user outcome.
+- **Adapt** means SeliaDocs fits the capability into its notebook model or Android platform.
+- **Reject** means the capability conflicts with privacy, data ownership, or the notebook focus.
+- **Defer** means another approved design must resolve storage, permissions, server cost, or safety.
+
+The matrix must state a reason for every **Reject** and **Defer** row. A feature cannot disappear
+from the plan without a recorded decision.
+
+Capability parity does not mean source-code, icon, asset, animation, or pixel copying. SeliaDocs
+implements the behavior with its own Android architecture and visual system.
+
+Some competitor functions depend on proprietary infrastructure. SeliaDocs handles them as follows:
+
+- iCloud, Samsung account sync, and real-time collaboration remain out of scope until a separate
+  account and server design is approved.
+- Apple Pencil corner Quick Note and Samsung lock-screen note actions map to Android
+  `ACTION_CREATE_NOTE`, widgets, shortcuts, and supported lock-screen entry points.
+- Cloud AI writing and chat tools do not enter the core app. Local recognition and deterministic
+  tools cover handwriting, OCR, shapes, search, and math.
+- Template marketplaces and subscription stores are commercial services, not note-editing
+  capabilities.
+
+## The notebook is primary, other note modes are secondary
+
+The library opens on subject notebooks. Notebook covers, chapters, pages, Contents, search, and
+study progress receive the main navigation space.
+
+Secondary modes remain available from **New** and the Inbox:
+
+- **Quick note** creates a fast Inbox page and opens text or ink input immediately.
+- **Text note** creates a Flow page for continuous keyboard notes, checklists, tables, and links.
+- **Whiteboard** creates an infinite board for diagrams and planning.
+- **Scan** captures pages and creates searchable image-backed pages.
+- **Import PDF** creates PDF-backed pages with annotation tools.
+- **Study set** creates flashcards linked to source pages.
+- **Audio note** stays deferred until its separate design is approved.
+
+These modes use the same search, backup, export, tag, attachment, and sharing rules. They do not
+become separate mini-apps. A student can move a secondary note into a subject notebook without
+conversion or content loss.
+
 ## What the refreshed research confirms
 
 Current note apps agree on a small set of important behaviors.
@@ -101,6 +148,9 @@ Two alternatives are rejected:
 
 - A feature-parity dump would add many controls without reliable editing, recovery, or tests.
 - Recognition-first development would produce impressive demos on top of a weak editor.
+
+The delivery order does not reduce the final capability target. It prevents shallow implementations
+from landing before the shared editor, storage, search, and recovery behavior can support them.
 
 ## Package A: finish the editor foundation
 
@@ -228,6 +278,10 @@ Each package must pass these checks before commit and push:
 - a 500-page notebook that loads only the selected page content;
 - no skipped destructive confirmation;
 - no physical-device access without explicit permission.
+
+The capability matrix is also a release gate. Every researched capability must be implemented,
+adapted, rejected with a reason, or deferred to a named design. The release notes must list all
+remaining **Defer** rows.
 
 Package A also needs live cases for a happy path, a page-boundary transform, invalid geometry, undo,
 redo, a palm-canceled stroke, and a recent-page history return.
