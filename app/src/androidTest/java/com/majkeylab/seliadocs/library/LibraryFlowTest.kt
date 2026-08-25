@@ -82,6 +82,17 @@ class LibraryFlowTest {
         rule.onNodeWithContentDescription("Orientation option: Portrait").assertIsSelected()
     }
 
+    @Test
+    fun newestNotebookMenuOpensWhenAnotherNotebookExists() {
+        createNotebook("Existing ${System.nanoTime()}")
+        val newest = "Newest ${System.nanoTime()}"
+        createNotebook(newest)
+
+        openActions(newest, "Move to trash")
+
+        rule.onNodeWithText("Move to trash").assertIsDisplayed()
+    }
+
     private fun createNotebook(title: String) {
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextInput(title)

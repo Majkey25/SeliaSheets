@@ -1,6 +1,8 @@
 package com.majkeylab.seliadocs.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,12 +20,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +46,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,9 +69,15 @@ internal fun LibraryScreen(
     onSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val gridState = rememberLazyGridState()
     var createOpen by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<NotebookEntity?>(null) }
     var deleteTarget by remember { mutableStateOf<NotebookEntity?>(null) }
+    var actionTarget by remember { mutableStateOf<NotebookEntity?>(null) }
+
+    LaunchedEffect(state.notebooks.firstOrNull()?.id) {
+        gridState.scrollToItem(0)
+    }
 
     if (createOpen) {
         CreateNotebookDialog(
@@ -98,61 +109,86 @@ internal fun LibraryScreen(
         )
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
-            LibraryTopBar(
-                state = state,
-                onQueryChange = viewModel::setQuery,
-                onTrashChange = viewModel::setTrash,
-                onSettings = onSettings,
-            )
-        },
-        floatingActionButton = {
-            if (!state.trash) {
-                val description = stringResource(R.string.new_notebook)
-                FloatingActionButton(
-                    onClick = { createOpen = true },
-                    modifier = Modifier.semantics { contentDescription = description },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Text("+", fontSize = 28.sp)
-                }
-            }
-        },
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (state.notebooks.isEmpty()) {
-                EmptyLibrary(modifier = Modifier.align(Alignment.Center))
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(176.dp),
-                    contentPadding = PaddingValues(20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                ) {
-                    items(state.notebooks, key = NotebookEntity::id) { notebook ->
-                        NotebookCover(
-                            notebook = notebook,
-                            trash = state.trash,
-                            onOpen = { onOpenNotebook(notebook.id) },
-                            onFavorite = { viewModel.setFavorite(notebook.id, !notebook.favorite) },
-                            onRename = { renameTarget = notebook },
-                            onTrash = { viewModel.setTrashed(notebook.id, true) },
-                            onRestore = { viewModel.setTrashed(notebook.id, false) },
-                            onDelete = { deleteTarget = notebook },
-                        )
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                LibraryTopBar(
+                    state = state,
+                    onQueryChange = viewModel::setQuery,
+                    onTrashChange = viewModel::setTrash,
+                    onSettings = onSettings,
+                )
+            },
+            floatingActionButton = {
+                if (!state.trash) {
+                    val description = stringResource(R.string.new_notebook)
+                    FloatingActionButton(
+                        onClick = { createOpen = true },
+                        modifier = Modifier.semantics { contentDescription = description },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Text("+", fontSize = 28.sp)
                     }
                 }
+            },
+        ) { padding ->
+            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                if (state.notebooks.isEmpty()) {
+                    EmptyLibrary(modifier = Modifier.align(Alignment.Center))
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(176.dp),
+                        state = gridState,
+                        contentPadding = PaddingValues(20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        items(state.notebooks, key = NotebookEntity::id) { notebook ->
+                            NotebookCover(
+                                notebook = notebook,
+                                onOpen = { onOpenNotebook(notebook.id) },
+                                onActions = { actionTarget = notebook },
+                            )
+                        }
+                    }
+                }
+                if (state.failed) {
+                    Text(
+                        text = stringResource(R.string.library_error),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp),
+                    )
+                }
             }
-            if (state.failed) {
-                Text(
-                    text = stringResource(R.string.library_error),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp),
-                )
-            }
+        }
+        actionTarget?.let { notebook ->
+            NotebookActionSheet(
+                notebook = notebook,
+                trash = state.trash,
+                onDismiss = { actionTarget = null },
+                onRename = {
+                    actionTarget = null
+                    renameTarget = notebook
+                },
+                onFavorite = {
+                    actionTarget = null
+                    viewModel.setFavorite(notebook.id, !notebook.favorite)
+                },
+                onTrash = {
+                    actionTarget = null
+                    viewModel.setTrashed(notebook.id, true)
+                },
+                onRestore = {
+                    actionTarget = null
+                    viewModel.setTrashed(notebook.id, false)
+                },
+                onDelete = {
+                    actionTarget = null
+                    deleteTarget = notebook
+                },
+            )
         }
     }
 }
@@ -208,22 +244,16 @@ private fun EmptyLibrary(modifier: Modifier = Modifier) {
 @Composable
 private fun NotebookCover(
     notebook: NotebookEntity,
-    trash: Boolean,
     onOpen: () -> Unit,
-    onFavorite: () -> Unit,
-    onRename: () -> Unit,
-    onTrash: () -> Unit,
-    onRestore: () -> Unit,
-    onDelete: () -> Unit,
+    onActions: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     val actionsDescription = stringResource(R.string.notebook_actions, notebook.title)
     Surface(
         color = notebookCoverColor(notebook.coverColor),
         contentColor = Color(0xFF202124),
         shape = RoundedCornerShape(10.dp),
         tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().aspectRatio(0.76f).clickable(onClick = onOpen),
+        modifier = Modifier.fillMaxWidth().aspectRatio(0.76f),
     ) {
         Box {
             CoverPatternOverlay(notebook.coverPattern, Modifier.fillMaxSize())
@@ -233,75 +263,34 @@ private fun NotebookCover(
                 shape = RoundedCornerShape(bottomStart = 7.dp, bottomEnd = 7.dp),
                 modifier = Modifier.align(Alignment.TopCenter).size(width = 48.dp, height = 22.dp),
             ) {}
+            Box(Modifier.matchParentSize().clickable(onClick = onOpen))
             Column(modifier = Modifier.padding(start = 28.dp, top = 14.dp, end = 14.dp, bottom = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (notebook.favorite) Text("★", color = Color(0xFFE07B67))
                     Spacer(Modifier.weight(1f))
-                    Box {
-                        TextButton(
-                            onClick = { menuOpen = true },
-                            modifier =
-                                Modifier.semantics { contentDescription = actionsDescription },
-                        ) {
-                            Text("•••")
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (trash) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.restore)) },
-                                    onClick = {
-                                        menuOpen = false
-                                        onRestore()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.delete_permanently)) },
-                                    onClick = {
-                                        menuOpen = false
-                                        onDelete()
-                                    },
-                                )
-                            } else {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.rename)) },
-                                    onClick = {
-                                        menuOpen = false
-                                        onRename()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(
-                                                if (notebook.favorite) {
-                                                    R.string.remove_favorite
-                                                } else {
-                                                    R.string.favorite
-                                                },
-                                            ),
-                                        )
-                                    },
-                                    onClick = {
-                                        menuOpen = false
-                                        onFavorite()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.move_to_trash)) },
-                                    onClick = {
-                                        menuOpen = false
-                                        onTrash()
-                                    },
-                                )
-                            }
-                        }
+                    TextButton(
+                        onClick = onActions,
+                        modifier =
+                            Modifier.clearAndSetSemantics {
+                                contentDescription = actionsDescription
+                                onClick {
+                                    onActions()
+                                    true
+                                }
+                            },
+                    ) {
+                        Text("•••")
                     }
                 }
                 Spacer(Modifier.weight(1f))
                 Surface(
                     color = Color(0xFFFDFBF7),
                     shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 72.dp)
+                            .clickable(onClick = onOpen),
                 ) {
                     Text(
                         text = notebook.title,
@@ -312,6 +301,66 @@ private fun NotebookCover(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NotebookActionSheet(
+    notebook: NotebookEntity,
+    trash: Boolean,
+    onDismiss: () -> Unit,
+    onRename: () -> Unit,
+    onFavorite: () -> Unit,
+    onTrash: () -> Unit,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    BackHandler(onBack = onDismiss)
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(Color.Black.copy(alpha = 0.32f))
+                .clickable(onClick = onDismiss),
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            tonalElevation = 6.dp,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                Text(
+                    text = notebook.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+                if (trash) {
+                    ActionButton(R.string.restore, onRestore)
+                    ActionButton(R.string.delete_permanently, onDelete)
+                } else {
+                    ActionButton(R.string.rename, onRename)
+                    ActionButton(
+                        if (notebook.favorite) R.string.remove_favorite else R.string.favorite,
+                        onFavorite,
+                    )
+                    ActionButton(R.string.move_to_trash, onTrash)
+                }
+                ActionButton(R.string.cancel, onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(label: Int, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(label))
     }
 }
 

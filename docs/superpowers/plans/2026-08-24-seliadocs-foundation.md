@@ -204,13 +204,12 @@ git commit -m "fix: handle system Back navigation"
 ### Task 3: Fix notebook actions with more than one notebook
 
 **Files:**
-- Create: `app/src/main/java/com/majkeylab/seliadocs/library/NotebookActionsMenu.kt`
 - Modify: `app/src/main/java/com/majkeylab/seliadocs/library/LibraryScreen.kt`
 - Modify: `app/src/androidTest/java/com/majkeylab/seliadocs/library/LibraryFlowTest.kt`
 
 **Interfaces:**
 - Consumes: `NotebookEntity`, `trash: Boolean`, and callbacks for favorite, rename, trash, restore, and delete.
-- Produces: `NotebookActionsMenu(notebook, trash, ...)` with one clickable semantics node tagged `notebook-actions-<id>`.
+- Produces: one root-level `NotebookActionSheet(notebook, trash, ...)` and one clickable action semantics node per cover.
 
 - [ ] **Step 1: Add a two-notebook regression test**
 
@@ -218,47 +217,33 @@ git commit -m "fix: handle system Back navigation"
 @Test
 fun newestNotebookMenuOpensWhenAnotherNotebookExists() {
     createNotebook("Existing notebook")
-    createNotebook("Newest notebook")
-    rule.onNodeWithTag("notebook-actions-Newest notebook").performClick()
+    val newest = "Newest notebook"
+    createNotebook(newest)
+    rule.onNodeWithContentDescription("Notebook actions: $newest").performClick()
     rule.onNodeWithText("Move to trash").assertIsDisplayed()
 }
 ```
 
-Use a stable title-based test tag in the first failing test. Replace it with an ID-based tag after the helper exposes the ID.
-
 - [ ] **Step 2: Reproduce on API 29 and capture the semantics tree**
 
-Run only `LibraryFlowTest` after `PageFlowTest` on `emulator-5594`. Expected before the fix: the action does not expose the menu within 10 seconds.
+Run only `LibraryFlowTest` after `PageFlowTest` on the API 29 test emulator. Expected before the fix: the action does not expose the menu within 10 seconds.
 
-- [ ] **Step 3: Extract the menu and give the anchor one click target**
+- [ ] **Step 3: Use one in-tree action sheet and keep the newest notebook visible**
 
 ```kotlin
-@Composable
-internal fun NotebookActionsMenu(
-    notebook: NotebookEntity,
-    trash: Boolean,
-    onRename: () -> Unit,
-    onFavorite: () -> Unit,
-    onTrash: () -> Unit,
-    onRestore: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var expanded by remember(notebook.id) { mutableStateOf(false) }
-    Box {
-        IconButton(
-            onClick = { expanded = true },
-            modifier = Modifier.testTag("notebook-actions-${notebook.id}"),
-        ) {
-            Icon(Icons.Default.MoreVert, contentDescription = "Notebook actions: ${notebook.title}")
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            // Existing actions, in their current order.
-        }
-    }
+var actionTarget by remember { mutableStateOf<NotebookEntity?>(null) }
+val gridState = rememberLazyGridState()
+
+LaunchedEffect(state.notebooks.firstOrNull()?.id) {
+    gridState.scrollToItem(0)
+}
+
+actionTarget?.let { notebook ->
+    NotebookActionSheet(notebook = notebook, trash = state.trash, ...)
 }
 ```
 
-Keep `expanded` keyed by notebook ID. Do not anchor the menu to a child semantics node.
+Keep the sheet in the same Compose root as the library. Do not use a per-card popup window.
 
 - [ ] **Step 4: Run one-notebook, two-notebook, trash, and manual tap scenarios**
 
