@@ -31,6 +31,13 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     private val activeNotebooks = repository.observeNotebooks()
     private val trashedNotebooks = repository.observeNotebooks(trash = true)
 
+    init {
+        mutate {
+            val referenced = repository.getReferencedAssetIds()
+            deleteUnusedAssets(assets.files().map(File::getName).filterNot(referenced::contains))
+        }
+    }
+
     val state =
         combine(query, trash, activeNotebooks, trashedNotebooks, failed) {
                 search,
@@ -77,7 +84,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun deleteNotebook(id: String) = mutate {
-        val assetIds = repository.loadNotebook(id).elements.mapNotNull { it.assetId }.distinct()
+        val content = repository.loadNotebook(id)
+        val assetIds =
+            (content.elements.mapNotNull { it.assetId } + content.pdfSources.map { it.assetId }).distinct()
         repository.deleteNotebook(id)
         deleteUnusedAssets(assetIds)
     }

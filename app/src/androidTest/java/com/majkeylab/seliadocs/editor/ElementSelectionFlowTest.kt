@@ -96,6 +96,34 @@ class ElementSelectionFlowTest {
         }
     }
 
+    @Test
+    fun rotatedResizeUsesElementLocalAxes() {
+        var committed: ElementTransform? = null
+        rule.setContent {
+            MaterialTheme {
+                Box(Modifier.size(595.dp, 842.dp)) {
+                    ElementSelectionOverlay(
+                        page = PageEntity("page", "notebook", 0, "BLANK", 595, 842),
+                        element = element().copy(x = 180f, y = 220f, rotation = 90f),
+                        scaleX = 1f,
+                        scaleY = 1f,
+                        onPreview = {},
+                        onCommit = { committed = it },
+                    )
+                }
+            }
+        }
+
+        rule.onNodeWithTag("element-resize-handle").performTouchInput {
+            swipe(center, center + Offset(0f, 36f), durationMillis = 250)
+        }
+
+        rule.runOnIdle {
+            val transform = requireNotNull(committed)
+            assertTrue("Expected local width growth, got $transform", transform.width > element().width)
+        }
+    }
+
     private fun element() =
         ElementEntity(
             id = "element",

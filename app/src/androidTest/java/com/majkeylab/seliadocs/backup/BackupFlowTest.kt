@@ -33,7 +33,7 @@ class BackupFlowTest {
 
         assertEquals(Intent.ACTION_CREATE_DOCUMENT, intent.action)
         assertEquals(BACKUP_MIME_TYPE, intent.type)
-        assertEquals("SeliaDocs-backup-2026-08-25.seliadocs", intent.getStringExtra(Intent.EXTRA_TITLE))
+        assertEquals("SeliaSheets-backup-2026-08-25.seliasheets", intent.getStringExtra(Intent.EXTRA_TITLE))
     }
 
     @Test

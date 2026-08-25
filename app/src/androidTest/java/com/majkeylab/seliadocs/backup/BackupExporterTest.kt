@@ -13,9 +13,9 @@ import com.majkeylab.seliadocs.data.ElementDraft
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.PdfPageSpec
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
-import com.majkeylab.seliadocs.data.StrokePayload
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -68,10 +68,13 @@ class BackupExporterTest {
     fun completeNotebookExportsEditableRecordsAndAssetChecksum() = runTest {
         val notebookId = repository.createNotebook(request("Physics"))
         val firstPage = repository.getPages(notebookId).single()
+        val chapterId = repository.createChapter(notebookId, "Mechanics", 0xFF3156D9.toInt())
+        repository.assignPageToChapter(firstPage.id, chapterId)
         repository.addPage(notebookId)
+        repository.updatePageText(firstPage.id, "Typed lecture notes")
         repository.addStroke(
             firstPage.id,
-            StrokePayload("PEN", 0xff000000.toInt(), 3f, 0.1f, byteArrayOf(1, 2, 3)),
+            validTestStrokePayload(),
         )
         repository.addElement(
             firstPage.id,
@@ -89,7 +92,7 @@ class BackupExporterTest {
                 resultText = "4",
             ),
         )
-        val assetBytes = byteArrayOf(4, 5, 6, 7)
+        val assetBytes = testPng(0xFFFF0000.toInt())
         assets.prepare()
         assets.file("asset.png").writeBytes(assetBytes)
         repository.addElement(
@@ -108,13 +111,18 @@ class BackupExporterTest {
         assertEquals(setOf("manifest.json", "records.jsonl", "assets/asset.png", "checksums.json"), entries.keys)
         assertEquals(1, records.filterIsInstance<BackupNotebook>().size)
         assertEquals(2, records.filterIsInstance<BackupPage>().size)
+        assertEquals("Mechanics", records.filterIsInstance<BackupChapter>().single().title)
+        assertEquals(chapterId, records.filterIsInstance<BackupPage>().first().chapterId)
         assertEquals(1, records.filterIsInstance<BackupStroke>().size)
         assertEquals(3, records.filterIsInstance<BackupElement>().size)
+        assertEquals("Typed lecture notes", records.filterIsInstance<BackupBlock>().single().text)
         assertArrayEquals(assetBytes, entries.getValue("assets/asset.png"))
         assertEquals(sha256(assetBytes), readChecksums(entries.getValue("checksums.json")).getValue("assets/asset.png"))
         assertEquals(1, manifest.notebookCount)
         assertEquals(2, manifest.pageCount)
         assertEquals(1, manifest.assetCount)
+        assertTrue("page-text" in manifest.featureFlags)
+        assertTrue("chapters" in manifest.featureFlags)
         assertEquals(BackupSummary(1, 2, 1, output.size().toLong()), summary)
     }
 
@@ -129,6 +137,35 @@ class BackupExporterTest {
 
         assertEquals(BackupSummary(0, 0, 0, output.size().toLong()), summary)
         assertTrue(records.isEmpty())
+    }
+
+    @Test
+    fun pdfSourceAndBackedPageAreIncludedInEditableBackup() = runTest {
+        val notebookId = repository.createNotebook(request("PDF backup"))
+        val pdfBytes = testPdf(1)
+        assets.prepare()
+        assets.file("slides.pdf").writeBytes(pdfBytes)
+        repository.importPdf(
+            notebookId,
+            "slides.pdf",
+            "Slides.pdf",
+            pdfBytes.size.toLong(),
+            sha256(pdfBytes),
+            listOf(PdfPageSpec(595, 842)),
+        )
+        val output = ByteArrayOutputStream()
+
+        exporter.export(BackupScope.Notebook(notebookId), output)
+
+        val entries = readZip(output.toByteArray())
+        val records = mutableListOf<BackupRecord>()
+        BackupJson.readRecords(entries.getValue("records.jsonl").inputStream().reader(), records::add)
+        val source = records.filterIsInstance<BackupPdfSource>().single()
+        val page = records.filterIsInstance<BackupPage>().single { it.pdfSourceId != null }
+        val manifest = BackupJson.readManifest(entries.getValue("manifest.json").inputStream().reader())
+        assertEquals(source.id, page.pdfSourceId)
+        assertArrayEquals(pdfBytes, entries.getValue("assets/slides.pdf"))
+        assertTrue("pdf-sources" in manifest.featureFlags)
     }
 
     @Test

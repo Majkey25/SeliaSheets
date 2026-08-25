@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.JsonWriter
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -25,11 +26,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class BackupValidatorTest {
     private lateinit var stagingRoot: File
+    private lateinit var pdfSandbox: PdfSandboxClient
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         stagingRoot = File(context.cacheDir, "backup-validation-${System.nanoTime()}")
+        pdfSandbox = PdfSandboxClient(context)
     }
 
     @After
@@ -82,7 +85,7 @@ class BackupValidatorTest {
     @Test
     fun unsupportedVersionIsRejected() = runTest {
         val manifest =
-            """{"formatVersion":2,"appVersion":"test","exportedAt":1,"notebookCount":1,"pageCount":1,"assetCount":0}"""
+            """{"formatVersion":4,"appVersion":"test","exportedAt":1,"notebookCount":1,"pageCount":1,"assetCount":0}"""
                 .toByteArray()
         val records = validRecords()
 
@@ -126,15 +129,238 @@ class BackupValidatorTest {
     }
 
     @Test
+    fun pdfBackupAllowsDeletedAndDuplicatedSourcePages() = runTest {
+        val pdf = testPdf(3)
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(
+                formatVersion = 3,
+                appVersion = "test",
+                exportedAt = 1L,
+                notebookCount = 1,
+                pageCount = 2,
+                assetCount = 1,
+                featureFlags = setOf("editable", "assets", "pdf-sources"),
+            ),
+        )
+        val content =
+            listOf(
+                "manifest.json" to manifestOutput.toString().toByteArray(),
+                "records.jsonl" to
+                    records(
+                        notebook(),
+                        BackupPdfSource(
+                            "source",
+                            "notebook",
+                            "source.pdf",
+                            "Source.pdf",
+                            3,
+                            pdf.size.toLong(),
+                            sha256(pdf),
+                            1L,
+                        ),
+                        BackupPage(
+                            "page-1",
+                            "notebook",
+                            0,
+                            "BLANK",
+                            595,
+                            842,
+                            pageMode = "PDF",
+                            pdfSourceId = "source",
+                            pdfPageIndex = 1,
+                        ),
+                        BackupPage(
+                            "page-2",
+                            "notebook",
+                            1,
+                            "BLANK",
+                            595,
+                            842,
+                            pageMode = "PDF",
+                            pdfSourceId = "source",
+                            pdfPageIndex = 1,
+                        ),
+                    ),
+                "assets/source.pdf" to pdf,
+            )
+        val bytes = archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) })))
+
+        validator().validate(ByteArrayInputStream(bytes)).use { backup ->
+            assertEquals(setOf("page-1", "page-2"), backup.index.pageIds)
+        }
+    }
+
+    @Test
+    fun corruptInkIsRejectedBeforeRestore() = runTest {
+        val records =
+            records(
+                notebook(),
+                page(),
+                BackupStroke(
+                    "stroke",
+                    "page",
+                    0,
+                    "PRESSURE_PEN",
+                    0xFF000000.toInt(),
+                    3f,
+                    0.1f,
+                    byteArrayOf(1, 2, 3),
+                ),
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archiveWithChecksums(manifestBytes(1, 1, 0), records),
+        )
+    }
+
+    @Test
+    fun corruptReferencedImageIsRejectedBeforeRestore() = runTest {
+        val image = byteArrayOf(1, 2, 3)
+        val content =
+            listOf(
+                "manifest.json" to manifestBytes(1, 1, 1),
+                "records.jsonl" to
+                    records(
+                        notebook(),
+                        page(),
+                        BackupElement(
+                            "image",
+                            "page",
+                            0,
+                            "IMAGE",
+                            0f,
+                            0f,
+                            20f,
+                            20f,
+                            0f,
+                            null,
+                            "image.png",
+                            null,
+                            null,
+                            null,
+                        ),
+                    ),
+                "assets/image.png" to image,
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
+        )
+    }
+
+    @Test
+    fun multiplePageTextBlocksAreRejected() = runTest {
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(2, "test", 1L, 1, 1, 0, setOf("editable", "page-text")),
+        )
+        val records =
+            records(
+                notebook(),
+                page(),
+                BackupBlock("first", "page", 0, "PARAGRAPH", "First", false, 0, "START", null),
+                BackupBlock("second", "page", 1, "PARAGRAPH", "Second", false, 0, "START", null),
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archiveWithChecksums(manifestOutput.toString().toByteArray(), records),
+        )
+    }
+
+    @Test
+    fun v1PartlyOffPageElementRemainsCompatible() = runTest {
+        val records =
+            records(
+                notebook(),
+                page(),
+                BackupElement(
+                    "legacy",
+                    "page",
+                    0,
+                    "TEXT",
+                    40f,
+                    -12f,
+                    120f,
+                    24f,
+                    0f,
+                    "Legacy label",
+                    null,
+                    null,
+                    null,
+                    null,
+                ),
+            )
+
+        validator().validate(ByteArrayInputStream(archiveWithChecksums(manifestBytes(1, 1, 0), records))).close()
+    }
+
+    @Test
+    fun malformedPdfAssetIsRejectedBeforeRestore() = runTest {
+        val pdf = "%PDF-not-a-document".toByteArray()
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(3, "test", 1L, 1, 1, 1, setOf("editable", "assets", "pdf-sources")),
+        )
+        val content =
+            listOf(
+                "manifest.json" to manifestOutput.toString().toByteArray(),
+                "records.jsonl" to
+                    records(
+                        notebook(),
+                        BackupPdfSource(
+                            "source",
+                            "notebook",
+                            "source.pdf",
+                            "Source.pdf",
+                            1,
+                            pdf.size.toLong(),
+                            sha256(pdf),
+                            1L,
+                        ),
+                        BackupPage(
+                            "pdf-page",
+                            "notebook",
+                            0,
+                            "BLANK",
+                            595,
+                            842,
+                            pageMode = "PDF",
+                            pdfSourceId = "source",
+                            pdfPageIndex = 0,
+                        ),
+                    ),
+                "assets/source.pdf" to pdf,
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
+        )
+    }
+
+    @Test
     fun entryAndTotalExtractionLimitsAreEnforced() = runTest {
         val bytes = validArchive()
         assertFailure<BackupFailure.LimitExceeded>(
             bytes,
-            BackupValidator(stagingRoot, maxEntryBytes = 10, maxExtractedBytes = { Long.MAX_VALUE }),
+            BackupValidator(
+                stagingRoot,
+                pdfSandbox::inspect,
+                maxEntryBytes = 10,
+                maxExtractedBytes = { Long.MAX_VALUE },
+            ),
         )
         assertFailure<BackupFailure.LimitExceeded>(
             bytes,
-            BackupValidator(stagingRoot, maxEntryBytes = Long.MAX_VALUE, maxExtractedBytes = { 10 }),
+            BackupValidator(
+                stagingRoot,
+                pdfSandbox::inspect,
+                maxEntryBytes = Long.MAX_VALUE,
+                maxExtractedBytes = { 10 },
+            ),
         )
     }
 
@@ -153,6 +379,7 @@ class BackupValidatorTest {
     private fun validator() =
         BackupValidator(
             stagingRoot = stagingRoot,
+            inspectPdf = pdfSandbox::inspect,
             maxEntryBytes = 1024 * 1024,
             maxExtractedBytes = { 4L * 1024 * 1024 },
         )

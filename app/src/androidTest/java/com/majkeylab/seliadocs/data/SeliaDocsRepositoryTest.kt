@@ -48,6 +48,18 @@ class SeliaDocsRepositoryTest {
     }
 
     @Test
+    fun pageTextThatCannotFitIsRejectedWithoutChangingData() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val oversized = List(80) { "A full line" }.joinToString("\n")
+
+        val failure = runCatching { repository.updatePageText(page.id, oversized) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(repository.getBlocks(page.id).isEmpty())
+    }
+
+    @Test
     fun pageMovesRemainContiguousAndOrdered() = runTest {
         val notebookId = repository.createNotebook(request())
         repository.addPage(notebookId)
@@ -181,6 +193,89 @@ class SeliaDocsRepositoryTest {
         assertEquals("Copied", repository.getElements(duplicateId).single().text)
         assertTrue(repository.getStrokes(duplicateId).single().id != repository.getStrokes(page.id).single().id)
         assertTrue(repository.getElements(duplicateId).single().id != repository.getElements(page.id).single().id)
+    }
+
+    @Test
+    fun pageTextPersistsWhitespaceAndDuplicates() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val text = "Lecture title\n\n  Indented detail"
+
+        repository.updatePageText(page.id, text)
+        val source = repository.getBlocks(page.id).single()
+        val duplicateId = repository.duplicatePage(page.id)
+
+        assertEquals(text, source.text)
+        assertEquals(text, repository.getBlocks(duplicateId).single().text)
+        assertTrue(source.id != repository.getBlocks(duplicateId).single().id)
+
+        repository.updatePageText(page.id, "")
+        assertTrue(repository.getBlocks(page.id).isEmpty())
+    }
+
+    @Test
+    fun pageTextSearchReturnsExactPageAndTreatsWildcardsLiterally() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val first = repository.getPages(notebookId).single()
+        val secondId = repository.addPage(notebookId)
+        repository.updatePageText(first.id, "Ordinary lecture")
+        repository.updatePageText(secondId, "Efficiency is 95%_measured")
+
+        assertEquals(secondId, repository.searchPageText(notebookId, "95%_").single().pageId)
+        assertTrue(repository.searchPageText(notebookId, "missing").isEmpty())
+    }
+
+    @Test
+    fun chapterAssignmentPageTitleAndBookmarkPersist() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val chapterId = repository.createChapter(notebookId, "  Mechanics  ", 0xFF3156D9.toInt())
+
+        repository.assignPageToChapter(page.id, chapterId)
+        repository.renamePage(page.id, "  Newton's laws  ")
+        repository.setPageBookmarked(page.id, true)
+
+        val updated = repository.getPages(notebookId).single()
+        assertEquals("Mechanics", repository.getChapters(notebookId).single().title)
+        assertEquals(chapterId, updated.chapterId)
+        assertEquals("Newton's laws", updated.title)
+        assertTrue(updated.bookmarked)
+
+        repository.deleteChapter(chapterId)
+        assertTrue(repository.getChapters(notebookId).isEmpty())
+        assertEquals(null, repository.getPages(notebookId).single().chapterId)
+    }
+
+    @Test
+    fun pageCannotUseChapterFromAnotherNotebook() = runTest {
+        val firstNotebook = repository.createNotebook(request())
+        val secondNotebook = repository.createNotebook(request())
+        val page = repository.getPages(firstNotebook).single()
+        val foreignChapter = repository.createChapter(secondNotebook, "Foreign", 0)
+
+        val failure = runCatching { repository.assignPageToChapter(page.id, foreignChapter) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals(null, repository.getPages(firstNotebook).single().chapterId)
+    }
+
+    @Test
+    fun deletingLastPdfPageReturnsOrphanedSourceAsset() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val imported =
+            repository.importPdf(
+                notebookId,
+                "source.pdf",
+                "Source.pdf",
+                100,
+                "0".repeat(64),
+                listOf(PdfPageSpec(595, 842)),
+            )
+
+        val orphaned = repository.deletePage(imported.pageIds.single())
+
+        assertEquals("source.pdf", orphaned)
+        assertTrue(repository.getPdfSources(notebookId).isEmpty())
     }
 
     private fun request() =

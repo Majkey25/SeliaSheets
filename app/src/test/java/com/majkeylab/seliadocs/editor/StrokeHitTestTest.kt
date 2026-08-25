@@ -29,4 +29,12 @@ class StrokeHitTestTest {
         assertTrue(hitStroke(CanvasPoint(5f, 1f), 2f, stroke))
         assertFalse(hitStroke(CanvasPoint(5f, 3f), 2f, stroke))
     }
+
+    @Test
+    fun fastEraserCrossingHitsSparseStrokeSegment() {
+        val stroke = StrokePath("line", listOf(CanvasPoint(0f, 50f), CanvasPoint(100f, 50f)))
+        val eraser = listOf(CanvasPoint(50f, 0f), CanvasPoint(50f, 100f))
+
+        assertTrue(hitStrokePath(eraser, 1f, stroke))
+    }
 }

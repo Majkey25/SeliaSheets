@@ -8,12 +8,12 @@
 
 ## Signing
 
-Release signing is configured only when `SELIADOCS_KEYSTORE_PROPERTIES` points to a local properties file with:
+Release signing is configured when `SELIA_SHEETS_KEYSTORE_PROPERTIES` points to a local properties file with:
 
 ```properties
-storeFile=C:/absolute/path/seliadocs-upload.jks
+storeFile=C:/absolute/path/selia-sheets-upload.jks
 storePassword=...
-keyAlias=perko-upload
+keyAlias=...
 keyPassword=...
 ```
 
@@ -24,4 +24,4 @@ Expected artifacts:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/bundle/release/app-release.aab`
 
-Verify checksums before attaching artifacts to a GitHub release or uploading the AAB to Google Play.
+You can also pass the file path as `-PseliaSheetsKeystoreProperties=C:/path/keystore.properties`. Verify checksums before attaching artifacts to a GitHub release or uploading the AAB to Google Play. The legacy `SELIADOCS_KEYSTORE_PROPERTIES` variable remains supported for existing local setups.

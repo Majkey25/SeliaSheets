@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.R
 
-internal const val PRIVACY_URL = "https://majkey25.github.io/SeliaDocs/privacy/"
-internal const val SOURCE_URL = "https://github.com/Majkey25/SeliaDocs"
+internal const val PRIVACY_URL = "https://majkey25.github.io/SeliaSheets/privacy/"
+internal const val SOURCE_URL = "https://github.com/Majkey25/SeliaSheets"
 
 @Composable
 internal fun AppDetailsSection() {
@@ -76,7 +76,7 @@ internal fun AppDetailsSection() {
                 modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(10.dp))
-            Text(stringResource(R.string.support_perko))
+            Text(stringResource(R.string.support_app))
         }
     }
 }

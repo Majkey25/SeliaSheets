@@ -2,7 +2,8 @@ package com.majkeylab.seliadocs.backup
 
 import java.io.IOException
 
-internal const val BACKUP_FORMAT_VERSION = 1
+internal const val BACKUP_FORMAT_VERSION = 3
+internal const val MIN_BACKUP_FORMAT_VERSION = 1
 
 internal data class BackupManifest(
     val formatVersion: Int,
@@ -61,6 +62,33 @@ internal data class BackupPage(
     val paper: String,
     val widthPoints: Int,
     val heightPoints: Int,
+    val chapterId: String? = null,
+    val title: String? = null,
+    val pageMode: String = "PAPER",
+    val bookmarked: Boolean = false,
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0,
+    val pdfSourceId: String? = null,
+    val pdfPageIndex: Int? = null,
+) : BackupRecord
+
+internal data class BackupChapter(
+    val id: String,
+    val notebookId: String,
+    val title: String,
+    val colorArgb: Int,
+    val orderIndex: Int,
+) : BackupRecord
+
+internal data class BackupPdfSource(
+    val id: String,
+    val notebookId: String,
+    val assetId: String,
+    val displayName: String,
+    val pageCount: Int,
+    val byteSize: Long,
+    val sha256: String,
+    val createdAt: Long,
 ) : BackupRecord
 
 internal data class BackupStroke(
@@ -89,6 +117,18 @@ internal data class BackupElement(
     val shapeKind: String?,
     val expression: String?,
     val resultText: String?,
+) : BackupRecord
+
+internal data class BackupBlock(
+    val id: String,
+    val pageId: String,
+    val orderIndex: Int,
+    val kind: String,
+    val text: String?,
+    val checked: Boolean,
+    val indent: Int,
+    val alignment: String,
+    val payloadId: String?,
 ) : BackupRecord
 
 internal sealed class BackupFailure(message: String, cause: Throwable? = null) :

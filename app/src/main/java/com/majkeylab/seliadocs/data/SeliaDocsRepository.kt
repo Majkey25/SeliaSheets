@@ -22,11 +22,20 @@ internal class SeliaDocsRepository(
     fun observePages(notebookId: String): Flow<List<PageEntity>> =
         notebooks.observePages(notebookId)
 
+    fun observeChapters(notebookId: String): Flow<List<ChapterEntity>> =
+        notebooks.observeChapters(notebookId)
+
+    fun observePdfSources(notebookId: String): Flow<List<PdfSourceEntity>> =
+        notebooks.observePdfSources(notebookId)
+
     fun observeStrokes(pageId: String): Flow<List<StrokeEntity>> =
         pageContent.observeStrokes(pageId)
 
     fun observeElements(pageId: String): Flow<List<ElementEntity>> =
         pageContent.observeElements(pageId)
+
+    fun observeBlocks(pageId: String): Flow<List<BlockEntity>> =
+        pageContent.observeBlocks(pageId)
 
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()
@@ -59,6 +68,8 @@ internal class SeliaDocsRepository(
                     paper = request.paper.name,
                     widthPoints = width,
                     heightPoints = height,
+                    createdAt = now,
+                    updatedAt = now,
                 ),
             )
         }
@@ -72,12 +83,184 @@ internal class SeliaDocsRepository(
 
     suspend fun getPages(notebookId: String): List<PageEntity> = notebooks.getPages(notebookId)
 
+    suspend fun getChapters(notebookId: String): List<ChapterEntity> = notebooks.getChapters(notebookId)
+
+    suspend fun getPdfSources(notebookId: String): List<PdfSourceEntity> = notebooks.getPdfSources(notebookId)
+
+    suspend fun getPdfSource(id: String): PdfSourceEntity =
+        requireNotNull(notebooks.getPdfSource(id)) { "PDF source not found" }
+
     suspend fun getStrokes(pageId: String): List<StrokeEntity> = pageContent.getStrokes(pageId)
 
     suspend fun getElements(pageId: String): List<ElementEntity> = pageContent.getElements(pageId)
 
+    suspend fun getBlocks(pageId: String): List<BlockEntity> = pageContent.getBlocks(pageId)
+
+    suspend fun searchPageText(notebookId: String, query: String): List<PageTextMatch> {
+        val normalized = query.trim()
+        if (normalized.isEmpty()) return emptyList()
+        val escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return pageContent.searchPageText(notebookId, escaped)
+    }
+
     suspend fun getAssetReferenceCount(assetId: String): Int =
         pageContent.getAssetReferenceCount(assetId)
+
+    suspend fun getReferencedAssetIds(): Set<String> =
+        (pageContent.getAllElementAssetIds() + notebooks.getAllPdfAssetIds()).toSet()
+
+    suspend fun importPdf(
+        notebookId: String,
+        assetId: String,
+        displayName: String,
+        byteSize: Long,
+        sha256: String,
+        pages: List<PdfPageSpec>,
+    ): PdfImportResult {
+        require(assetId.isNotBlank() && displayName.isNotBlank() && byteSize > 0L)
+        require(sha256.matches(Regex("[0-9a-f]{64}")))
+        require(pages.isNotEmpty() && pages.size <= 2_000)
+        require(pages.all { it.widthPoints in 1..14_400 && it.heightPoints in 1..14_400 })
+        val sourceId = idFactory()
+        val pageIds = List(pages.size) { idFactory() }
+        val now = clock()
+        database.withTransaction {
+            val notebook = getNotebook(notebookId)
+            notebooks.insertPdfSource(
+                PdfSourceEntity(
+                    id = sourceId,
+                    notebookId = notebookId,
+                    assetId = assetId,
+                    displayName = displayName.trim().take(255),
+                    pageCount = pages.size,
+                    byteSize = byteSize,
+                    sha256 = sha256,
+                    createdAt = now,
+                ),
+            )
+            val firstIndex = (notebooks.getMaxPageIndex(notebookId) ?: -1) + 1
+            pages.forEachIndexed { index, spec ->
+                notebooks.insertPage(
+                    PageEntity(
+                        id = pageIds[index],
+                        notebookId = notebookId,
+                        pageIndex = firstIndex + index,
+                        paper = PaperTemplate.BLANK.name,
+                        widthPoints = spec.widthPoints,
+                        heightPoints = spec.heightPoints,
+                        title = displayName.substringBeforeLast('.').take(160).takeIf(String::isNotBlank),
+                        pageMode = PageMode.PDF.name,
+                        createdAt = now,
+                        updatedAt = now,
+                        pdfSourceId = sourceId,
+                        pdfPageIndex = index,
+                    ),
+                )
+            }
+            touch(notebook)
+        }
+        return PdfImportResult(sourceId, pageIds)
+    }
+
+    suspend fun updatePageText(pageId: String, text: String) {
+        require(text.length <= PAGE_TEXT_MAX_LENGTH)
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            require(pageTextFits(text, page.widthPoints, page.heightPoints)) { "Page text exceeds printable area" }
+            val blocks = pageContent.getBlocks(pageId)
+            require(blocks.size <= 1) { "Paper page text must use one block" }
+            val existing = blocks.firstOrNull()
+            when {
+                text.isEmpty() -> pageContent.deleteBlocks(pageId)
+                existing == null ->
+                    pageContent.insertBlock(
+                        BlockEntity(
+                            id = idFactory(),
+                            pageId = pageId,
+                            orderIndex = 0,
+                            kind = BlockKind.PARAGRAPH.name,
+                            text = text,
+                            checked = false,
+                            indent = 0,
+                            alignment = "START",
+                            payloadId = null,
+                        ),
+                    )
+                else -> pageContent.updateBlock(existing.copy(text = text))
+            }
+            val now = clock()
+            notebooks.updatePage(page.copy(updatedAt = now))
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+    }
+
+    suspend fun createChapter(notebookId: String, title: String, colorArgb: Int): String {
+        val normalized = title.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 120)
+        val id = idFactory()
+        database.withTransaction {
+            val notebook = getNotebook(notebookId)
+            notebooks.insertChapter(
+                ChapterEntity(
+                    id = id,
+                    notebookId = notebookId,
+                    title = normalized,
+                    colorArgb = colorArgb,
+                    orderIndex = (notebooks.getMaxChapterIndex(notebookId) ?: -1) + 1,
+                ),
+            )
+            touch(notebook)
+        }
+        return id
+    }
+
+    suspend fun renameChapter(id: String, title: String) {
+        val normalized = title.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 120)
+        database.withTransaction {
+            val chapter = requireNotNull(notebooks.getChapter(id)) { "Chapter not found" }
+            notebooks.updateChapter(chapter.copy(title = normalized))
+            touch(getNotebook(chapter.notebookId))
+        }
+    }
+
+    suspend fun deleteChapter(id: String) {
+        database.withTransaction {
+            val chapter = requireNotNull(notebooks.getChapter(id)) { "Chapter not found" }
+            notebooks.clearChapterFromPages(id)
+            notebooks.deleteChapter(chapter)
+            touch(getNotebook(chapter.notebookId))
+        }
+    }
+
+    suspend fun assignPageToChapter(pageId: String, chapterId: String?) {
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val chapter = chapterId?.let { requireNotNull(notebooks.getChapter(it)) { "Chapter not found" } }
+            require(chapter == null || chapter.notebookId == page.notebookId) { "Chapter belongs to another notebook" }
+            val now = clock()
+            notebooks.updatePage(page.copy(chapterId = chapterId, updatedAt = now))
+            touch(getNotebook(page.notebookId))
+        }
+    }
+
+    suspend fun renamePage(pageId: String, title: String?) {
+        val normalized = title?.trim()?.takeIf(String::isNotEmpty)
+        require(normalized == null || normalized.length <= 160)
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            notebooks.updatePage(page.copy(title = normalized, updatedAt = clock()))
+            touch(getNotebook(page.notebookId))
+        }
+    }
+
+    suspend fun setPageBookmarked(pageId: String, bookmarked: Boolean) {
+        database.withTransaction {
+            val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            notebooks.updatePage(page.copy(bookmarked = bookmarked, updatedAt = clock()))
+            touch(getNotebook(page.notebookId))
+        }
+    }
 
     suspend fun addStroke(pageId: String, payload: StrokePayload): String {
         val id = idFactory()
@@ -232,15 +415,22 @@ internal class SeliaDocsRepository(
         pageId: String,
         strokes: List<StrokeEntity>,
         elements: List<ElementEntity>,
+        blocks: List<BlockEntity>,
     ) {
-        require(strokes.all { it.pageId == pageId } && elements.all { it.pageId == pageId })
+        require(
+            strokes.all { it.pageId == pageId } &&
+                elements.all { it.pageId == pageId } &&
+                blocks.all { it.pageId == pageId },
+        )
         elements.forEach(::validateElement)
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.deleteStrokes(pageId)
             pageContent.deleteElements(pageId)
+            pageContent.deleteBlocks(pageId)
             if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
             if (elements.isNotEmpty()) pageContent.insertElements(elements)
+            if (blocks.isNotEmpty()) pageContent.insertBlocks(blocks)
             touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
         }
     }
@@ -260,6 +450,8 @@ internal class SeliaDocsRepository(
                     paper = notebook.defaultPaper,
                     widthPoints = width,
                     heightPoints = height,
+                    createdAt = clock(),
+                    updatedAt = clock(),
                 ),
             )
             touch(notebook)
@@ -283,6 +475,7 @@ internal class SeliaDocsRepository(
             val source = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             val sourceStrokes = pageContent.getStrokes(pageId)
             val sourceElements = pageContent.getElements(pageId)
+            val sourceBlocks = pageContent.getBlocks(pageId)
             val pages = notebooks.getPages(source.notebookId).toMutableList()
             val duplicate = source.copy(id = newId, pageIndex = source.pageIndex + 1)
             pages.add(source.pageIndex + 1, duplicate)
@@ -293,21 +486,31 @@ internal class SeliaDocsRepository(
             sourceElements.forEach { element ->
                 pageContent.insertElement(element.copy(id = idFactory(), pageId = newId))
             }
+            sourceBlocks.forEach { block ->
+                pageContent.insertBlock(block.copy(id = idFactory(), pageId = newId))
+            }
             replacePageOrder(source.notebookId, pages)
             touch(requireNotNull(notebooks.getNotebook(source.notebookId)))
         }
         return newId
     }
 
-    suspend fun deletePage(pageId: String) {
+    suspend fun deletePage(pageId: String): String? =
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             require(notebooks.getPageCount(page.notebookId) > 1) { "A notebook needs one page" }
             notebooks.deletePage(page)
             replacePageOrder(page.notebookId, notebooks.getPages(page.notebookId))
             touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            page.pdfSourceId?.let { sourceId ->
+                if (notebooks.getPdfPageReferenceCount(sourceId) == 0) {
+                    val source = requireNotNull(notebooks.getPdfSource(sourceId))
+                    notebooks.deletePdfSource(source)
+                    return@withTransaction source.assetId
+                }
+            }
+            null
         }
-    }
 
     suspend fun renameNotebook(id: String, title: String) {
         val normalized = title.trim()
@@ -339,6 +542,9 @@ internal class SeliaDocsRepository(
             pages = pages,
             strokes = pageContent.getStrokes(pageIds),
             elements = pageContent.getElements(pageIds),
+            blocks = pageContent.getBlocks(pageIds),
+            chapters = notebooks.getChapters(id),
+            pdfSources = notebooks.getPdfSources(id),
         )
     }
 
@@ -412,4 +618,5 @@ internal class SeliaDocsRepository(
             expression = draft.expression,
             resultText = draft.resultText,
         )
+
 }

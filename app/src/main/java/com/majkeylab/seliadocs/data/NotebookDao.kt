@@ -72,4 +72,55 @@ internal interface NotebookDao {
 
     @Query("DELETE FROM notebooks")
     suspend fun clearNotebooks()
+
+    @Insert
+    suspend fun insertChapter(chapter: ChapterEntity)
+
+    @Update
+    suspend fun updateChapter(chapter: ChapterEntity)
+
+    @Delete
+    suspend fun deleteChapter(chapter: ChapterEntity)
+
+    @Query("SELECT * FROM chapters WHERE id = :id")
+    suspend fun getChapter(id: String): ChapterEntity?
+
+    @Query("SELECT * FROM chapters WHERE notebookId = :notebookId ORDER BY orderIndex")
+    suspend fun getChapters(notebookId: String): List<ChapterEntity>
+
+    @Query("SELECT id FROM chapters")
+    suspend fun getAllChapterIds(): List<String>
+
+    @Query("SELECT * FROM chapters WHERE notebookId = :notebookId ORDER BY orderIndex")
+    fun observeChapters(notebookId: String): Flow<List<ChapterEntity>>
+
+    @Query("SELECT MAX(orderIndex) FROM chapters WHERE notebookId = :notebookId")
+    suspend fun getMaxChapterIndex(notebookId: String): Int?
+
+    @Query("UPDATE pages SET chapterId = NULL WHERE chapterId = :chapterId")
+    suspend fun clearChapterFromPages(chapterId: String)
+
+    @Insert
+    suspend fun insertPdfSource(source: PdfSourceEntity)
+
+    @Delete
+    suspend fun deletePdfSource(source: PdfSourceEntity)
+
+    @Query("SELECT * FROM pdf_sources WHERE id = :id")
+    suspend fun getPdfSource(id: String): PdfSourceEntity?
+
+    @Query("SELECT * FROM pdf_sources WHERE notebookId = :notebookId ORDER BY createdAt, id")
+    suspend fun getPdfSources(notebookId: String): List<PdfSourceEntity>
+
+    @Query("SELECT * FROM pdf_sources WHERE notebookId = :notebookId ORDER BY createdAt, id")
+    fun observePdfSources(notebookId: String): Flow<List<PdfSourceEntity>>
+
+    @Query("SELECT id FROM pdf_sources")
+    suspend fun getAllPdfSourceIds(): List<String>
+
+    @Query("SELECT assetId FROM pdf_sources")
+    suspend fun getAllPdfAssetIds(): List<String>
+
+    @Query("SELECT COUNT(*) FROM pages WHERE pdfSourceId = :sourceId")
+    suspend fun getPdfPageReferenceCount(sourceId: String): Int
 }

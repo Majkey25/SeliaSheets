@@ -1,5 +1,5 @@
 # Third-Party Notices
 
-SeliaDocs includes open-source Android and Kotlin components, including AndroidX Activity, Compose, DataStore, Ink, Lifecycle, Room, Test, and Kotlin Coroutines. These components are distributed under their respective licenses, primarily Apache License 2.0.
+SeliaSheets includes open-source Android and Kotlin components, including AndroidX Activity, Compose, DataStore, Ink, Lifecycle, Room, Test, and Kotlin Coroutines. These components are distributed under their respective licenses, primarily Apache License 2.0.
 
-Dependency versions are declared in [`app/build.gradle.kts`](app/build.gradle.kts). Android launcher artwork and SeliaDocs branding are original project assets.
+Dependency versions are declared in [`app/build.gradle.kts`](app/build.gradle.kts). Android launcher artwork and SeliaSheets branding are original project assets.

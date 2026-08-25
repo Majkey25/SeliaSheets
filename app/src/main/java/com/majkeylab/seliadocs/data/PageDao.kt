@@ -77,4 +77,43 @@ internal interface PageDao {
 
     @Query("SELECT COUNT(*) FROM elements WHERE assetId = :assetId")
     suspend fun getAssetReferenceCount(assetId: String): Int
+
+    @Query("SELECT DISTINCT assetId FROM elements WHERE assetId IS NOT NULL")
+    suspend fun getAllElementAssetIds(): List<String>
+
+    @Insert
+    suspend fun insertBlock(block: BlockEntity)
+
+    @Insert
+    suspend fun insertBlocks(blocks: List<BlockEntity>)
+
+    @Update
+    suspend fun updateBlock(block: BlockEntity)
+
+    @Query("DELETE FROM blocks WHERE pageId = :pageId")
+    suspend fun deleteBlocks(pageId: String)
+
+    @Query("SELECT * FROM blocks WHERE pageId = :pageId ORDER BY orderIndex")
+    suspend fun getBlocks(pageId: String): List<BlockEntity>
+
+    @Query("SELECT id FROM blocks")
+    suspend fun getAllBlockIds(): List<String>
+
+    @Query("SELECT * FROM blocks WHERE pageId IN (:pageIds) ORDER BY pageId, orderIndex")
+    suspend fun getBlocks(pageIds: List<String>): List<BlockEntity>
+
+    @Query("SELECT * FROM blocks WHERE pageId = :pageId ORDER BY orderIndex")
+    fun observeBlocks(pageId: String): Flow<List<BlockEntity>>
+
+    @Query(
+        """SELECT pages.id AS pageId, pages.pageIndex AS pageIndex, COALESCE(blocks.text, '') AS text
+            FROM blocks
+            INNER JOIN pages ON pages.id = blocks.pageId
+            WHERE pages.notebookId = :notebookId
+              AND blocks.text COLLATE NOCASE LIKE '%' || :escapedQuery || '%' ESCAPE '\'
+            ORDER BY pages.pageIndex, blocks.orderIndex
+            LIMIT 100
+        """,
+    )
+    suspend fun searchPageText(notebookId: String, escapedQuery: String): List<PageTextMatch>
 }

@@ -12,3 +12,5 @@
 Thumbs.db
 /dist/
 /.worktrees/
+/.reference/
+/.repo_graph/

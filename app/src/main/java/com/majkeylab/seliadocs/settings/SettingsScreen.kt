@@ -139,6 +139,11 @@ internal fun SettingsScreen(
                         range = 8f..40f,
                         color = Color(0x66FFD54F),
                     ) { onUpdate(settings.copy(highlighterWidth = it)) }
+                    SwitchSetting(
+                        stringResource(R.string.shape_assist),
+                        settings.shapeAssist,
+                    ) { onUpdate(settings.copy(shapeAssist = it)) }
+                    InfoText(stringResource(R.string.shape_assist_hint))
                 }
             }
             item {

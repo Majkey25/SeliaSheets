@@ -3,13 +3,13 @@
 ## App setup
 
 - Package: `com.majkeylab.seliadocs`
-- App name: `SeliaDocs`
+- App name: `SeliaSheets`
 - Default language: English (United States)
 - App or game: App
 - Free or paid: Free
 - Category: Productivity
 - Contact email: `majkeylab@gmail.com`
-- Privacy policy: `https://majkey25.github.io/SeliaDocs/privacy/`
+- Privacy policy: `https://majkey25.github.io/SeliaSheets/privacy/`
 
 ## Declarations
 
@@ -31,7 +31,7 @@
 ## Release
 
 1. Enroll in Play App Signing.
-2. Upload the signed `app-release.aab` with version code 1.
-3. Start with Internal testing while all dashboard declarations are completed.
-4. If this developer account is subject to the personal-account production-access requirement, complete the required closed test before requesting production access.
+2. Upload the signed `app-release.aab` with version code 2.
+3. Create a closed testing track after all dashboard declarations are complete.
+4. Add the required tester list and publish the closed release.
 5. Do not publish to production until Play reports zero blocking tasks and the hosted privacy URL is live.

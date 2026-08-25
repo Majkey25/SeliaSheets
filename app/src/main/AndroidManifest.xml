@@ -15,5 +15,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".pdf.PdfRenderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":pdf_renderer" />
     </application>
 </manifest>

@@ -26,11 +26,16 @@ class PageFlowTest {
         val title = "Pages ${System.nanoTime()}"
         createNotebook(title)
         rule.onNodeWithText(title).performClick()
+        rule.waitForIdle()
+        val usesSheet = rule.onAllNodes(hasTestTag("page-thumbnail")).fetchSemanticsNodes().isEmpty()
+        if (usesSheet) rule.onNodeWithText("Contents").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasTestTag("page-thumbnail")).fetchSemanticsNodes().size == 1
         }
 
+        if (usesSheet) pressBack()
         rule.onNodeWithContentDescription("Add page").performClick()
+        if (usesSheet) rule.onNodeWithText("Contents").performClick()
         waitForPageCount(2)
         rule.onNodeWithContentDescription("Page 2 actions").performClick()
         rule.onNodeWithText("Duplicate page").performClick()
@@ -40,8 +45,9 @@ class PageFlowTest {
         rule.onNodeWithText("Delete").performClick()
         waitForPageCount(2)
 
+        if (usesSheet) pressBack()
         pressBack()
-        rule.onNodeWithText("SeliaDocs").assertIsDisplayed()
+        rule.onNodeWithText("SeliaSheets").assertIsDisplayed()
     }
 
     private fun createNotebook(title: String) {

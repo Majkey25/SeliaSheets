@@ -20,6 +20,7 @@ internal data class AppSettings(
     val defaultOrientation: PageOrientation = PageOrientation.PORTRAIT,
     val theme: AppTheme = AppTheme.SYSTEM,
     val pageTransition: Boolean = true,
+    val shapeAssist: Boolean = true,
 ) {
     fun validated(): AppSettings =
         copy(

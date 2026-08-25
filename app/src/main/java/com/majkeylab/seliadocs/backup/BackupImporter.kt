@@ -2,9 +2,12 @@ package com.majkeylab.seliadocs.backup
 
 import androidx.room.withTransaction
 import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.data.BlockEntity
+import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
+import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.data.StrokeEntity
@@ -64,14 +67,20 @@ internal class BackupImporter(
                 emptySet()
             }
         val existingPages = if (keepExisting) notebooks.getAllPageIds().toSet() else emptySet()
+        val existingChapters = if (keepExisting) notebooks.getAllChapterIds().toSet() else emptySet()
+        val existingPdfSources = if (keepExisting) notebooks.getAllPdfSourceIds().toSet() else emptySet()
         val existingStrokes = if (keepExisting) pageContent.getAllStrokeIds().toSet() else emptySet()
         val existingElements = if (keepExisting) pageContent.getAllElementIds().toSet() else emptySet()
+        val existingBlocks = if (keepExisting) pageContent.getAllBlockIds().toSet() else emptySet()
         val notebookMap = mapIds(backup.index.notebookIds, existingNotebooks)
+        val chapterMap = mapIds(backup.index.chapterIds, existingChapters)
+        val pdfSourceMap = mapIds(backup.index.pdfSourceIds, existingPdfSources)
         val pageMap = mapIds(backup.index.pageIds, existingPages)
         val strokeMap = mapIds(backup.index.strokeIds, existingStrokes)
         val elementMap = mapIds(backup.index.elementIds, existingElements)
+        val blockMap = mapIds(backup.index.blockIds, existingBlocks)
         val assetMap = mapAssetIds(backup.index.assetIds, assets.files().mapTo(mutableSetOf(), File::getName))
-        return IdMappings(notebookMap, pageMap, strokeMap, elementMap, assetMap)
+        return IdMappings(notebookMap, chapterMap, pdfSourceMap, pageMap, strokeMap, elementMap, blockMap, assetMap)
     }
 
     private fun mapIds(imported: Set<String>, existing: Set<String>): Map<String, String> {
@@ -105,7 +114,7 @@ internal class BackupImporter(
         if ((!stagingRoot.isDirectory && !stagingRoot.mkdirs()) || !stagingRoot.canWrite()) {
             throw BackupFailure.RestoreFailed(IOException("Rollback storage unavailable"))
         }
-        val file = File(stagingRoot, "rollback-${idFactory()}.seliadocs")
+        val file = File(stagingRoot, "rollback-${idFactory()}.seliasheets")
         try {
             file.outputStream().buffered().use { output ->
                 BackupExporter(repository, assets, appVersion).export(BackupScope.Library, output)
@@ -159,6 +168,12 @@ internal class BackupImporter(
             forEachRecord<BackupNotebook>(recordsFile) { record ->
                 notebooks.insertNotebook(record.toEntity(mappings))
             }
+            forEachRecord<BackupChapter>(recordsFile) { record ->
+                notebooks.insertChapter(record.toEntity(mappings))
+            }
+            forEachRecord<BackupPdfSource>(recordsFile) { record ->
+                notebooks.insertPdfSource(record.toEntity(mappings))
+            }
             forEachRecord<BackupPage>(recordsFile) { record ->
                 notebooks.insertPage(record.toEntity(mappings))
             }
@@ -167,6 +182,9 @@ internal class BackupImporter(
             }
             forEachRecord<BackupElement>(recordsFile) { record ->
                 pageContent.insertElement(record.toEntity(mappings))
+            }
+            forEachRecord<BackupBlock>(recordsFile) { record ->
+                pageContent.insertBlock(record.toEntity(mappings))
             }
         }
     }
@@ -205,6 +223,14 @@ internal class BackupImporter(
             paper = paper,
             widthPoints = widthPoints,
             heightPoints = heightPoints,
+            chapterId = chapterId?.let(mappings.chapters::getValue),
+            title = title,
+            pageMode = pageMode,
+            bookmarked = bookmarked,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            pdfSourceId = pdfSourceId?.let(mappings.pdfSources::getValue),
+            pdfPageIndex = pdfPageIndex,
         )
 
     private fun BackupStroke.toEntity(mappings: IdMappings) =
@@ -217,6 +243,27 @@ internal class BackupImporter(
             size = size,
             epsilon = epsilon,
             inputs = inputs,
+        )
+
+    private fun BackupChapter.toEntity(mappings: IdMappings) =
+        ChapterEntity(
+            id = mappings.chapters.getValue(id),
+            notebookId = mappings.notebooks.getValue(notebookId),
+            title = title,
+            colorArgb = colorArgb,
+            orderIndex = orderIndex,
+        )
+
+    private fun BackupPdfSource.toEntity(mappings: IdMappings) =
+        PdfSourceEntity(
+            id = mappings.pdfSources.getValue(id),
+            notebookId = mappings.notebooks.getValue(notebookId),
+            assetId = mappings.assets.getValue(assetId),
+            displayName = displayName,
+            pageCount = pageCount,
+            byteSize = byteSize,
+            sha256 = sha256,
+            createdAt = createdAt,
         )
 
     private fun BackupElement.toEntity(mappings: IdMappings) =
@@ -237,16 +284,32 @@ internal class BackupImporter(
             resultText = resultText,
         )
 
+    private fun BackupBlock.toEntity(mappings: IdMappings) =
+        BlockEntity(
+            id = mappings.blocks.getValue(id),
+            pageId = mappings.pages.getValue(pageId),
+            orderIndex = orderIndex,
+            kind = kind,
+            text = text,
+            checked = checked,
+            indent = indent,
+            alignment = alignment,
+            payloadId = payloadId,
+        )
+
     private data class IdMappings(
         val notebooks: Map<String, String>,
+        val chapters: Map<String, String>,
+        val pdfSources: Map<String, String>,
         val pages: Map<String, String>,
         val strokes: Map<String, String>,
         val elements: Map<String, String>,
+        val blocks: Map<String, String>,
         val assets: Map<String, String>,
     ) {
         val remappedCount: Int
             get() =
-                listOf(notebooks, pages, strokes, elements, assets)
+                listOf(notebooks, chapters, pdfSources, pages, strokes, elements, blocks, assets)
                     .sumOf { mapping -> mapping.count { (source, target) -> source != target } }
     }
 

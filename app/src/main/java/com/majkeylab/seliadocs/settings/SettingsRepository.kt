@@ -43,6 +43,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
                 enumValue(preferences[Keys.defaultOrientation], PageOrientation.PORTRAIT),
             theme = enumValue(preferences[Keys.theme], AppTheme.SYSTEM),
             pageTransition = preferences[Keys.pageTransition] ?: true,
+            shapeAssist = preferences[Keys.shapeAssist] ?: true,
         ).validated()
 
     private fun encode(preferences: androidx.datastore.preferences.core.MutablePreferences, value: AppSettings) {
@@ -56,6 +57,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.defaultOrientation] = value.defaultOrientation.name
         preferences[Keys.theme] = value.theme.name
         preferences[Keys.pageTransition] = value.pageTransition
+        preferences[Keys.shapeAssist] = value.shapeAssist
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: String?, fallback: T): T =
@@ -72,6 +74,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val defaultOrientation = stringPreferencesKey("default_orientation")
         val theme = stringPreferencesKey("theme")
         val pageTransition = booleanPreferencesKey("page_transition")
+        val shapeAssist = booleanPreferencesKey("shape_assist")
     }
 
     companion object {

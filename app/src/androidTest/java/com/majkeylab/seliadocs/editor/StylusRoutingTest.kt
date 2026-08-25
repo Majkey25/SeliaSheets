@@ -88,6 +88,94 @@ class StylusRoutingTest {
     }
 
     @Test
+    fun canceledFingerPointerDoesNotCancelActiveStylus() {
+        val committed = CountDownLatch(1)
+        val canceled = mutableListOf<Int>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            committed.countDown()
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) {
+                            canceled += pointerId
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                view.post {
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusAndFingerEvent(
+                            downTime,
+                            downTime + 8,
+                            pointerAction(MotionEvent.ACTION_POINTER_DOWN, 1),
+                        ),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusAndFingerEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusAndFingerEvent(
+                            downTime,
+                            downTime + 24,
+                            pointerAction(MotionEvent.ACTION_POINTER_UP, 1),
+                            MotionEvent.FLAG_CANCELED,
+                        ),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 120f, 130f),
+                    )
+                }
+            }
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
+        }
+        assertTrue(canceled.isEmpty())
+    }
+
+    @Test
+    fun secondFingerCancelsActiveFingerStrokeBeforePinch() {
+        val canceled = mutableListOf<Int>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.fingerDrawing = true
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) = Unit
+
+                        override fun onStrokeCanceled(pointerId: Int) {
+                            canceled += pointerId
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(
+                    fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
+                )
+                view.dispatchTouchEvent(
+                    twoFingerEvent(
+                        downTime,
+                        downTime + 8,
+                        pointerAction(MotionEvent.ACTION_POINTER_DOWN, 1),
+                    ),
+                )
+            }
+        }
+
+        assertTrue(canceled == listOf(0))
+    }
+
+    @Test
     fun hardwareEraserEmitsEraseGestureWithoutInk() {
         val erased = CountDownLatch(1)
         val finished = mutableListOf<Stroke>()
@@ -213,6 +301,141 @@ class StylusRoutingTest {
             flags,
         )
     }
+
+    private fun stylusAndFingerEvent(
+        downTime: Long,
+        eventTime: Long,
+        action: Int,
+        flags: Int = 0,
+    ): MotionEvent {
+        val properties =
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_STYLUS
+                },
+                MotionEvent.PointerProperties().apply {
+                    id = 1
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                },
+            )
+        val coordinates =
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    x = 90f
+                    y = 100f
+                    pressure = 0.7f
+                    size = 0.1f
+                },
+                MotionEvent.PointerCoords().apply {
+                    x = 260f
+                    y = 300f
+                    pressure = 0.8f
+                    size = 0.8f
+                },
+            )
+        return MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            properties.size,
+            properties,
+            coordinates,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_STYLUS,
+            flags,
+        )
+    }
+
+    private fun fingerEvent(
+        downTime: Long,
+        eventTime: Long,
+        action: Int,
+        x: Float,
+        y: Float,
+    ): MotionEvent {
+        val properties =
+            MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        val coordinates =
+            MotionEvent.PointerCoords().apply {
+                this.x = x
+                this.y = y
+                pressure = 0.8f
+                size = 0.8f
+            }
+        return MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            1,
+            arrayOf(properties),
+            arrayOf(coordinates),
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            0,
+        )
+    }
+
+    private fun twoFingerEvent(downTime: Long, eventTime: Long, action: Int): MotionEvent {
+        val properties =
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                },
+                MotionEvent.PointerProperties().apply {
+                    id = 1
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                },
+            )
+        val coordinates =
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    x = 40f
+                    y = 50f
+                    pressure = 0.8f
+                    size = 0.8f
+                },
+                MotionEvent.PointerCoords().apply {
+                    x = 260f
+                    y = 300f
+                    pressure = 0.8f
+                    size = 0.8f
+                },
+            )
+        return MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            properties.size,
+            properties,
+            coordinates,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            0,
+        )
+    }
+
+    private fun pointerAction(action: Int, pointerIndex: Int): Int =
+        action or (pointerIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
 
     private fun exactly(size: Int): Int =
         android.view.View.MeasureSpec.makeMeasureSpec(size, android.view.View.MeasureSpec.EXACTLY)

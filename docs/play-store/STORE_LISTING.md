@@ -2,19 +2,21 @@
 
 ## Main listing
 
-**App name:** SeliaDocs
+**App name:** SeliaSheets
 
 **Default language:** English (United States)
 
-**Short description:** Private notebooks for handwriting, images, shapes, math, and PDF export.
+**Short description:** Private study notebooks for handwriting, typing, PDFs, shapes, and math.
 
 **Full description**
 
-SeliaDocs turns an Android tablet or phone into a private paper notebook.
+SeliaSheets turns an Android tablet or phone into a private backpack of paper notebooks.
 
-Start with an illustrated Ruled notes, Grid notebook, Dotted journal, or Blank sketchbook template. A live preview shows the real cover, paper, and orientation before creation. Customize the result and organize real ordered pages. Write with a stylus using pressure and tilt, switch between pen, pencil, and highlighter, erase complete strokes, select with a lasso, and undo or redo up to 100 editing steps.
+Start with an illustrated ruled, grid, dotted, or blank template. A live preview shows the cover, paper, and orientation before creation. Organize ordered pages into chapters, add page titles and bookmarks, and search typed page text.
 
-Add text and images selected through Android Photo Picker. Annotate directly over imported images. Replace selected ink with a clean line, arrow, ellipse, rectangle, or triangle. Calculate arithmetic locally and place the result on the page. Export the complete notebook — paper, ink, text, images, shapes, and math — to a PDF location you choose.
+Type directly on a page or write with a stylus using pressure and tilt. Switch between pen, pencil, and highlighter. Erase stroke segments or complete strokes, select with a lasso, and use up to 100 Undo and Redo steps. Draw and hold to clean a line, arrow, ellipse, rectangle, or triangle. Undo restores the original ink.
+
+Import images through Android Photo Picker. Import a PDF, annotate its pages, and preserve the original document in an editable backup. Calculate arithmetic locally and place the result on the page. Export the complete notebook to a PDF location that you choose.
 
 Privacy is the default:
 
@@ -25,7 +27,7 @@ Privacy is the default:
 - private on-device notebook storage;
 - user-controlled PDF export.
 
-SeliaDocs supports Android 10 and newer and uses an adaptive interface for phones and large tablet canvases.
+SeliaSheets supports Android 10 and newer and adapts to phones and large tablet canvases.
 
 This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud sync are not included.
 
@@ -44,9 +46,9 @@ This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud 
 ## Contact
 
 - Email: majkeylab@gmail.com
-- Website: https://github.com/Majkey25/SeliaDocs
-- Privacy policy: https://majkey25.github.io/SeliaDocs/privacy/
+- Website: https://github.com/Majkey25/SeliaSheets
+- Privacy policy: https://majkey25.github.io/SeliaSheets/privacy/
 
 ## Release notes
 
-First public beta: private notebooks, pressure-sensitive ink, pages, text and images, lasso and undo, shape cleanup, local math, PDF export, and Android 10–17 support.
+Closed beta: chapters, full-page typing, precision erasing, smart shapes, isolated PDF import, editable backups, and Android 10–17 support.

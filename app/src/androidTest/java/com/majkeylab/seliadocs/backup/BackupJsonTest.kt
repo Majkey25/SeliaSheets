@@ -15,13 +15,13 @@ class BackupJsonTest {
     fun manifestAndRecordsRoundTripWithoutLosingFields() {
         val manifest =
             BackupManifest(
-                formatVersion = 1,
+                formatVersion = 3,
                 appVersion = "0.1.0-beta.1",
                 exportedAt = 42L,
                 notebookCount = 1,
                 pageCount = 1,
                 assetCount = 1,
-                featureFlags = setOf("ink", "elements"),
+                featureFlags = setOf("ink", "elements", "page-text", "pdf-sources"),
             )
         val notebook =
             BackupNotebook(
@@ -37,13 +37,40 @@ class BackupJsonTest {
                 updatedAt = 20L,
                 trashedAt = null,
             )
-        val page = BackupPage("page", "notebook", 0, "RULED", 595, 842)
+        val page =
+            BackupPage(
+                "page",
+                "notebook",
+                0,
+                "RULED",
+                595,
+                842,
+                chapterId = "chapter",
+                title = "Lecture 1",
+                bookmarked = true,
+                createdAt = 10,
+                updatedAt = 20,
+                pdfSourceId = "pdf-source",
+                pdfPageIndex = 0,
+            )
+        val chapter = BackupChapter("chapter", "notebook", "Mechanics", 0xFF3156D9.toInt(), 0)
+        val pdfSource =
+            BackupPdfSource(
+                "pdf-source",
+                "notebook",
+                "slides.pdf",
+                "Slides.pdf",
+                1,
+                123,
+                "0".repeat(64),
+                10,
+            )
         val stroke =
             BackupStroke(
                 id = "stroke",
                 pageId = "page",
                 zIndex = 0,
-                brushKind = "PEN",
+                brushKind = "PRESSURE_PEN",
                 colorArgb = 0xff000000.toInt(),
                 size = 3f,
                 epsilon = 0.1f,
@@ -66,26 +93,31 @@ class BackupJsonTest {
                 expression = null,
                 resultText = null,
             )
+        val block =
+            BackupBlock("block", "page", 0, "PARAGRAPH", "Typed notes", false, 0, "START", null)
 
         val manifestOutput = StringWriter()
         BackupJson.writeManifest(manifestOutput, manifest)
         val recordOutput = StringWriter()
-        listOf(notebook, page, stroke, element).forEach { BackupJson.writeRecord(recordOutput, it) }
+        listOf(notebook, chapter, pdfSource, page, stroke, element, block).forEach { BackupJson.writeRecord(recordOutput, it) }
         val decoded = mutableListOf<BackupRecord>()
         BackupJson.readRecords(StringReader(recordOutput.toString()), decoded::add)
 
         assertEquals(manifest, BackupJson.readManifest(StringReader(manifestOutput.toString())))
         assertEquals(notebook, decoded[0])
-        assertEquals(page, decoded[1])
-        assertArrayEquals(stroke.inputs, (decoded[2] as BackupStroke).inputs)
-        assertEquals(element, decoded[3])
+        assertEquals(chapter, decoded[1])
+        assertEquals(pdfSource, decoded[2])
+        assertEquals(page, decoded[3])
+        assertArrayEquals(stroke.inputs, (decoded[4] as BackupStroke).inputs)
+        assertEquals(element, decoded[5])
+        assertEquals(block, decoded[6])
     }
 
     @Test
     fun unsupportedVersionReturnsTypedFailure() {
         assertThrows(BackupFailure.UnsupportedVersion::class.java) {
             BackupJson.readManifest(
-                StringReader("""{"formatVersion":2,"appVersion":"x","exportedAt":1}"""),
+                StringReader("""{"formatVersion":4,"appVersion":"x","exportedAt":1}"""),
             )
         }
     }
@@ -94,6 +126,17 @@ class BackupJsonTest {
     fun unknownRecordKindReturnsTypedFailure() {
         assertThrows(BackupFailure.UnknownRecordKind::class.java) {
             BackupJson.readRecords(StringReader("""{"kind":"future"}""")) {}
+        }
+    }
+
+    @Test
+    fun invalidStoredEnumsAreRejected() {
+        assertThrows(BackupFailure.Malformed::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"stroke","id":"s","pageId":"p","zIndex":0,"brushKind":"PEN","colorArgb":-16777216,"size":3.0,"epsilon":0.1,"inputs":""}""",
+                ),
+            ) {}
         }
     }
 

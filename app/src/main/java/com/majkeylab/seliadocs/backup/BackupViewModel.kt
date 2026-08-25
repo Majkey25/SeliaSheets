@@ -8,6 +8,7 @@ import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.data.AssetStore
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
+import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,7 @@ import kotlinx.coroutines.withContext
 internal const val BACKUP_MIME_TYPE = "application/zip"
 
 internal fun backupFileName(date: LocalDate = LocalDate.now()): String =
-    "SeliaDocs-backup-$date.seliadocs"
+    "SeliaSheets-backup-$date.seliasheets"
 
 internal data class BackupUiState(
     val notebooks: Int = 0,
@@ -35,13 +36,14 @@ internal class BackupViewModel(application: Application) : AndroidViewModel(appl
     private val repository = SeliaDocsRepository(database)
     private val assets = AssetStore(File(application.filesDir, "assets"))
     private val stagingRoot = File(application.filesDir, "restore-staging")
+    private val pdfSandbox = PdfSandboxClient(application)
     private val exporter = BackupExporter(repository, assets, BuildConfig.VERSION_NAME)
     private val importer =
         BackupImporter(
             database = database,
             repository = repository,
             assets = assets,
-            validator = BackupValidator(stagingRoot),
+            validator = BackupValidator(stagingRoot, pdfSandbox::inspect),
             stagingRoot = stagingRoot,
             appVersion = BuildConfig.VERSION_NAME,
         )

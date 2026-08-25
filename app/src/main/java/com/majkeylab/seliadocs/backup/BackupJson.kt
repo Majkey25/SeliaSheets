@@ -4,6 +4,15 @@ import android.util.Base64
 import android.util.JsonReader
 import android.util.JsonToken
 import android.util.JsonWriter
+import com.majkeylab.seliadocs.data.BlockKind
+import com.majkeylab.seliadocs.data.CoverColor
+import com.majkeylab.seliadocs.data.CoverPattern
+import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.PageMode
+import com.majkeylab.seliadocs.data.PageOrientation
+import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.editor.BrushKind
+import com.majkeylab.seliadocs.editor.ShapeKind
 import java.io.BufferedReader
 import java.io.Reader
 import java.io.StringReader
@@ -15,6 +24,8 @@ internal object BackupJson {
     private const val MAX_STROKE_BYTES = 8 * 1024 * 1024
     private const val MAX_FLAGS = 128
     private const val MAX_SHORT_TEXT_CHARS = 1024
+    private const val MAX_PAGE_DIMENSION = 14_400
+    private val TEXT_ALIGNMENTS = setOf("START", "CENTER", "END", "JUSTIFY")
 
     fun writeManifest(output: Writer, manifest: BackupManifest) {
         validate(manifest)
@@ -77,8 +88,11 @@ internal object BackupJson {
         when (record) {
             is BackupNotebook -> writer.writeNotebook(record)
             is BackupPage -> writer.writePage(record)
+            is BackupChapter -> writer.writeChapter(record)
+            is BackupPdfSource -> writer.writePdfSource(record)
             is BackupStroke -> writer.writeStroke(record)
             is BackupElement -> writer.writeElement(record)
+            is BackupBlock -> writer.writeBlock(record)
         }
         writer.endObject()
         writer.flush()
@@ -111,8 +125,11 @@ internal object BackupJson {
             when (kind) {
                 "notebook" -> reader.readNotebook()
                 "page" -> reader.readPage()
+                "chapter" -> reader.readChapter()
+                "pdfSource" -> reader.readPdfSource()
                 "stroke" -> reader.readStroke()
                 "element" -> reader.readElement()
+                "block" -> reader.readBlock()
                 else -> throw BackupFailure.UnknownRecordKind(kind)
             }
         }
@@ -158,6 +175,36 @@ internal object BackupJson {
         name("paper").value(record.paper)
         name("widthPoints").value(record.widthPoints.toLong())
         name("heightPoints").value(record.heightPoints.toLong())
+        writeNullableString("chapterId", record.chapterId)
+        writeNullableString("title", record.title)
+        name("pageMode").value(record.pageMode)
+        name("bookmarked").value(record.bookmarked)
+        name("createdAt").value(record.createdAt)
+        name("updatedAt").value(record.updatedAt)
+        writeNullableString("pdfSourceId", record.pdfSourceId)
+        name("pdfPageIndex")
+        if (record.pdfPageIndex == null) nullValue() else value(record.pdfPageIndex.toLong())
+    }
+
+    private fun JsonWriter.writeChapter(record: BackupChapter) {
+        name("kind").value("chapter")
+        name("id").value(record.id)
+        name("notebookId").value(record.notebookId)
+        name("title").value(record.title)
+        name("colorArgb").value(record.colorArgb.toLong())
+        name("orderIndex").value(record.orderIndex.toLong())
+    }
+
+    private fun JsonWriter.writePdfSource(record: BackupPdfSource) {
+        name("kind").value("pdfSource")
+        name("id").value(record.id)
+        name("notebookId").value(record.notebookId)
+        name("assetId").value(record.assetId)
+        name("displayName").value(record.displayName)
+        name("pageCount").value(record.pageCount.toLong())
+        name("byteSize").value(record.byteSize)
+        name("sha256").value(record.sha256)
+        name("createdAt").value(record.createdAt)
     }
 
     private fun JsonWriter.writeStroke(record: BackupStroke) {
@@ -188,6 +235,19 @@ internal object BackupJson {
         writeNullableString("shapeKind", record.shapeKind)
         writeNullableString("expression", record.expression)
         writeNullableString("resultText", record.resultText)
+    }
+
+    private fun JsonWriter.writeBlock(record: BackupBlock) {
+        name("kind").value("block")
+        name("id").value(record.id)
+        name("pageId").value(record.pageId)
+        name("orderIndex").value(record.orderIndex.toLong())
+        name("blockKind").value(record.kind)
+        writeNullableString("text", record.text)
+        name("checked").value(record.checked)
+        name("indent").value(record.indent.toLong())
+        name("alignment").value(record.alignment)
+        writeNullableString("payloadId", record.payloadId)
     }
 
     private fun JsonWriter.writeNullableString(name: String, value: String?) {
@@ -251,6 +311,14 @@ internal object BackupJson {
         var paper: String? = null
         var widthPoints: Int? = null
         var heightPoints: Int? = null
+        var chapterId: String? = null
+        var title: String? = null
+        var pageMode = "PAPER"
+        var bookmarked = false
+        var createdAt = 0L
+        var updatedAt = 0L
+        var pdfSourceId: String? = null
+        var pdfPageIndex: Int? = null
         beginObject()
         while (hasNext()) {
             when (nextName()) {
@@ -262,6 +330,14 @@ internal object BackupJson {
                 "paper" -> paper = nextBoundedString("paper", MAX_SHORT_TEXT_CHARS)
                 "widthPoints" -> widthPoints = nextIntField("widthPoints")
                 "heightPoints" -> heightPoints = nextIntField("heightPoints")
+                "chapterId" -> chapterId = nextNullableString("chapterId", MAX_SHORT_TEXT_CHARS)
+                "title" -> title = nextNullableString("title", MAX_TEXT_CHARS)
+                "pageMode" -> pageMode = nextBoundedString("pageMode", MAX_SHORT_TEXT_CHARS)
+                "bookmarked" -> bookmarked = nextBoolean()
+                "createdAt" -> createdAt = nextLongField("createdAt")
+                "updatedAt" -> updatedAt = nextLongField("updatedAt")
+                "pdfSourceId" -> pdfSourceId = nextNullableString("pdfSourceId", MAX_SHORT_TEXT_CHARS)
+                "pdfPageIndex" -> pdfPageIndex = nextNullableInt("pdfPageIndex")
                 else -> skipValue()
             }
         }
@@ -273,6 +349,14 @@ internal object BackupJson {
             paper = requiredString(paper, "paper"),
             widthPoints = required(widthPoints, "widthPoints"),
             heightPoints = required(heightPoints, "heightPoints"),
+            chapterId = chapterId,
+            title = title,
+            pageMode = pageMode,
+            bookmarked = bookmarked,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            pdfSourceId = pdfSourceId,
+            pdfPageIndex = pdfPageIndex,
         ).also(::validate)
     }
 
@@ -314,6 +398,71 @@ internal object BackupJson {
             size = required(size, "size"),
             epsilon = required(epsilon, "epsilon"),
             inputs = required(inputs, "inputs"),
+        ).also(::validate)
+    }
+
+    private fun JsonReader.readChapter(): BackupChapter {
+        var id: String? = null
+        var notebookId: String? = null
+        var title: String? = null
+        var colorArgb: Int? = null
+        var orderIndex: Int? = null
+        beginObject()
+        while (hasNext()) {
+            when (nextName()) {
+                "kind" -> verifyKind("chapter")
+                "id" -> id = nextBoundedString("id", MAX_SHORT_TEXT_CHARS)
+                "notebookId" -> notebookId = nextBoundedString("notebookId", MAX_SHORT_TEXT_CHARS)
+                "title" -> title = nextBoundedString("title", MAX_TEXT_CHARS)
+                "colorArgb" -> colorArgb = nextIntField("colorArgb")
+                "orderIndex" -> orderIndex = nextIntField("orderIndex")
+                else -> skipValue()
+            }
+        }
+        endObject()
+        return BackupChapter(
+            id = requiredString(id, "id"),
+            notebookId = requiredString(notebookId, "notebookId"),
+            title = requiredString(title, "title"),
+            colorArgb = required(colorArgb, "colorArgb"),
+            orderIndex = required(orderIndex, "orderIndex"),
+        ).also(::validate)
+    }
+
+    private fun JsonReader.readPdfSource(): BackupPdfSource {
+        var id: String? = null
+        var notebookId: String? = null
+        var assetId: String? = null
+        var displayName: String? = null
+        var pageCount: Int? = null
+        var byteSize: Long? = null
+        var sha256: String? = null
+        var createdAt: Long? = null
+        beginObject()
+        while (hasNext()) {
+            when (nextName()) {
+                "kind" -> verifyKind("pdfSource")
+                "id" -> id = nextBoundedString("id", MAX_SHORT_TEXT_CHARS)
+                "notebookId" -> notebookId = nextBoundedString("notebookId", MAX_SHORT_TEXT_CHARS)
+                "assetId" -> assetId = nextBoundedString("assetId", MAX_SHORT_TEXT_CHARS)
+                "displayName" -> displayName = nextBoundedString("displayName", MAX_TEXT_CHARS)
+                "pageCount" -> pageCount = nextIntField("pageCount")
+                "byteSize" -> byteSize = nextLongField("byteSize")
+                "sha256" -> sha256 = nextBoundedString("sha256", MAX_SHORT_TEXT_CHARS)
+                "createdAt" -> createdAt = nextLongField("createdAt")
+                else -> skipValue()
+            }
+        }
+        endObject()
+        return BackupPdfSource(
+            id = requiredString(id, "id"),
+            notebookId = requiredString(notebookId, "notebookId"),
+            assetId = requiredString(assetId, "assetId"),
+            displayName = requiredString(displayName, "displayName"),
+            pageCount = required(pageCount, "pageCount"),
+            byteSize = required(byteSize, "byteSize"),
+            sha256 = requiredString(sha256, "sha256"),
+            createdAt = required(createdAt, "createdAt"),
         ).also(::validate)
     }
 
@@ -374,6 +523,46 @@ internal object BackupJson {
         ).also(::validate)
     }
 
+    private fun JsonReader.readBlock(): BackupBlock {
+        var id: String? = null
+        var pageId: String? = null
+        var orderIndex: Int? = null
+        var blockKind: String? = null
+        var text: String? = null
+        var checked = false
+        var indent = 0
+        var alignment = "START"
+        var payloadId: String? = null
+        beginObject()
+        while (hasNext()) {
+            when (nextName()) {
+                "kind" -> verifyKind("block")
+                "id" -> id = nextBoundedString("id", MAX_SHORT_TEXT_CHARS)
+                "pageId" -> pageId = nextBoundedString("pageId", MAX_SHORT_TEXT_CHARS)
+                "orderIndex" -> orderIndex = nextIntField("orderIndex")
+                "blockKind" -> blockKind = nextBoundedString("blockKind", MAX_SHORT_TEXT_CHARS)
+                "text" -> text = nextNullableString("text", MAX_TEXT_CHARS)
+                "checked" -> checked = nextBoolean()
+                "indent" -> indent = nextIntField("indent")
+                "alignment" -> alignment = nextBoundedString("alignment", MAX_SHORT_TEXT_CHARS)
+                "payloadId" -> payloadId = nextNullableString("payloadId", MAX_SHORT_TEXT_CHARS)
+                else -> skipValue()
+            }
+        }
+        endObject()
+        return BackupBlock(
+            id = requiredString(id, "id"),
+            pageId = requiredString(pageId, "pageId"),
+            orderIndex = required(orderIndex, "orderIndex"),
+            kind = requiredString(blockKind, "blockKind"),
+            text = text,
+            checked = checked,
+            indent = indent,
+            alignment = alignment,
+            payloadId = payloadId,
+        ).also(::validate)
+    }
+
     private fun JsonReader.verifyKind(expected: String) {
         val actual = nextBoundedString("kind", MAX_SHORT_TEXT_CHARS)
         if (actual != expected) throw BackupFailure.UnknownRecordKind(actual)
@@ -426,6 +615,14 @@ internal object BackupJson {
             nextLongField(field)
         }
 
+    private fun JsonReader.nextNullableInt(field: String): Int? =
+        if (peek() == JsonToken.NULL) {
+            nextNull()
+            null
+        } else {
+            nextIntField(field)
+        }
+
     private fun JsonReader.nextFiniteFloat(field: String): Float {
         val value =
             try {
@@ -468,7 +665,7 @@ internal object BackupJson {
     }
 
     private fun validate(manifest: BackupManifest) {
-        if (manifest.formatVersion != BACKUP_FORMAT_VERSION) {
+        if (manifest.formatVersion !in MIN_BACKUP_FORMAT_VERSION..BACKUP_FORMAT_VERSION) {
             throw BackupFailure.UnsupportedVersion(manifest.formatVersion)
         }
         requireText(manifest.appVersion, "appVersion", MAX_SHORT_TEXT_CHARS)
@@ -494,6 +691,10 @@ internal object BackupJson {
                 requireNonNegative(record.createdAt, "createdAt")
                 requireNonNegative(record.updatedAt, "updatedAt")
                 record.trashedAt?.let { requireNonNegative(it, "trashedAt") }
+                requireEnum<CoverColor>(record.coverColor)
+                requireEnum<CoverPattern>(record.coverPattern)
+                requireEnum<PaperTemplate>(record.defaultPaper)
+                requireEnum<PageOrientation>(record.orientation)
             }
             is BackupPage -> {
                 requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
@@ -502,6 +703,34 @@ internal object BackupJson {
                 requireNonNegative(record.pageIndex, "pageIndex")
                 requirePositive(record.widthPoints, "widthPoints")
                 requirePositive(record.heightPoints, "heightPoints")
+                record.chapterId?.let { requireText(it, "chapterId", MAX_SHORT_TEXT_CHARS) }
+                record.title?.let { requireSize(it, "title", MAX_TEXT_CHARS) }
+                requireText(record.pageMode, "pageMode", MAX_SHORT_TEXT_CHARS)
+                requireNonNegative(record.createdAt, "createdAt")
+                requireNonNegative(record.updatedAt, "updatedAt")
+                record.pdfSourceId?.let { requireText(it, "pdfSourceId", MAX_SHORT_TEXT_CHARS) }
+                record.pdfPageIndex?.let { requireNonNegative(it, "pdfPageIndex") }
+                if (record.widthPoints > MAX_PAGE_DIMENSION || record.heightPoints > MAX_PAGE_DIMENSION) {
+                    throw BackupFailure.LimitExceeded("pageDimensions")
+                }
+                requireEnum<PaperTemplate>(record.paper)
+                requireEnum<PageMode>(record.pageMode)
+            }
+            is BackupChapter -> {
+                requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
+                requireText(record.notebookId, "notebookId", MAX_SHORT_TEXT_CHARS)
+                requireText(record.title, "title", MAX_TEXT_CHARS)
+                requireNonNegative(record.orderIndex, "orderIndex")
+            }
+            is BackupPdfSource -> {
+                requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
+                requireText(record.notebookId, "notebookId", MAX_SHORT_TEXT_CHARS)
+                requireText(record.assetId, "assetId", MAX_SHORT_TEXT_CHARS)
+                requireText(record.displayName, "displayName", MAX_TEXT_CHARS)
+                requirePositive(record.pageCount, "pageCount")
+                requirePositive(record.byteSize, "byteSize")
+                if (!record.sha256.matches(Regex("[0-9a-f]{64}"))) throw BackupFailure.Malformed()
+                requireNonNegative(record.createdAt, "createdAt")
             }
             is BackupStroke -> {
                 requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
@@ -513,6 +742,7 @@ internal object BackupJson {
                 if (record.inputs.size > MAX_STROKE_BYTES) {
                     throw BackupFailure.LimitExceeded("inputs")
                 }
+                requireEnum<BrushKind>(record.brushKind)
             }
             is BackupElement -> {
                 requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
@@ -529,9 +759,37 @@ internal object BackupJson {
                 record.shapeKind?.let { requireSize(it, "shapeKind", MAX_SHORT_TEXT_CHARS) }
                 record.expression?.let { requireSize(it, "expression", MAX_TEXT_CHARS) }
                 record.resultText?.let { requireSize(it, "resultText", MAX_TEXT_CHARS) }
+                when (enumValue<ElementKind>(record.kind)) {
+                    ElementKind.TEXT -> if (record.text == null) throw BackupFailure.Malformed()
+                    ElementKind.IMAGE -> if (record.assetId == null) throw BackupFailure.Malformed()
+                    ElementKind.SHAPE -> requireEnum<ShapeKind>(record.shapeKind ?: throw BackupFailure.Malformed())
+                    ElementKind.MATH ->
+                        if (record.expression == null || record.resultText == null) {
+                            throw BackupFailure.Malformed()
+                        }
+                }
+            }
+            is BackupBlock -> {
+                requireText(record.id, "id", MAX_SHORT_TEXT_CHARS)
+                requireText(record.pageId, "pageId", MAX_SHORT_TEXT_CHARS)
+                requireText(record.kind, "blockKind", MAX_SHORT_TEXT_CHARS)
+                requireNonNegative(record.orderIndex, "orderIndex")
+                record.text?.let { requireSize(it, "text", MAX_TEXT_CHARS) }
+                requireNonNegative(record.indent, "indent")
+                requireText(record.alignment, "alignment", MAX_SHORT_TEXT_CHARS)
+                record.payloadId?.let { requireSize(it, "payloadId", MAX_SHORT_TEXT_CHARS) }
+                requireEnum<BlockKind>(record.kind)
+                if (record.alignment !in TEXT_ALIGNMENTS) throw BackupFailure.Malformed()
             }
         }
     }
+
+    private inline fun <reified T : Enum<T>> requireEnum(value: String) {
+        enumValue<T>(value)
+    }
+
+    private inline fun <reified T : Enum<T>> enumValue(value: String): T =
+        enumValues<T>().firstOrNull { it.name == value } ?: throw BackupFailure.Malformed()
 
     private fun requireText(value: String, field: String, limit: Int) {
         if (value.isBlank()) throw BackupFailure.Malformed()
@@ -557,6 +815,10 @@ internal object BackupJson {
 
     private fun requirePositive(value: Int, field: String) {
         if (value <= 0) throw BackupFailure.InvalidNumber(field)
+    }
+
+    private fun requirePositive(value: Long, field: String) {
+        if (value <= 0L) throw BackupFailure.InvalidNumber(field)
     }
 
     private fun requirePositive(value: Float, field: String) {

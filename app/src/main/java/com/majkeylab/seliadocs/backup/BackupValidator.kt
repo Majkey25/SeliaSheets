@@ -1,7 +1,13 @@
 package com.majkeylab.seliadocs.backup
 
+import android.graphics.BitmapFactory
 import android.util.JsonReader
 import android.util.JsonToken
+import com.majkeylab.seliadocs.data.pageTextFits
+import com.majkeylab.seliadocs.editor.BrushKind
+import com.majkeylab.seliadocs.editor.EncodedStroke
+import com.majkeylab.seliadocs.editor.InkCodec
+import com.majkeylab.seliadocs.pdf.PdfDocumentInfo
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FilterInputStream
@@ -11,16 +17,23 @@ import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 internal data class BackupIndex(
     val notebookIds: Set<String>,
+    val chapterIds: Set<String>,
+    val pdfSourceIds: Set<String>,
     val pageIds: Set<String>,
     val strokeIds: Set<String>,
     val elementIds: Set<String>,
+    val blockIds: Set<String>,
     val assetIds: Set<String>,
 )
 
@@ -38,6 +51,7 @@ internal class StagedBackup(
 
 internal class BackupValidator(
     private val stagingRoot: File,
+    private val inspectPdf: suspend (File) -> PdfDocumentInfo,
     private val maxEntryBytes: Long = 1024L * 1024 * 1024,
     private val maxExtractedBytes: () -> Long = {
         min(stagingRoot.usableSpace / 10 * 8, 8L * 1024 * 1024 * 1024)
@@ -58,7 +72,7 @@ internal class BackupValidator(
                         ?: throw BackupFailure.MissingField(RECORDS_ENTRY)
                 val manifest = manifestFile.reader(Charsets.UTF_8).use(BackupJson::readManifest)
                 val assetFiles = assetFiles(extracted.files)
-                val index = validateRecords(recordsFile, manifest, assetFiles.keys)
+                val index = validateRecords(recordsFile, manifest, assetFiles)
                 StagedBackup(directory, manifest, index, recordsFile, assetFiles)
             } catch (failure: CancellationException) {
                 directory.deleteRecursively()
@@ -90,7 +104,15 @@ internal class BackupValidator(
         val totalLimit = maxExtractedBytes()
         ZipInputStream(BufferedInputStream(NonClosingInputStream(input))).use { zip ->
             while (true) {
-                val entry = zip.nextEntry ?: break
+                val entry =
+                    try {
+                        zip.nextEntry
+                    } catch (failure: ZipException) {
+                        if (failure.message.orEmpty().contains("path", ignoreCase = true)) {
+                            throw BackupFailure.InvalidPath("archive-entry")
+                        }
+                        throw failure
+                    } ?: break
                 entryCount++
                 if (entryCount > MAX_ENTRIES) throw BackupFailure.LimitExceeded("entryCount")
                 val destination = resolveEntry(directory, entry.name)
@@ -211,37 +233,84 @@ internal class BackupValidator(
             }
         }
 
-    private fun validateRecords(
+    private suspend fun validateRecords(
         recordsFile: File,
         manifest: BackupManifest,
-        stagedAssetIds: Set<String>,
+        stagedAssets: Map<String, File>,
     ): BackupIndex {
         val notebooks = linkedSetOf<String>()
+        val chapters = linkedSetOf<String>()
+        val pdfSources = linkedSetOf<String>()
         val pages = linkedSetOf<String>()
+        val pageSizes = mutableMapOf<String, Pair<Int, Int>>()
         val strokes = linkedSetOf<String>()
         val elements = linkedSetOf<String>()
+        val blocks = linkedSetOf<String>()
         val pageNotebooks = mutableListOf<Pair<String, String>>()
+        val chapterNotebooks = mutableListOf<Pair<String, String>>()
+        val chapterIndexes = mutableMapOf<String, MutableList<Int>>()
+        val pageChapters = mutableListOf<Pair<String, String>>()
+        val pdfSourceNotebooks = mutableListOf<Pair<String, String>>()
+        val pdfSourcePageCounts = mutableMapOf<String, Int>()
+        val pdfSourceRecords = mutableListOf<BackupPdfSource>()
+        val pagePdfSources = mutableListOf<Pair<String, String>>()
+        val pdfPageIndexes = mutableMapOf<String, MutableList<Int>>()
         val pageIndexes = mutableMapOf<String, MutableList<Int>>()
         val strokePages = mutableListOf<Pair<String, String>>()
         val elementPages = mutableListOf<Pair<String, String>>()
+        val pageElements = mutableMapOf<String, MutableList<BackupElement>>()
+        val blockPages = mutableListOf<Pair<String, String>>()
+        val blockIndexes = mutableMapOf<String, MutableList<Int>>()
+        val pageBlocks = mutableMapOf<String, MutableList<BackupBlock>>()
         val referencedAssets = linkedSetOf<String>()
+        val imageAssetIds = linkedSetOf<String>()
         recordsFile.reader(Charsets.UTF_8).use { input ->
             BackupJson.records(input).forEach { record ->
                 when (record) {
                     is BackupNotebook -> addUnique(notebooks, record.id, "notebook")
+                    is BackupChapter -> {
+                        addUnique(chapters, record.id, "chapter")
+                        chapterNotebooks += record.id to record.notebookId
+                        chapterIndexes.getOrPut(record.notebookId, ::mutableListOf) += record.orderIndex
+                    }
+                    is BackupPdfSource -> {
+                        addUnique(pdfSources, record.id, "pdfSource")
+                        pdfSourceNotebooks += record.id to record.notebookId
+                        pdfSourcePageCounts[record.id] = record.pageCount
+                        pdfSourceRecords += record
+                        referencedAssets += record.assetId
+                    }
                     is BackupPage -> {
                         addUnique(pages, record.id, "page")
+                        pageSizes[record.id] = record.widthPoints to record.heightPoints
                         pageNotebooks += record.id to record.notebookId
                         pageIndexes.getOrPut(record.notebookId, ::mutableListOf) += record.pageIndex
+                        record.chapterId?.let { pageChapters += record.id to it }
+                        if ((record.pdfSourceId == null) != (record.pdfPageIndex == null)) {
+                            throw BackupFailure.InvalidRelationship("pdfPage:${record.id}")
+                        }
+                        record.pdfSourceId?.let { sourceId ->
+                            pagePdfSources += record.id to sourceId
+                            pdfPageIndexes.getOrPut(sourceId, ::mutableListOf) += requireNotNull(record.pdfPageIndex)
+                        }
                     }
                     is BackupStroke -> {
                         addUnique(strokes, record.id, "stroke")
                         strokePages += record.id to record.pageId
+                        validateStroke(record)
                     }
                     is BackupElement -> {
                         addUnique(elements, record.id, "element")
                         elementPages += record.id to record.pageId
+                        pageElements.getOrPut(record.pageId, ::mutableListOf) += record
                         record.assetId?.let(referencedAssets::add)
+                        if (record.kind == "IMAGE") record.assetId?.let(imageAssetIds::add)
+                    }
+                    is BackupBlock -> {
+                        addUnique(blocks, record.id, "block")
+                        blockPages += record.id to record.pageId
+                        blockIndexes.getOrPut(record.pageId, ::mutableListOf) += record.orderIndex
+                        pageBlocks.getOrPut(record.pageId, ::mutableListOf) += record
                     }
                 }
             }
@@ -251,25 +320,182 @@ internal class BackupValidator(
         pageNotebooks.firstOrNull { it.second !in notebooks }?.let {
             throw BackupFailure.InvalidRelationship("page:${it.first}")
         }
+        chapterNotebooks.firstOrNull { it.second !in notebooks }?.let {
+            throw BackupFailure.InvalidRelationship("chapter:${it.first}")
+        }
+        pdfSourceNotebooks.firstOrNull { it.second !in notebooks }?.let {
+            throw BackupFailure.InvalidRelationship("pdfSource:${it.first}")
+        }
+        pagePdfSources.firstOrNull { it.second !in pdfSources }?.let {
+            throw BackupFailure.InvalidRelationship("pdfPageSource:${it.first}")
+        }
+        pdfSourcePageCounts.forEach { (sourceId, expectedCount) ->
+            val indexes = pdfPageIndexes[sourceId].orEmpty()
+            if (indexes.isEmpty() || indexes.any { it !in 0 until expectedCount }) {
+                throw BackupFailure.InvalidRelationship("pdfPageIndex:$sourceId")
+            }
+        }
+        chapterIndexes.entries.firstOrNull { (_, indexes) ->
+            indexes.sorted() != indexes.indices.toList()
+        }
+            ?.let { throw BackupFailure.InvalidRelationship("chapterIndex:${it.key}") }
+        pageChapters.firstOrNull { it.second !in chapters }?.let {
+            throw BackupFailure.InvalidRelationship("pageChapter:${it.first}")
+        }
         strokePages.firstOrNull { it.second !in pages }?.let {
             throw BackupFailure.InvalidRelationship("stroke:${it.first}")
         }
         elementPages.firstOrNull { it.second !in pages }?.let {
             throw BackupFailure.InvalidRelationship("element:${it.first}")
         }
+        blockPages.firstOrNull { it.second !in pages }?.let {
+            throw BackupFailure.InvalidRelationship("block:${it.first}")
+        }
+        blockIndexes.entries.firstOrNull { (_, indexes) ->
+            indexes.size > 1 || indexes.sorted() != indexes.indices.toList()
+        }
+            ?.let { throw BackupFailure.InvalidRelationship("blockIndex:${it.key}") }
+        pageBlocks.forEach { (pageId, records) ->
+            val size = pageSizes[pageId] ?: return@forEach
+            val text = records.sortedBy(BackupBlock::orderIndex).joinToString("\n") { it.text.orEmpty() }
+            if (!pageTextFits(text, size.first, size.second)) {
+                throw BackupFailure.InvalidRelationship("blockText:$pageId")
+            }
+        }
+        pageElements.forEach { (pageId, records) ->
+            val size = pageSizes[pageId] ?: return@forEach
+            records.forEach { record ->
+                validateElementBounds(
+                    record,
+                    size.first,
+                    size.second,
+                    strict = manifest.formatVersion >= 3,
+                )
+            }
+        }
+        if (blocks.isNotEmpty() && manifest.formatVersion < 2) {
+            throw BackupFailure.InvalidRelationship("page-text-version")
+        }
+        if (blocks.isNotEmpty() && "page-text" !in manifest.featureFlags) {
+            throw BackupFailure.InvalidRelationship("page-text-feature")
+        }
+        if (chapters.isNotEmpty() && manifest.formatVersion < 2) {
+            throw BackupFailure.InvalidRelationship("chapters-version")
+        }
+        if (chapters.isNotEmpty() && "chapters" !in manifest.featureFlags) {
+            throw BackupFailure.InvalidRelationship("chapters-feature")
+        }
+        if (pdfSources.isNotEmpty() && manifest.formatVersion < 3) {
+            throw BackupFailure.InvalidRelationship("pdf-sources-version")
+        }
+        if (pdfSources.isNotEmpty() && "pdf-sources" !in manifest.featureFlags) {
+            throw BackupFailure.InvalidRelationship("pdf-sources-feature")
+        }
         notebooks.firstOrNull { id ->
             val indexes = pageIndexes[id].orEmpty()
             indexes.isEmpty() || indexes.sorted() != indexes.indices.toList()
         }
             ?.let { throw BackupFailure.InvalidRelationship("pageIndex:$it") }
-        referencedAssets.firstOrNull { it !in stagedAssetIds }?.let {
+        referencedAssets.firstOrNull { it !in stagedAssets }?.let {
             throw BackupFailure.MissingAsset(it)
         }
-        if (referencedAssets != stagedAssetIds) {
+        if (referencedAssets != stagedAssets.keys) {
             throw BackupFailure.InvalidRelationship("assets")
         }
-        if (stagedAssetIds.size != manifest.assetCount) countFailure("assetCount")
-        return BackupIndex(notebooks, pages, strokes, elements, referencedAssets)
+        imageAssetIds.forEach { assetId -> validateImageAsset(assetId, stagedAssets.getValue(assetId)) }
+        pdfSourceRecords.forEach { source -> validatePdfAsset(source, stagedAssets.getValue(source.assetId)) }
+        if (stagedAssets.size != manifest.assetCount) countFailure("assetCount")
+        return BackupIndex(notebooks, chapters, pdfSources, pages, strokes, elements, blocks, referencedAssets)
+    }
+
+    private fun validateStroke(record: BackupStroke) {
+        val stroke =
+            runCatching {
+                InkCodec.decode(
+                    EncodedStroke(
+                        BrushKind.valueOf(record.brushKind),
+                        record.colorArgb,
+                        record.size,
+                        record.epsilon,
+                        record.inputs,
+                    ),
+                )
+            }.getOrElse { throw BackupFailure.InvalidRelationship("strokeData:${record.id}") }
+        if (stroke.inputs.size == 0) throw BackupFailure.InvalidRelationship("strokeData:${record.id}")
+    }
+
+    private fun validateElementBounds(record: BackupElement, pageWidth: Int, pageHeight: Int, strict: Boolean) {
+        if (
+            record.width > MAX_LEGACY_ELEMENT_DIMENSION ||
+            record.height > MAX_LEGACY_ELEMENT_DIMENSION ||
+            abs(record.x) > MAX_LEGACY_ELEMENT_COORDINATE ||
+            abs(record.y) > MAX_LEGACY_ELEMENT_COORDINATE
+        ) {
+            throw BackupFailure.InvalidRelationship("elementBounds:${record.id}")
+        }
+        if (!strict) return
+        val radians = Math.toRadians(record.rotation.toDouble())
+        val extentX = record.width / 2f * abs(cos(radians)).toFloat() + record.height / 2f * abs(sin(radians)).toFloat()
+        val extentY = record.width / 2f * abs(sin(radians)).toFloat() + record.height / 2f * abs(cos(radians)).toFloat()
+        val centerX = record.x + record.width / 2f
+        val centerY = record.y + record.height / 2f
+        if (
+            centerX - extentX < -GEOMETRY_EPSILON ||
+            centerY - extentY < -GEOMETRY_EPSILON ||
+            centerX + extentX > pageWidth + GEOMETRY_EPSILON ||
+            centerY + extentY > pageHeight + GEOMETRY_EPSILON
+        ) {
+            throw BackupFailure.InvalidRelationship("elementBounds:${record.id}")
+        }
+    }
+
+    private fun validateImageAsset(assetId: String, file: File) {
+        if (file.length() !in 1..MAX_IMAGE_BYTES) throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (
+            bounds.outMimeType?.lowercase() !in IMAGE_MIME_TYPES ||
+            bounds.outWidth !in 1..MAX_IMAGE_DIMENSION ||
+            bounds.outHeight !in 1..MAX_IMAGE_DIMENSION ||
+            bounds.outWidth.toLong() * bounds.outHeight * 4 > MAX_IMAGE_BYTES
+        ) {
+            throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
+        }
+        var sample = 1
+        while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
+        val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
+        decoded.recycle()
+    }
+
+    private suspend fun validatePdfAsset(source: BackupPdfSource, file: File) {
+        if (file.length() != source.byteSize || file.length() !in 1..MAX_PDF_BYTES) {
+            throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}")
+        }
+        val header = ByteArray(PDF_HEADER.size)
+        val read = file.inputStream().use { it.read(header) }
+        if (read != header.size || !header.contentEquals(PDF_HEADER) || sha256(file) != source.sha256) {
+            throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}")
+        }
+        val info =
+            runCatching { inspectPdf(file) }
+                .getOrElse { throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}") }
+        if (info.pages.size != source.pageCount) {
+            throw BackupFailure.InvalidRelationship("pdfPageCount:${source.id}")
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(COPY_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > 0) digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().toHex()
     }
 
     private fun addUnique(target: MutableSet<String>, id: String, kind: String) {
@@ -310,7 +536,15 @@ internal class BackupValidator(
         const val ASSET_PREFIX = "assets/"
         const val COPY_BUFFER_SIZE = 64 * 1024
         const val MAX_ENTRIES = 100_000
+        const val MAX_IMAGE_DIMENSION = 16_384
+        const val MAX_IMAGE_BYTES = 128L * 1024 * 1024
+        const val MAX_PDF_BYTES = 256L * 1024 * 1024
+        const val GEOMETRY_EPSILON = 0.01f
+        const val MAX_LEGACY_ELEMENT_DIMENSION = 100_000f
+        const val MAX_LEGACY_ELEMENT_COORDINATE = 1_000_000f
         const val HEX = "0123456789abcdef"
+        val PDF_HEADER = "%PDF-".toByteArray(Charsets.US_ASCII)
+        val IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/heif", "image/heic")
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
         val ASSET_ID = Regex("[A-Za-z0-9._-]+")
     }

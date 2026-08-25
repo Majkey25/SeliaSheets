@@ -15,6 +15,6 @@ class AppLaunchTest {
 
     @Test
     fun libraryTitleIsVisible() {
-        rule.onNodeWithText("SeliaDocs").assertIsDisplayed()
+        rule.onNodeWithText("SeliaSheets").assertIsDisplayed()
     }
 }

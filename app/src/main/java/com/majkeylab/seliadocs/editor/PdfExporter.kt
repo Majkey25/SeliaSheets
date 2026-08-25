@@ -14,11 +14,18 @@ import android.text.TextPaint
 import android.text.TextUtils
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.data.BlockEntity
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.NotebookContent
 import com.majkeylab.seliadocs.data.PageEntity
+import com.majkeylab.seliadocs.data.PAGE_TEXT_BOTTOM
+import com.majkeylab.seliadocs.data.PAGE_TEXT_MARGIN
+import com.majkeylab.seliadocs.data.PAGE_TEXT_TOP
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.PdfSourceEntity
+import com.majkeylab.seliadocs.data.pageTextLayout
+import com.majkeylab.seliadocs.pdf.fitPdfRenderSize
 import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,10 +33,16 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 internal class PdfExporter(private val assets: AssetStore) {
-    suspend fun write(content: NotebookContent, output: OutputStream) =
+    suspend fun write(
+        content: NotebookContent,
+        output: OutputStream,
+        renderPdfPage: suspend (PdfSourceEntity, PageEntity, Int, Int) -> android.graphics.Bitmap? =
+            { _, _, _, _ -> null },
+    ) =
         withContext(Dispatchers.IO) {
             require(content.pages.isNotEmpty())
             val document = PdfDocument()
+            val pdfSources = content.pdfSources.associateBy(PdfSourceEntity::id)
             try {
                 content.pages.sortedBy(PageEntity::pageIndex).forEachIndexed { index, page ->
                     val info =
@@ -40,14 +53,22 @@ internal class PdfExporter(private val assets: AssetStore) {
                             )
                             .create()
                     val pdfPage = document.startPage(info)
+                    val background =
+                        page.pdfSourceId?.let(pdfSources::get)?.let { source ->
+                            val size = fitPdfRenderSize(page.widthPoints, page.heightPoints)
+                            renderPdfPage(source, page, size.width, size.height)
+                        }
                     try {
                         renderPage(
                             pdfPage.canvas,
                             page,
                             content.strokes.filter { it.pageId == page.id },
                             content.elements.filter { it.pageId == page.id },
+                            content.blocks.filter { it.pageId == page.id },
+                            background,
                         )
                     } finally {
+                        background?.recycle()
                         document.finishPage(pdfPage)
                     }
                 }
@@ -62,14 +83,38 @@ internal class PdfExporter(private val assets: AssetStore) {
         page: PageEntity,
         strokes: List<com.majkeylab.seliadocs.data.StrokeEntity>,
         elements: List<ElementEntity>,
+        blocks: List<BlockEntity>,
+        pdfBackground: android.graphics.Bitmap?,
     ) {
         canvas.drawColor(Color.rgb(255, 254, 250))
         drawPaper(canvas, page)
+        pdfBackground?.let { bitmap ->
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                RectF(0f, 0f, page.widthPoints.toFloat(), page.heightPoints.toFloat()),
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+            )
+        }
+        drawPageText(canvas, page, blocks)
+        elements.sortedBy(ElementEntity::zIndex).forEach { element -> drawElement(canvas, element) }
         val renderer = CanvasStrokeRenderer.create()
         strokes.sortedBy { it.zIndex }.forEach { stroke ->
             renderer.draw(canvas, stroke.toInkStroke(), Matrix())
         }
-        elements.sortedBy(ElementEntity::zIndex).forEach { element -> drawElement(canvas, element) }
+    }
+
+    private fun drawPageText(canvas: Canvas, page: PageEntity, blocks: List<BlockEntity>) {
+        val text = blocks.sortedBy(BlockEntity::orderIndex).joinToString("\n") { it.text.orEmpty() }
+        if (text.isEmpty()) return
+        val layout = pageTextLayout(text, page.widthPoints)
+        require(layout.height <= page.heightPoints - PAGE_TEXT_TOP - PAGE_TEXT_BOTTOM) {
+            "Page text exceeds printable area"
+        }
+        val saved = canvas.save()
+        canvas.translate(PAGE_TEXT_MARGIN.toFloat(), PAGE_TEXT_TOP.toFloat())
+        layout.draw(canvas)
+        canvas.restoreToCount(saved)
     }
 
     private fun drawPaper(canvas: Canvas, page: PageEntity) {
@@ -204,5 +249,8 @@ internal class PdfExporter(private val assets: AssetStore) {
                 canvas.drawPath(path, paint)
             }
         }
+    }
+
+    private companion object {
     }
 }

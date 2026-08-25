@@ -19,7 +19,9 @@ import androidx.ink.rendering.android.view.ViewStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.input.motionprediction.MotionEventPredictor
 
-internal enum class EditorTool { PEN, PENCIL, HIGHLIGHTER, ERASER, LASSO }
+internal enum class EditorTool { TYPE, PEN, PENCIL, HIGHLIGHTER, ERASER, LASSO }
+
+internal enum class EraserMode { SEGMENT, STROKE }
 
 private enum class GestureKind { ERASE, LASSO, MOVE }
 
@@ -97,12 +99,26 @@ internal class InkCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> addToInteraction(event)
             MotionEvent.ACTION_UP -> finishInteraction(event)
             MotionEvent.ACTION_CANCEL -> cancelAll(event)
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                cancelAll(event)
-                false
-            }
-            else -> activeStrokes.isNotEmpty() || gesturePointerId != null
+            MotionEvent.ACTION_POINTER_DOWN -> startAdditionalInteraction(event)
+            MotionEvent.ACTION_POINTER_UP -> finishInteraction(event) || hasActiveInteraction()
+            else -> hasActiveInteraction()
         }
+    }
+
+    private fun startAdditionalInteraction(event: MotionEvent): Boolean {
+        val inputTool = event.getToolType(event.actionIndex)
+        if (inputTool == MotionEvent.TOOL_TYPE_FINGER && hasActiveInteraction()) {
+            val hasStylus =
+                (0 until event.pointerCount).any { index ->
+                    index != event.actionIndex &&
+                        (event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS ||
+                            event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER)
+                }
+            if (!hasStylus) cancelAll(event)
+            return true
+        }
+        if (gesturePointerId != null) return true
+        return startInteraction(event) || hasActiveInteraction()
     }
 
     private fun startInteraction(event: MotionEvent): Boolean {
@@ -242,6 +258,8 @@ internal class InkCanvasView @JvmOverloads constructor(
             inputTool == MotionEvent.TOOL_TYPE_ERASER ||
             (inputTool == MotionEvent.TOOL_TYPE_FINGER &&
                 (fingerDrawing || selectedTool == EditorTool.ERASER || selectedTool == EditorTool.LASSO))
+
+    private fun hasActiveInteraction(): Boolean = activeStrokes.isNotEmpty() || gesturePointerId != null
 }
 
 private class GestureOverlayView(context: Context) : View(context) {

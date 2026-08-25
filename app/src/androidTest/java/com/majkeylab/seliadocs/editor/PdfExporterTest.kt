@@ -11,6 +11,7 @@ import androidx.ink.strokes.Stroke
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.data.BlockEntity
 import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.ElementEntity
@@ -20,8 +21,10 @@ import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -69,7 +72,11 @@ class PdfExporterTest {
                         1L,
                         null,
                     ),
-                pages = listOf(page, page.copy(id = "page-2", pageIndex = 1)),
+                pages =
+                    listOf(
+                        page,
+                        page.copy(id = "page-2", pageIndex = 1, pdfSourceId = "pdf", pdfPageIndex = 0),
+                    ),
                 strokes =
                     listOf(
                         StrokeEntity(
@@ -118,16 +125,47 @@ class PdfExporterTest {
                             null,
                         ),
                     ),
+                blocks =
+                    listOf(
+                        BlockEntity(
+                            "block",
+                            page.id,
+                            0,
+                            "PARAGRAPH",
+                            "Full-page typed lecture notes",
+                            false,
+                            0,
+                            "START",
+                            null,
+                        ),
+                    ),
+                pdfSources =
+                    listOf(
+                        PdfSourceEntity(
+                            "pdf",
+                            "notebook",
+                            "source.pdf",
+                            "Source.pdf",
+                            1,
+                            100,
+                            "0".repeat(64),
+                            1,
+                        ),
+                    ),
             )
-
+        val renderedPdfBackground = AtomicBoolean(false)
         output.outputStream().use { stream ->
-            PdfExporter(assetStore).write(content, stream)
+            PdfExporter(assetStore).write(content, stream) { _, _, width, height ->
+                renderedPdfBackground.set(true)
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.LTGRAY) }
+            }
         }
 
         ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
             PdfRenderer(descriptor).use { renderer ->
                 assertEquals(2, renderer.pageCount)
                 assertTrue(output.length() > 2_000)
+                assertTrue(renderedPdfBackground.get())
             }
         }
         output.delete()

@@ -26,8 +26,8 @@ class SettingsFlowTest {
         rule.onNodeWithTag("settings-list").performScrollToNode(hasText("App details"))
         rule.onNodeWithText("App details").assertIsDisplayed()
 
-        rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Version 0.1.0-beta.1"))
-        rule.onNodeWithText("Version 0.1.0-beta.1").assertIsDisplayed()
+        rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Version 0.2.0-beta.1"))
+        rule.onNodeWithText("Version 0.2.0-beta.1").assertIsDisplayed()
         rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Support this app → Buy Me a Coffee"))
         rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
     }

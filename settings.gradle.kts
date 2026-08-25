@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SeliaDocs"
+rootProject.name = "SeliaSheets"
 include(":app")

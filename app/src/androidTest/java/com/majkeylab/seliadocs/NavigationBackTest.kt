@@ -32,7 +32,7 @@ class NavigationBackTest {
 
         pressBack()
 
-        rule.onNodeWithText("SeliaDocs").assertIsDisplayed()
+        rule.onNodeWithText("SeliaSheets").assertIsDisplayed()
     }
 
     @Test
@@ -46,6 +46,8 @@ class NavigationBackTest {
         }
         rule.onNodeWithText(title).performClick()
         rule.onNodeWithContentDescription("Add page").assertIsDisplayed()
+        rule.onNodeWithContentDescription("More options").performClick()
+        rule.onNodeWithText("Export PDF").assertIsDisplayed()
         rule.onNodeWithText("Settings").performClick()
 
         pressBack()

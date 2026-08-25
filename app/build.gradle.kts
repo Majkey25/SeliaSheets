@@ -2,7 +2,9 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 val releaseSigningProperties =
-    providers.environmentVariable("SELIADOCS_KEYSTORE_PROPERTIES").orNull
+    (providers.gradleProperty("seliaSheetsKeystoreProperties").orNull
+        ?: providers.environmentVariable("SELIA_SHEETS_KEYSTORE_PROPERTIES").orNull
+        ?: providers.environmentVariable("SELIADOCS_KEYSTORE_PROPERTIES").orNull)
         ?.let(::file)
         ?.takeIf { it.isFile }
         ?.let { propertiesFile ->
@@ -23,14 +25,15 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0-beta.1"
+        versionCode = 2
+        versionName = "0.2.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true
     }
 
     compileOptions {
@@ -62,6 +65,10 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.directories.add("$projectDir/schemas")
     }
 }
 
@@ -104,4 +111,5 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.0")
+    debugImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 }

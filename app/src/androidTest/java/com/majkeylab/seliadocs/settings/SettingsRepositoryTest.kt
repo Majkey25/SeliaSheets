@@ -31,12 +31,14 @@ class SettingsRepositoryTest {
                 theme = AppTheme.DARK,
                 defaultCoverColor = CoverColor.SAGE,
                 defaultCoverPattern = CoverPattern.GRID,
+                shapeAssist = false,
             )
         }
         val saved = repository.settings.first()
         assertEquals(AppTheme.DARK, saved.theme)
         assertEquals(CoverColor.SAGE, saved.defaultCoverColor)
         assertEquals(CoverPattern.GRID, saved.defaultCoverPattern)
+        assertEquals(false, saved.shapeAssist)
         file.delete()
     }
 }

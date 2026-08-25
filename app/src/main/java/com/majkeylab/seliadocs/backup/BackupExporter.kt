@@ -2,10 +2,13 @@ package com.majkeylab.seliadocs.backup
 
 import android.util.JsonWriter
 import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.data.BlockEntity
+import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.NotebookContent
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
+import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.File
@@ -39,12 +42,18 @@ internal class BackupExporter(
                     plan.notebookIds.forEach { notebookId ->
                         val content = loadNotebook(notebookId)
                         BackupJson.writeRecord(writer, content.notebook.toBackup())
+                        content.chapters.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
+                        content.pdfSources.forEach { source ->
+                            BackupJson.writeRecord(writer, source.toBackup())
+                            written.assetIds += source.assetId
+                        }
                         content.pages.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
                         content.strokes.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
                         content.elements.forEach { element ->
                             BackupJson.writeRecord(writer, element.toBackup())
                             element.assetId?.let(written.assetIds::add)
                         }
+                        content.blocks.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
                         written.pages += content.pages.size
                     }
                     writer.flush()
@@ -110,11 +119,18 @@ internal class BackupExporter(
                 BackupScope.Library -> notebooks.map(NotebookEntity::id)
             }
         var pageCount = 0
+        var hasBlocks = false
+        var hasChapters = false
+        var hasPdfSources = false
         val assetIds = linkedSetOf<String>()
         notebookIds.forEach { notebookId ->
             val content = loadNotebook(notebookId)
             pageCount += content.pages.size
+            hasBlocks = hasBlocks || content.blocks.isNotEmpty()
+            hasChapters = hasChapters || content.chapters.isNotEmpty()
+            hasPdfSources = hasPdfSources || content.pdfSources.isNotEmpty()
             content.elements.mapNotNullTo(assetIds, ElementEntity::assetId)
+            content.pdfSources.mapTo(assetIds, PdfSourceEntity::assetId)
         }
         val assetFiles =
             assetIds.associateWith { id ->
@@ -124,7 +140,7 @@ internal class BackupExporter(
                     throw BackupExportFailure.MissingAsset(id)
                 }
             }
-        return ExportPlan(notebookIds, pageCount, assetFiles)
+        return ExportPlan(notebookIds, pageCount, assetFiles, hasBlocks, hasChapters, hasPdfSources)
     }
 
     private suspend fun loadNotebook(id: String): NotebookContent =
@@ -138,6 +154,9 @@ internal class BackupExporter(
         buildSet {
             add("editable")
             if (plan.assetFiles.isNotEmpty()) add("assets")
+            if (plan.hasBlocks) add("page-text")
+            if (plan.hasChapters) add("chapters")
+            if (plan.hasPdfSources) add("pdf-sources")
         }
 
     private suspend fun ZipOutputStream.writeHashedEntry(
@@ -185,7 +204,28 @@ internal class BackupExporter(
         )
 
     private fun PageEntity.toBackup() =
-        BackupPage(id, notebookId, pageIndex, paper, widthPoints, heightPoints)
+        BackupPage(
+            id = id,
+            notebookId = notebookId,
+            pageIndex = pageIndex,
+            paper = paper,
+            widthPoints = widthPoints,
+            heightPoints = heightPoints,
+            chapterId = chapterId,
+            title = title,
+            pageMode = pageMode,
+            bookmarked = bookmarked,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            pdfSourceId = pdfSourceId,
+            pdfPageIndex = pdfPageIndex,
+        )
+
+    private fun ChapterEntity.toBackup() =
+        BackupChapter(id, notebookId, title, colorArgb, orderIndex)
+
+    private fun PdfSourceEntity.toBackup() =
+        BackupPdfSource(id, notebookId, assetId, displayName, pageCount, byteSize, sha256, createdAt)
 
     private fun StrokeEntity.toBackup() =
         BackupStroke(id, pageId, zIndex, brushKind, colorArgb, size, epsilon, inputs)
@@ -208,10 +248,16 @@ internal class BackupExporter(
             resultText = resultText,
         )
 
+    private fun BlockEntity.toBackup() =
+        BackupBlock(id, pageId, orderIndex, kind, text, checked, indent, alignment, payloadId)
+
     private data class ExportPlan(
         val notebookIds: List<String>,
         val pageCount: Int,
         val assetFiles: Map<String, File>,
+        val hasBlocks: Boolean,
+        val hasChapters: Boolean,
+        val hasPdfSources: Boolean,
     )
 
     private class WrittenCounts {

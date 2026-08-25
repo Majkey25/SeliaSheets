@@ -1,6 +1,10 @@
 package com.majkeylab.seliadocs.editor
 
 import com.majkeylab.seliadocs.data.ElementEntity
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 
 internal data class ElementTransform(
     val x: Float,
@@ -24,14 +28,26 @@ internal fun clampElementTransform(
     minimumSize: Float = 24f,
 ): ElementTransform? {
     if (!proposed.isFinite()) return null
-    val width = proposed.width.coerceIn(minimumSize, pageWidth)
-    val height = proposed.height.coerceIn(minimumSize, pageHeight)
+    var width = proposed.width.coerceIn(minimumSize, pageWidth)
+    var height = proposed.height.coerceIn(minimumSize, pageHeight)
+    val rotation = ((proposed.rotation % 360f) + 360f) % 360f
+    var (extentX, extentY) = rotatedExtents(width, height, rotation)
+    val scale = min(1f, min(pageWidth / (extentX * 2f), pageHeight / (extentY * 2f)))
+    if (scale < 1f) {
+        width = (width * scale).coerceAtLeast(minimumSize.coerceAtMost(pageWidth))
+        height = (height * scale).coerceAtLeast(minimumSize.coerceAtMost(pageHeight))
+        val extents = rotatedExtents(width, height, rotation)
+        extentX = extents.first
+        extentY = extents.second
+    }
+    val centerX = (proposed.x + proposed.width.coerceAtLeast(minimumSize) / 2f).coerceIn(extentX, pageWidth - extentX)
+    val centerY = (proposed.y + proposed.height.coerceAtLeast(minimumSize) / 2f).coerceIn(extentY, pageHeight - extentY)
     return proposed.copy(
-        x = proposed.x.coerceIn(0f, pageWidth - width),
-        y = proposed.y.coerceIn(0f, pageHeight - height),
+        x = centerX - width / 2f,
+        y = centerY - height / 2f,
         width = width,
         height = height,
-        rotation = ((proposed.rotation % 360f) + 360f) % 360f,
+        rotation = rotation,
     )
 }
 
@@ -41,7 +57,18 @@ private fun ElementTransform.isFinite(): Boolean =
 internal fun selectElementAt(point: CanvasPoint, elements: List<ElementEntity>): String? =
     elements
         .asSequence()
-        .filter { point.x in it.x..(it.x + it.width) && point.y in it.y..(it.y + it.height) }
+        .filter { element ->
+            val centerX = element.x + element.width / 2f
+            val centerY = element.y + element.height / 2f
+            val radians = Math.toRadians(element.rotation.toDouble())
+            val cosine = cos(radians).toFloat()
+            val sine = sin(radians).toFloat()
+            val dx = point.x - centerX
+            val dy = point.y - centerY
+            val localX = dx * cosine + dy * sine
+            val localY = -dx * sine + dy * cosine
+            abs(localX) <= element.width / 2f && abs(localY) <= element.height / 2f
+        }
         .maxByOrNull(ElementEntity::zIndex)
         ?.id
 
@@ -60,11 +87,21 @@ internal fun selectElementWithLasso(
     return elements
         .asSequence()
         .filter { element ->
-            element.x + element.width / 2f in left..right &&
-                element.y + element.height / 2f in top..bottom
+            CanvasPoint(
+                element.x + element.width / 2f,
+                element.y + element.height / 2f,
+            ).inside(points)
         }
         .maxByOrNull(ElementEntity::zIndex)
         ?.id
 }
 
 internal fun ElementEntity.transform() = ElementTransform(x, y, width, height, rotation)
+
+private fun rotatedExtents(width: Float, height: Float, rotation: Float): Pair<Float, Float> {
+    val radians = Math.toRadians(rotation.toDouble())
+    val cosine = abs(cos(radians)).toFloat()
+    val sine = abs(sin(radians)).toFloat()
+    return (width / 2f * cosine + height / 2f * sine) to
+        (width / 2f * sine + height / 2f * cosine)
+}

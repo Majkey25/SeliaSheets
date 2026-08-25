@@ -1,12 +1,12 @@
-# SeliaDocs Privacy Policy
+# SeliaSheets privacy policy
 
-Effective date: August 24, 2026
+Effective date: August 25, 2026
 
-SeliaDocs is an offline-first Android notebook published by Majkey25. This policy explains what the app processes and how users control their content.
+SeliaSheets is an offline-first Android notebook published by Majkey25. This policy explains what the app processes and how users control their content.
 
 ## Data collection and sharing
 
-SeliaDocs does not collect, transmit, sell, or share personal data. It contains no analytics, advertising SDK, crash-reporting SDK, account system, telemetry, or app network permission.
+SeliaSheets does not collect, transmit, sell, or share personal data. It contains no analytics, advertising SDK, crash-reporting SDK, account system, telemetry, or app network permission.
 
 ## Data stored on the device
 
@@ -15,27 +15,28 @@ The app stores the following only in private Android app storage:
 - notebook titles, covers, pages, paper choices, and settings;
 - stylus and finger stroke coordinates, pressure, tilt, orientation, brush, and color;
 - text, shape, and arithmetic elements created by the user;
-- copies of images explicitly selected through Android Photo Picker.
+- copies of images explicitly selected through Android Photo Picker;
+- PDF files explicitly selected through Android's document picker.
 
-Android backup is disabled for SeliaDocs. The app does not read unrelated photos or files.
+Android backup is disabled for SeliaSheets. The app does not read unrelated photos or files.
 
 ## User-directed exports and links
 
-PDF export writes to a destination selected by the user through Android's system document picker. SeliaDocs does not upload exported files.
+PDF and `.seliasheets` backup export write to destinations selected by the user through Android's system document picker. SeliaSheets does not upload exported files.
 
 Privacy policy, source-code, and optional Buy Me a Coffee links open only after a user action and are handled by the user's browser. The destination website's own privacy policy applies after it opens.
 
 ## Retention and deletion
 
-Notebook data remains on the device until the user deletes it or uninstalls the app. Moving a notebook to trash is reversible. Permanent deletion removes its database content and private image assets that are no longer referenced. Uninstalling SeliaDocs removes its private app data according to Android platform behavior.
+Notebook data remains on the device until the user deletes it or uninstalls the app. Moving a notebook to trash is reversible. Permanent deletion removes its database content and unreferenced private assets. Uninstalling SeliaSheets removes its private app data according to Android platform behavior.
 
 ## Security
 
-SeliaDocs uses Android private app storage, validates imported image types and sizes, and does not request broad storage access. No method of local storage can guarantee absolute security, so users should protect device access and export sensitive notebooks only to trusted locations.
+SeliaSheets uses Android private app storage, validates imported images, validates backup archives, and renders imported PDFs in an isolated process. The app does not request broad storage access. Users should protect device access and export sensitive notebooks only to trusted locations.
 
 ## Children
 
-SeliaDocs is a general productivity tool and is not directed to children under 13. It does not knowingly collect data from children or any other users.
+SeliaSheets is a general productivity tool and is not directed to children under 13. It does not knowingly collect data from any user.
 
 ## Changes
 
@@ -43,4 +44,4 @@ Material policy changes will be published in this repository and on the hosted p
 
 ## Contact
 
-For privacy questions, email [majkeylab@gmail.com](mailto:majkeylab@gmail.com) or open an issue at [github.com/Majkey25/SeliaDocs](https://github.com/Majkey25/SeliaDocs/issues).
+For privacy questions, email [majkeylab@gmail.com](mailto:majkeylab@gmail.com) or open an issue at [github.com/Majkey25/SeliaSheets](https://github.com/Majkey25/SeliaSheets/issues).

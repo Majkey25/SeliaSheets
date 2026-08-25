@@ -43,26 +43,31 @@ internal fun ElementSelectionOverlay(
         remember(element.id, element.x, element.y, element.width, element.height, element.rotation) {
             mutableStateOf(element.transform())
         }
+    val cancelGesture = {
+        current = element.transform()
+        onPreview(null)
+    }
     val width = current.width * scaleX
     val height = current.height * scaleY
     Box(
         modifier =
             Modifier
                 .offset(
-                    (current.x * scaleX - HANDLE_PADDING).dp,
-                    (current.y * scaleY - ROTATE_SPACE).dp,
+                    (current.x * scaleX - HANDLE_REGION).dp,
+                    (current.y * scaleY - HANDLE_REGION).dp,
                 )
-                .size((width + HANDLE_PADDING * 2).dp, (height + ROTATE_SPACE + HANDLE_PADDING).dp)
+                .size((width + HANDLE_REGION * 2f).dp, (height + HANDLE_REGION * 2f).dp)
                 .rotate(current.rotation)
                 .testTag("element-selection"),
     ) {
         Box(
             modifier =
                 Modifier
-                    .fillMaxSize()
+                    .offset(HANDLE_REGION.dp, HANDLE_REGION.dp)
+                    .size(width.dp, height.dp)
                     .pointerInput(element.id, scaleX, scaleY) {
                         detectDragGestures(
-                            onDragCancel = { onPreview(null) },
+                            onDragCancel = cancelGesture,
                             onDragEnd = {
                                 onCommit(current)
                                 onPreview(null)
@@ -85,7 +90,7 @@ internal fun ElementSelectionOverlay(
         Box(
             modifier =
                 Modifier
-                    .offset(HANDLE_PADDING.dp, ROTATE_SPACE.dp)
+                    .offset(HANDLE_REGION.dp, HANDLE_REGION.dp)
                     .size(width.dp, height.dp)
                     .border(2.dp, MaterialTheme.colorScheme.primary),
         )
@@ -93,10 +98,13 @@ internal fun ElementSelectionOverlay(
             contentDescription = resizeDescription,
             modifier =
                 Modifier
-                    .align(Alignment.BottomEnd)
+                    .offset(
+                        (HANDLE_REGION + width - TOUCH_TARGET / 2f).dp,
+                        (HANDLE_REGION + height - TOUCH_TARGET / 2f).dp,
+                    )
                     .pointerInput(element.id, scaleX, scaleY) {
                         detectDragGestures(
-                            onDragCancel = { onPreview(null) },
+                            onDragCancel = cancelGesture,
                             onDragEnd = {
                                 onCommit(current)
                                 onPreview(null)
@@ -119,10 +127,13 @@ internal fun ElementSelectionOverlay(
             contentDescription = rotateDescription,
             modifier =
                 Modifier
-                    .align(Alignment.TopCenter)
+                    .offset(
+                        (HANDLE_REGION + width / 2f - TOUCH_TARGET / 2f).dp,
+                        0.dp,
+                    )
                     .pointerInput(element.id) {
                         detectDragGestures(
-                            onDragCancel = { onPreview(null) },
+                            onDragCancel = cancelGesture,
                             onDragEnd = {
                                 onCommit(current)
                                 onPreview(null)
@@ -147,15 +158,20 @@ internal fun ElementSelectionOverlay(
 
 @Composable
 private fun Handle(contentDescription: String, modifier: Modifier) {
-    Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shape = CircleShape,
+    Box(
+        contentAlignment = Alignment.Center,
         modifier =
             modifier
                 .size(TOUCH_TARGET.dp)
                 .semantics { this.contentDescription = contentDescription },
-    ) {}
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shape = CircleShape,
+            modifier = Modifier.size(VISUAL_HANDLE.dp),
+        ) {}
+    }
 }
 
 private inline fun update(
@@ -175,5 +191,5 @@ private inline fun update(
 }
 
 private const val TOUCH_TARGET = 48f
-private const val HANDLE_PADDING = TOUCH_TARGET / 2f
-private const val ROTATE_SPACE = 64f
+private const val VISUAL_HANDLE = 16f
+private const val HANDLE_REGION = 52f

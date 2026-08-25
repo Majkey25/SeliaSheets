@@ -12,12 +12,14 @@ import com.majkeylab.seliadocs.data.ElementDraft
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.PdfPageSpec
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
-import com.majkeylab.seliadocs.data.StrokePayload
+import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -51,7 +53,7 @@ class BackupImporterTest {
                 database = database,
                 repository = repository,
                 assets = assets,
-                validator = BackupValidator(stagingRoot),
+                validator = BackupValidator(stagingRoot, PdfSandboxClient(context)::inspect),
                 stagingRoot = stagingRoot,
                 appVersion = "test",
                 idFactory = { "restored-${nextRestoreId++}" },
@@ -74,15 +76,18 @@ class BackupImporterTest {
         val notebook = repository.getAllNotebooks().single()
         val content = repository.loadNotebook(notebook.id)
         assertEquals("Imported", notebook.title)
-        assertArrayEquals(byteArrayOf(1, 2, 3), content.strokes.single().inputs)
+        assertArrayEquals(validTestStrokePayload().inputs, content.strokes.single().inputs)
+        assertEquals("Imported page text", content.blocks.single().text)
+        assertEquals("Main chapter", content.chapters.single().title)
+        assertEquals(content.chapters.single().id, content.pages.single().chapterId)
         val assetId = content.elements.single().assetId
-        assertArrayEquals(byteArrayOf(4, 5, 6), assets.requireFile(requireNotNull(assetId)).readBytes())
+        assertArrayEquals(testPng(0xFFFF0000.toInt()), assets.requireFile(requireNotNull(assetId)).readBytes())
         assertEquals(RestoreSummary(1, 1, 1, 0), summary)
     }
 
     @Test
     fun mergeRemapsCollidingIdsAndPreservesExistingData() = runTest {
-        populate(repository, assets, "Existing", byteArrayOf(9, 9, 9))
+        populate(repository, assets, "Existing", testPng(0xFF0000FF.toInt()))
         val archive = sourceArchive("Imported")
 
         val summary = importer.restore(ByteArrayInputStream(archive), RestoreMode.MERGE)
@@ -94,14 +99,14 @@ class BackupImporterTest {
         val imported = notebooks.single { it.title == "Imported" }
         val importedAsset = repository.loadNotebook(imported.id).elements.single().assetId
         assertTrue(importedAsset != "asset.png")
-        assertArrayEquals(byteArrayOf(4, 5, 6), assets.requireFile(requireNotNull(importedAsset)).readBytes())
-        assertArrayEquals(byteArrayOf(9, 9, 9), assets.requireFile("asset.png").readBytes())
+        assertArrayEquals(testPng(0xFFFF0000.toInt()), assets.requireFile(requireNotNull(importedAsset)).readBytes())
+        assertArrayEquals(testPng(0xFF0000FF.toInt()), assets.requireFile("asset.png").readBytes())
         assertTrue(summary.remappedIds >= 3)
     }
 
     @Test
     fun replaceSwapsLibraryAndRemovesOldAssets() = runTest {
-        populate(repository, assets, "Old", byteArrayOf(9, 9, 9))
+        populate(repository, assets, "Old", testPng(0xFF0000FF.toInt()))
         val archive = sourceArchive("Replacement")
 
         val summary = importer.restore(ByteArrayInputStream(archive), RestoreMode.REPLACE)
@@ -110,14 +115,14 @@ class BackupImporterTest {
         val assetId = repository.loadNotebook(notebook.id).elements.single().assetId
         assertEquals("Replacement", notebook.title)
         assertEquals(1, assets.files().size)
-        assertArrayEquals(byteArrayOf(4, 5, 6), assets.requireFile(requireNotNull(assetId)).readBytes())
+        assertArrayEquals(testPng(0xFFFF0000.toInt()), assets.requireFile(requireNotNull(assetId)).readBytes())
         assertEquals(1, summary.notebooks)
         assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
     }
 
     @Test
     fun invalidArchiveLeavesDatabaseAndAssetsUnchanged() = runTest {
-        populate(repository, assets, "Existing", byteArrayOf(9, 9, 9))
+        populate(repository, assets, "Existing", testPng(0xFF0000FF.toInt()))
 
         val failure =
             runCatching {
@@ -127,7 +132,82 @@ class BackupImporterTest {
 
         assertTrue(failure is BackupFailure)
         assertEquals(listOf("Existing"), repository.getAllNotebooks().map { it.title })
-        assertArrayEquals(byteArrayOf(9, 9, 9), assets.requireFile("asset.png").readBytes())
+        assertArrayEquals(testPng(0xFF0000FF.toInt()), assets.requireFile("asset.png").readBytes())
+    }
+
+    @Test
+    fun pdfSourceAndPageRoundTripWithOriginalAsset() = runTest {
+        val sourceDatabase = inMemoryDatabase()
+        val sourceRepository = repository(sourceDatabase)
+        val sourceRoot = File(context.cacheDir, "backup-pdf-source-${System.nanoTime()}")
+        val sourceAssets = AssetStore(sourceRoot)
+        val pdfBytes = testPdf(1)
+        val archive =
+            try {
+                val notebookId = sourceRepository.createNotebook(request("PDF source"))
+                sourceAssets.prepare()
+                sourceAssets.file("slides.pdf").writeBytes(pdfBytes)
+                sourceRepository.importPdf(
+                    notebookId,
+                    "slides.pdf",
+                    "Slides.pdf",
+                    pdfBytes.size.toLong(),
+                    sha256(pdfBytes),
+                    listOf(PdfPageSpec(595, 842)),
+                )
+                ByteArrayOutputStream().also { output ->
+                    BackupExporter(sourceRepository, sourceAssets, "test").export(BackupScope.Library, output)
+                }.toByteArray()
+            } finally {
+                sourceDatabase.close()
+                sourceRoot.deleteRecursively()
+            }
+
+        importer.restore(ByteArrayInputStream(archive), RestoreMode.MERGE)
+
+        val notebook = repository.getAllNotebooks().single()
+        val content = repository.loadNotebook(notebook.id)
+        val pdfSource = content.pdfSources.single()
+        assertEquals(pdfSource.id, content.pages.single { it.pdfSourceId != null }.pdfSourceId)
+        assertArrayEquals(pdfBytes, assets.requireFile(pdfSource.assetId).readBytes())
+    }
+
+    @Test
+    fun deletedAndDuplicatedPdfPagesRoundTrip() = runTest {
+        val sourceDatabase = inMemoryDatabase()
+        val sourceRepository = repository(sourceDatabase)
+        val sourceRoot = File(context.cacheDir, "backup-pdf-edits-${System.nanoTime()}")
+        val sourceAssets = AssetStore(sourceRoot)
+        val pdfBytes = testPdf(3)
+        val archive =
+            try {
+                val notebookId = sourceRepository.createNotebook(request("Edited PDF"))
+                sourceAssets.prepare()
+                sourceAssets.file("edited.pdf").writeBytes(pdfBytes)
+                val imported =
+                    sourceRepository.importPdf(
+                        notebookId,
+                        "edited.pdf",
+                        "Edited.pdf",
+                        pdfBytes.size.toLong(),
+                        sha256(pdfBytes),
+                        List(3) { PdfPageSpec(595, 842) },
+                    )
+                sourceRepository.deletePage(imported.pageIds[1])
+                sourceRepository.duplicatePage(imported.pageIds[0])
+                ByteArrayOutputStream().also { output ->
+                    BackupExporter(sourceRepository, sourceAssets, "test").export(BackupScope.Library, output)
+                }.toByteArray()
+            } finally {
+                sourceDatabase.close()
+                sourceRoot.deleteRecursively()
+            }
+
+        importer.restore(ByteArrayInputStream(archive), RestoreMode.MERGE)
+
+        val restored = repository.loadNotebook(repository.getAllNotebooks().single().id)
+        assertEquals(listOf(0, 0, 2), restored.pages.mapNotNull { it.pdfPageIndex }.sorted())
+        assertArrayEquals(pdfBytes, assets.requireFile(restored.pdfSources.single().assetId).readBytes())
     }
 
     private suspend fun sourceArchive(title: String): ByteArray {
@@ -136,7 +216,7 @@ class BackupImporterTest {
         val sourceRoot = File(context.cacheDir, "backup-source-${System.nanoTime()}")
         val sourceAssets = AssetStore(sourceRoot)
         return try {
-            populate(sourceRepository, sourceAssets, title, byteArrayOf(4, 5, 6))
+            populate(sourceRepository, sourceAssets, title, testPng(0xFFFF0000.toInt()))
             ByteArrayOutputStream().also { output ->
                 BackupExporter(sourceRepository, sourceAssets, "test", clock = { 42L })
                     .export(BackupScope.Library, output)
@@ -155,10 +235,13 @@ class BackupImporterTest {
     ) {
         val notebookId = targetRepository.createNotebook(request(title))
         val page = targetRepository.getPages(notebookId).single()
+        val chapterId = targetRepository.createChapter(notebookId, "Main chapter", 0xFF3156D9.toInt())
+        targetRepository.assignPageToChapter(page.id, chapterId)
         targetRepository.addStroke(
             page.id,
-            StrokePayload("PEN", 0xff000000.toInt(), 3f, 0.1f, byteArrayOf(1, 2, 3)),
+            validTestStrokePayload(),
         )
+        targetRepository.updatePageText(page.id, "Imported page text")
         targetAssets.prepare()
         targetAssets.file("asset.png").writeBytes(assetBytes)
         targetRepository.addElement(
@@ -190,4 +273,7 @@ class BackupImporterTest {
             orientation = PageOrientation.PORTRAIT,
             fingerDrawing = false,
         )
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

@@ -1,6 +1,6 @@
 # Contributing
 
-SeliaDocs is in beta. Please open an issue before a large change so scope and interaction behavior can be agreed first.
+SeliaSheets is in beta. Open an issue before a large change so maintainers can agree on scope and interaction behavior.
 
 ## Development
 
