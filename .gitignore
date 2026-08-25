@@ -10,3 +10,7 @@
 *.aab
 .DS_Store
 Thumbs.db
+/dist/
+/.worktrees/
+/.reference/
+/.repo_graph/
