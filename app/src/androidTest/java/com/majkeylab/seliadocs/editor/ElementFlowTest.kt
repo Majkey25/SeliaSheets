@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -55,6 +56,54 @@ class ElementFlowTest {
             onMain { viewModel.addMath(page.id, "(2+3)*4=") }
             val math = viewModel.awaitState("math add") { it.elements.size == 2 }
             assertEquals("(2+3)*4 = 20", math.elements.single { it.resultText != null }.resultText)
+
+            val textElement = math.elements.single { it.text != null }
+            onMain { viewModel.selectElement(textElement.id) }
+            onMain {
+                viewModel.updateSelectedElement(
+                    ElementTransform(40f, 50f, 180f, 90f, 25f),
+                )
+            }
+            val moved =
+                viewModel.awaitState("element transform") {
+                    it.selectedElement?.x == 40f && it.canUndo
+                }
+            assertEquals(25f, moved.selectedElement?.rotation)
+
+            onMain(viewModel::undo)
+            val undone =
+                viewModel.awaitState("element transform undo") {
+                    it.elements.single { element -> element.id == textElement.id }.x == textElement.x
+                }
+            assertEquals(textElement.width, undone.elements.single { it.id == textElement.id }.width)
+
+            onMain(viewModel::duplicateSelectedElement)
+            val duplicated =
+                viewModel.awaitState("element duplicate") {
+                    it.elements.size == 3 && it.selectedElementId != textElement.id
+                }
+            assertTrue(duplicated.selectedElement != null)
+
+            onMain { viewModel.selectElement(textElement.id) }
+            val selected =
+                viewModel.awaitState("select original element") {
+                    it.selectedElementId == textElement.id
+                }
+            val originalZ = selected.selectedElement?.zIndex ?: error("Selection missing")
+            onMain(viewModel::bringSelectedElementForward)
+            viewModel.awaitState("element layer order") {
+                (it.selectedElement?.zIndex ?: originalZ) > originalZ
+            }
+
+            onMain(viewModel::deleteSelectedElement)
+            viewModel.awaitState("element delete") {
+                it.elements.size == 2 && it.selectedElement == null
+            }
+            onMain(viewModel::undo)
+            viewModel.awaitState("element delete undo") {
+                it.elements.any { element -> element.id == textElement.id }
+            }
+            Unit
         } finally {
             repository.deleteNotebook(notebookId)
         }

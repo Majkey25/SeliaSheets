@@ -37,6 +37,7 @@ internal data class EditorUiState(
     val selectedPageId: String? = null,
     val tool: EditorTool = EditorTool.PEN,
     val selectedStrokeIds: Set<String> = emptySet(),
+    val selectedElementId: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -49,6 +50,9 @@ internal data class EditorUiState(
 
     val selectedElements: List<ElementEntity>
         get() = elements.filter { it.pageId == selectedPage?.id }
+
+    val selectedElement: ElementEntity?
+        get() = elements.firstOrNull { it.id == selectedElementId }
 }
 
 private data class EditorContent(
@@ -65,6 +69,7 @@ private data class PageSnapshot(
 private data class EditorControls(
     val tool: EditorTool = EditorTool.PEN,
     val selectedStrokeIds: Set<String> = emptySet(),
+    val selectedElementId: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -126,6 +131,7 @@ internal class EditorViewModel(
                     selectedPageId = selected,
                     tool = editorControls.tool,
                     selectedStrokeIds = editorControls.selectedStrokeIds,
+                    selectedElementId = editorControls.selectedElementId,
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
@@ -154,6 +160,7 @@ internal class EditorViewModel(
             controls.value.copy(
                 tool = tool,
                 selectedStrokeIds = if (tool == EditorTool.LASSO) controls.value.selectedStrokeIds else emptySet(),
+                selectedElementId = if (tool == EditorTool.LASSO) controls.value.selectedElementId else null,
             )
     }
 
@@ -221,7 +228,76 @@ internal class EditorViewModel(
 
     fun selectStrokes(pageId: String, lasso: List<CanvasPoint>) {
         val strokes = state.value.strokes.filter { it.pageId == pageId }.map(StrokeEntity::toStrokePath)
-        controls.value = controls.value.copy(selectedStrokeIds = selectStrokes(lasso, strokes))
+        controls.value =
+            controls.value.copy(
+                selectedStrokeIds = selectStrokes(lasso, strokes),
+                selectedElementId = null,
+            )
+    }
+
+    fun selectElement(id: String?) {
+        controls.value =
+            controls.value.copy(
+                selectedElementId = id?.takeIf { candidate ->
+                    state.value.elements.any { it.id == candidate }
+                },
+                selectedStrokeIds = emptySet(),
+            )
+    }
+
+    fun updateSelectedElement(transform: ElementTransform) = mutate {
+        val element = state.value.selectedElement ?: return@mutate
+        val page = state.value.selectedPage ?: return@mutate
+        val clamped =
+            clampElementTransform(
+                transform,
+                page.widthPoints.toFloat(),
+                page.heightPoints.toFloat(),
+            ) ?: return@mutate
+        val history = history(page.id)
+        repository.updateElement(
+            element.copy(
+                x = clamped.x,
+                y = clamped.y,
+                width = clamped.width,
+                height = clamped.height,
+                rotation = clamped.rotation,
+            ),
+        )
+        history.push(snapshot(page.id))
+        updateHistoryControls(history)
+    }
+
+    fun duplicateSelectedElement() = mutate {
+        val selected = state.value.selectedElement ?: return@mutate
+        val history = history(selected.pageId)
+        val id = repository.duplicateElement(selected.id)
+        history.push(snapshot(selected.pageId))
+        controls.value = controls.value.copy(selectedElementId = id)
+        updateHistoryControls(history)
+    }
+
+    fun bringSelectedElementForward() = mutate {
+        val selected = state.value.selectedElement ?: return@mutate
+        val history = history(selected.pageId)
+        repository.moveElementForward(selected.id)
+        history.push(snapshot(selected.pageId))
+        updateHistoryControls(history)
+    }
+
+    fun deleteSelectedElement() = mutate {
+        val selected = state.value.selectedElement ?: return@mutate
+        val history = history(selected.pageId)
+        val deleted = repository.deleteElement(selected.id)
+        deleted.assetId?.let { assetId ->
+            if (repository.getAssetReferenceCount(assetId) == 0) {
+                val file = assets.file(assetId)
+                check(!file.exists() || file.delete()) { "Asset could not be deleted" }
+            }
+        }
+        history.push(snapshot(selected.pageId))
+        controls.value = controls.value.copy(selectedElementId = null)
+        updateHistoryControls(history)
     }
 
     fun moveSelectedStrokes(pageId: String, delta: CanvasPoint) = mutate {
@@ -339,7 +415,8 @@ internal class EditorViewModel(
                 }
             repository.replaceStrokesWithElement(page.id, selectedIds, draft)
             history.push(snapshot(page.id))
-            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            controls.value =
+                controls.value.copy(selectedStrokeIds = emptySet(), selectedElementId = null)
             updateHistoryControls(history)
         }
     }
@@ -381,7 +458,14 @@ internal class EditorViewModel(
             val history = history(pageId)
             val snapshot = history.undo() ?: return@mutate
             repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements)
-            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            controls.value =
+                controls.value.copy(
+                    selectedStrokeIds = emptySet(),
+                    selectedElementId =
+                        controls.value.selectedElementId?.takeIf { id ->
+                            snapshot.elements.any { it.id == id }
+                        },
+                )
             updateHistoryControls(history)
         }
     }
@@ -392,7 +476,14 @@ internal class EditorViewModel(
             val history = history(pageId)
             val snapshot = history.redo() ?: return@mutate
             repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements)
-            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            controls.value =
+                controls.value.copy(
+                    selectedStrokeIds = emptySet(),
+                    selectedElementId =
+                        controls.value.selectedElementId?.takeIf { id ->
+                            snapshot.elements.any { it.id == id }
+                        },
+                )
             updateHistoryControls(history)
         }
     }
@@ -412,6 +503,7 @@ internal class EditorViewModel(
         controls.value =
             controls.value.copy(
                 selectedStrokeIds = emptySet(),
+                selectedElementId = null,
                 canUndo = history?.canUndo == true,
                 canRedo = history?.canRedo == true,
             )

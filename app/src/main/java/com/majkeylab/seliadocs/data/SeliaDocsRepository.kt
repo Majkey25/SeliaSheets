@@ -173,6 +173,40 @@ internal class SeliaDocsRepository(
         }
     }
 
+    suspend fun duplicateElement(id: String): String {
+        val duplicateId = idFactory()
+        database.withTransaction {
+            val source = requireNotNull(pageContent.getElement(id)) { "Element not found" }
+            val page = requireNotNull(notebooks.getPage(source.pageId)) { "Page not found" }
+            val maxX = (page.widthPoints - source.width).coerceAtLeast(0f)
+            val maxY = (page.heightPoints - source.height).coerceAtLeast(0f)
+            pageContent.insertElement(
+                source.copy(
+                    id = duplicateId,
+                    zIndex = (pageContent.getMaxElementZIndex(source.pageId) ?: -1) + 1,
+                    x = (source.x + 12f).coerceIn(0f, maxX),
+                    y = (source.y + 12f).coerceIn(0f, maxY),
+                ),
+            )
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+        return duplicateId
+    }
+
+    suspend fun moveElementForward(id: String) {
+        database.withTransaction {
+            val selected = requireNotNull(pageContent.getElement(id)) { "Element not found" }
+            val next =
+                pageContent.getElements(selected.pageId)
+                    .firstOrNull { element -> element.zIndex > selected.zIndex }
+                    ?: return@withTransaction
+            pageContent.updateElement(selected.copy(zIndex = next.zIndex))
+            pageContent.updateElement(next.copy(zIndex = selected.zIndex))
+            val page = requireNotNull(notebooks.getPage(selected.pageId)) { "Page not found" }
+            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+        }
+    }
+
     suspend fun deleteElement(id: String): ElementEntity {
         val element = requireNotNull(pageContent.getElement(id)) { "Element not found" }
         database.withTransaction {
