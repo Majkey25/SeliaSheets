@@ -28,8 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,6 +62,7 @@ internal fun PageCanvas(
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
     selectedStrokeIds: Set<String>,
+    selectedElementId: String?,
     fingerDrawing: Boolean,
     tool: EditorTool,
     penWidth: Float,
@@ -67,8 +70,9 @@ internal fun PageCanvas(
     pageTransitionEnabled: Boolean,
     onStrokeFinished: (Stroke) -> Unit,
     onEraseFinished: (List<CanvasPoint>) -> Unit,
-    onLassoFinished: (List<CanvasPoint>) -> Unit,
+    onSelectContent: (List<CanvasPoint>) -> Unit,
     onMoveSelection: (CanvasPoint) -> Unit,
+    onCommitElementTransform: (ElementTransform) -> Unit,
     assetFile: (String) -> File,
     modifier: Modifier = Modifier,
 ) {
@@ -85,14 +89,16 @@ internal fun PageCanvas(
                     strokes,
                     elements,
                     selectedStrokeIds,
+                    selectedElementId,
                     fingerDrawing,
                     tool,
                     penWidth,
                     highlighterWidth,
                     onStrokeFinished,
                     onEraseFinished,
-                    onLassoFinished,
+                    onSelectContent,
                     onMoveSelection,
+                    onCommitElementTransform,
                     assetFile,
                 )
             }
@@ -115,14 +121,16 @@ private fun Paper(
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
     selectedStrokeIds: Set<String>,
+    selectedElementId: String?,
     fingerDrawing: Boolean,
     tool: EditorTool,
     penWidth: Float,
     highlighterWidth: Float,
     onStrokeFinished: (Stroke) -> Unit,
     onEraseFinished: (List<CanvasPoint>) -> Unit,
-    onLassoFinished: (List<CanvasPoint>) -> Unit,
+    onSelectContent: (List<CanvasPoint>) -> Unit,
     onMoveSelection: (CanvasPoint) -> Unit,
+    onCommitElementTransform: (ElementTransform) -> Unit,
     assetFile: (String) -> File,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
@@ -132,6 +140,18 @@ private fun Paper(
             strokes.mapIndexedNotNull { index, stroke -> index.takeIf { stroke.id in selectedStrokeIds } }.toSet()
         }
     val activeBrush = remember(tool, penWidth, highlighterWidth) { brushFor(tool, penWidth, highlighterWidth) }
+    val selectedElement = elements.firstOrNull { it.id == selectedElementId }
+    var previewTransform by
+        remember(
+            selectedElement?.id,
+            selectedElement?.x,
+            selectedElement?.y,
+            selectedElement?.width,
+            selectedElement?.height,
+            selectedElement?.rotation,
+        ) {
+            mutableStateOf<ElementTransform?>(null)
+        }
     BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         val availableRatio = maxWidth / maxHeight
         val paperModifier =
@@ -146,9 +166,11 @@ private fun Paper(
             shadowElevation = 4.dp,
             modifier = paperModifier,
         ) {
-            Box {
+            BoxWithConstraints {
+                val scaleX = maxWidth.value / page.widthPoints
+                val scaleY = maxHeight.value / page.heightPoints
                 PaperPattern(page.paper, Modifier.fillMaxSize())
-                ElementLayer(page, elements, assetFile)
+                ElementLayer(page, elements, selectedElementId, previewTransform, assetFile)
                 AndroidView(
                     factory = { context -> InkCanvasView(context) },
                     update = { view ->
@@ -169,7 +191,7 @@ private fun Paper(
                                 }
 
                                 override fun onLassoFinished(points: List<CanvasPoint>) {
-                                    onLassoFinished(points)
+                                    onSelectContent(points)
                                 }
 
                                 override fun onMoveSelection(delta: CanvasPoint) {
@@ -180,6 +202,16 @@ private fun Paper(
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (tool == EditorTool.LASSO && selectedElement != null) {
+                    ElementSelectionOverlay(
+                        page = page,
+                        element = selectedElement,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        onPreview = { previewTransform = it },
+                        onCommit = onCommitElementTransform,
+                    )
+                }
                 Text(
                     text = stringResource(R.string.page_number, pageNumber),
                     style = MaterialTheme.typography.labelSmall,
@@ -195,6 +227,8 @@ private fun Paper(
 private fun ElementLayer(
     page: PageEntity,
     elements: List<ElementEntity>,
+    selectedElementId: String?,
+    previewTransform: ElementTransform?,
     assetFile: (String) -> File,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -202,12 +236,15 @@ private fun ElementLayer(
         val scaleY = maxHeight.value / page.heightPoints
         elements.forEach { element ->
             key(element.id) {
+                val transform =
+                    previewTransform?.takeIf { element.id == selectedElementId }
+                        ?: element.transform()
                 val modifier =
                     Modifier
-                        .offset((element.x * scaleX).dp, (element.y * scaleY).dp)
-                        .width((element.width * scaleX).dp)
-                        .height((element.height * scaleY).dp)
-                        .rotate(element.rotation)
+                        .offset((transform.x * scaleX).dp, (transform.y * scaleY).dp)
+                        .width((transform.width * scaleX).dp)
+                        .height((transform.height * scaleY).dp)
+                        .rotate(transform.rotation)
                 when (runCatching { ElementKind.valueOf(element.kind) }.getOrNull()) {
                     ElementKind.TEXT,
                     ElementKind.MATH,

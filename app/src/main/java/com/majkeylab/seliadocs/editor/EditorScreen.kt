@@ -235,6 +235,7 @@ private fun EditorScreen(
                     strokes = state.selectedStrokes,
                     elements = state.selectedElements,
                     selectedStrokeIds = state.selectedStrokeIds,
+                    selectedElementId = state.selectedElementId,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
                     penWidth = settings.penWidth,
@@ -246,12 +247,13 @@ private fun EditorScreen(
                     onEraseFinished = { points ->
                         state.selectedPage?.let { page -> viewModel.eraseStrokes(page.id, points) }
                     },
-                    onLassoFinished = { points ->
-                        state.selectedPage?.let { page -> viewModel.selectStrokes(page.id, points) }
+                    onSelectContent = { points ->
+                        state.selectedPage?.let { page -> viewModel.selectContent(page.id, points) }
                     },
                     onMoveSelection = { delta ->
                         state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
+                    onCommitElementTransform = viewModel::updateSelectedElement,
                     assetFile = viewModel::assetFile,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
@@ -271,6 +273,7 @@ private fun EditorScreen(
                     strokes = state.selectedStrokes,
                     elements = state.selectedElements,
                     selectedStrokeIds = state.selectedStrokeIds,
+                    selectedElementId = state.selectedElementId,
                     fingerDrawing = state.notebook?.fingerDrawing == true,
                     tool = state.tool,
                     penWidth = settings.penWidth,
@@ -282,12 +285,13 @@ private fun EditorScreen(
                     onEraseFinished = { points ->
                         state.selectedPage?.let { page -> viewModel.eraseStrokes(page.id, points) }
                     },
-                    onLassoFinished = { points ->
-                        state.selectedPage?.let { page -> viewModel.selectStrokes(page.id, points) }
+                    onSelectContent = { points ->
+                        state.selectedPage?.let { page -> viewModel.selectContent(page.id, points) }
                     },
                     onMoveSelection = { delta ->
                         state.selectedPage?.let { page -> viewModel.moveSelectedStrokes(page.id, delta) }
                     },
+                    onCommitElementTransform = viewModel::updateSelectedElement,
                     assetFile = viewModel::assetFile,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )

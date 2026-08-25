@@ -235,6 +235,19 @@ internal class EditorViewModel(
             )
     }
 
+    fun selectContent(pageId: String, lasso: List<CanvasPoint>) {
+        val elementId =
+            selectElementWithLasso(
+                lasso,
+                state.value.elements.filter { it.pageId == pageId },
+            )
+        if (elementId != null) {
+            selectElement(elementId)
+        } else {
+            selectStrokes(pageId, lasso)
+        }
+    }
+
     fun selectElement(id: String?) {
         controls.value =
             controls.value.copy(

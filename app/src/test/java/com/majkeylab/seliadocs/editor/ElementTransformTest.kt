@@ -61,4 +61,18 @@ class ElementTransformTest {
             selectElementAt(CanvasPoint(40f, 50f), listOf(element, top)),
         )
     }
+
+    @Test
+    fun lassoSelectsTopmostElementWhoseCenterIsInside() {
+        val top = element.copy(id = "top", zIndex = 3)
+        val lasso =
+            listOf(
+                CanvasPoint(10f, 20f),
+                CanvasPoint(140f, 20f),
+                CanvasPoint(140f, 110f),
+                CanvasPoint(10f, 110f),
+            )
+
+        assertEquals("top", selectElementWithLasso(lasso, listOf(element, top)))
+    }
 }

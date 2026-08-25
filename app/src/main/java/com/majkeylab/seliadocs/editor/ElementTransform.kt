@@ -45,4 +45,26 @@ internal fun selectElementAt(point: CanvasPoint, elements: List<ElementEntity>):
         .maxByOrNull(ElementEntity::zIndex)
         ?.id
 
+internal fun selectElementWithLasso(
+    points: List<CanvasPoint>,
+    elements: List<ElementEntity>,
+): String? {
+    if (points.isEmpty()) return null
+    val left = points.minOf(CanvasPoint::x)
+    val top = points.minOf(CanvasPoint::y)
+    val right = points.maxOf(CanvasPoint::x)
+    val bottom = points.maxOf(CanvasPoint::y)
+    if (right - left <= 12f && bottom - top <= 12f) {
+        return selectElementAt(points.last(), elements)
+    }
+    return elements
+        .asSequence()
+        .filter { element ->
+            element.x + element.width / 2f in left..right &&
+                element.y + element.height / 2f in top..bottom
+        }
+        .maxByOrNull(ElementEntity::zIndex)
+        ?.id
+}
+
 internal fun ElementEntity.transform() = ElementTransform(x, y, width, height, rotation)
