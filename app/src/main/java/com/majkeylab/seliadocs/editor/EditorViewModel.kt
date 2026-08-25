@@ -83,8 +83,7 @@ internal class EditorViewModel(
     private val pdfExporter = PdfExporter(assets)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls(tool = initialTool))
-    private var historyPageId: String? = null
-    private var pageHistory: PageHistory<PageSnapshot>? = null
+    private val pageHistories = PageHistoryStore<PageSnapshot>()
 
     private val pages =
         repository.observePages(notebookId)
@@ -137,7 +136,7 @@ internal class EditorViewModel(
     fun selectPage(id: String) {
         if (state.value.selectedPage?.id == id) return
         selectedPageId.value = id
-        resetHistory()
+        showHistoryControls(id)
     }
 
     fun selectPreviousPage() {
@@ -159,13 +158,15 @@ internal class EditorViewModel(
     }
 
     fun addPage() = mutate {
-        selectedPageId.value = repository.addPage(notebookId)
-        resetHistory()
+        val id = repository.addPage(notebookId)
+        selectedPageId.value = id
+        showHistoryControls(id)
     }
 
     fun duplicatePage(id: String) = mutate {
-        selectedPageId.value = repository.duplicatePage(id)
-        resetHistory()
+        val duplicateId = repository.duplicatePage(id)
+        selectedPageId.value = duplicateId
+        showHistoryControls(duplicateId)
     }
 
     fun deletePage(id: String) = mutate {
@@ -178,7 +179,8 @@ internal class EditorViewModel(
                 check(!file.exists() || file.delete()) { "Asset could not be deleted" }
             }
         }
-        if (wasSelected || historyPageId == id) resetHistory()
+        pageHistories.remove(id)
+        if (wasSelected) showHistoryControls(null)
     }
 
     fun movePage(fromIndex: Int, toIndex: Int) = mutate {
@@ -396,24 +398,23 @@ internal class EditorViewModel(
     }
 
     private fun history(pageId: String): PageHistory<PageSnapshot> {
-        if (historyPageId != pageId || pageHistory == null) {
-            historyPageId = pageId
-            pageHistory =
-                PageHistory(
-                    PageSnapshot(
-                        strokes = state.value.strokes.filter { it.pageId == pageId },
-                        elements = state.value.elements.filter { it.pageId == pageId },
-                    ),
-                )
-        }
-        return requireNotNull(pageHistory)
+        return pageHistories.history(
+            pageId,
+            PageSnapshot(
+                strokes = state.value.strokes.filter { it.pageId == pageId },
+                elements = state.value.elements.filter { it.pageId == pageId },
+            ),
+        )
     }
 
-    private fun resetHistory() {
-        historyPageId = null
-        pageHistory = null
+    private fun showHistoryControls(pageId: String?) {
+        val history = pageId?.let(pageHistories::existing)
         controls.value =
-            controls.value.copy(selectedStrokeIds = emptySet(), canUndo = false, canRedo = false)
+            controls.value.copy(
+                selectedStrokeIds = emptySet(),
+                canUndo = history?.canUndo == true,
+                canRedo = history?.canRedo == true,
+            )
     }
 
     private fun updateHistoryControls(history: PageHistory<PageSnapshot>) {
