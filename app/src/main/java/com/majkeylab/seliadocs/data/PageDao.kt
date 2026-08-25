@@ -24,6 +24,9 @@ internal interface PageDao {
     @Query("SELECT * FROM strokes WHERE pageId IN (:pageIds) ORDER BY zIndex")
     suspend fun getStrokes(pageIds: List<String>): List<StrokeEntity>
 
+    @Query("SELECT id FROM strokes")
+    suspend fun getAllStrokeIds(): List<String>
+
     @Query("SELECT * FROM strokes WHERE pageId = :pageId ORDER BY zIndex")
     suspend fun getStrokes(pageId: String): List<StrokeEntity>
 
@@ -63,6 +66,9 @@ internal interface PageDao {
 
     @Query("SELECT * FROM elements WHERE pageId IN (:pageIds) ORDER BY zIndex")
     suspend fun getElements(pageIds: List<String>): List<ElementEntity>
+
+    @Query("SELECT id FROM elements")
+    suspend fun getAllElementIds(): List<String>
 
     @Query("SELECT * FROM elements WHERE pageId = :pageId ORDER BY zIndex")
     suspend fun getElements(pageId: String): List<ElementEntity>

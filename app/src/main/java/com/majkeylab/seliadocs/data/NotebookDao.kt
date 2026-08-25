@@ -49,6 +49,9 @@ internal interface NotebookDao {
     @Query("SELECT * FROM pages WHERE notebookId = :notebookId ORDER BY pageIndex")
     suspend fun getPages(notebookId: String): List<PageEntity>
 
+    @Query("SELECT id FROM pages")
+    suspend fun getAllPageIds(): List<String>
+
     @Query("SELECT * FROM pages WHERE notebookId = :notebookId ORDER BY pageIndex")
     fun observePages(notebookId: String): Flow<List<PageEntity>>
 
@@ -66,4 +69,7 @@ internal interface NotebookDao {
 
     @Delete
     suspend fun deletePage(page: PageEntity)
+
+    @Query("DELETE FROM notebooks")
+    suspend fun clearNotebooks()
 }

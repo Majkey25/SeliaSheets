@@ -18,4 +18,6 @@ internal class AssetStore(private val root: File) {
 
     fun requireFile(id: String): File =
         file(id).takeIf(File::isFile) ?: throw FileNotFoundException(id)
+
+    fun files(): List<File> = root.listFiles().orEmpty().filter(File::isFile).sortedBy(File::getName)
 }

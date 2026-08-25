@@ -31,6 +31,15 @@ internal data class BackupSummary(
     val bytesWritten: Long,
 )
 
+internal enum class RestoreMode { MERGE, REPLACE }
+
+internal data class RestoreSummary(
+    val notebooks: Int,
+    val pages: Int,
+    val assets: Int,
+    val remappedIds: Int,
+)
+
 internal data class BackupNotebook(
     val id: String,
     val title: String,
@@ -113,6 +122,8 @@ internal sealed class BackupFailure(message: String, cause: Throwable? = null) :
 
     class MissingAsset(val assetId: String) :
         BackupFailure("Missing backup asset: $assetId")
+
+    class RestoreFailed(cause: Throwable) : BackupFailure("Backup restore failed", cause)
 
     class Malformed(cause: Throwable? = null) : BackupFailure("Malformed backup data", cause)
 }
