@@ -210,6 +210,14 @@ private fun EditorScreen(
                     onCleanShape = { shapeDialogOpen = true },
                     onAddMath = { mathPageId = state.selectedPage?.id },
                 )
+                if (state.selectedElement != null) {
+                    HorizontalDivider()
+                    ElementContextBar(
+                        onDuplicate = viewModel::duplicateSelectedElement,
+                        onBringForward = viewModel::bringSelectedElementForward,
+                        onDelete = viewModel::deleteSelectedElement,
+                    )
+                }
             }
         },
     ) { padding ->

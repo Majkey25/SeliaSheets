@@ -9,6 +9,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,9 @@ class ElementSelectionFlowTest {
         rule.onNodeWithTag("element-move-handle").assertWidthIsAtLeast(48.dp)
         rule.onNodeWithTag("element-resize-handle").assertWidthIsAtLeast(48.dp)
         rule.onNodeWithTag("element-rotate-handle").assertWidthIsAtLeast(48.dp)
+        rule.onNodeWithContentDescription("Move selected element").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Resize selected element").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Rotate selected element").assertIsDisplayed()
 
         rule.onNodeWithTag("element-move-handle").performTouchInput {
             swipe(center, center + Offset(24f, 20f), durationMillis = 250)
@@ -60,6 +66,33 @@ class ElementSelectionFlowTest {
             assertTrue(requireNotNull(committed).x > element().x)
             assertTrue(requireNotNull(committed).y > element().y)
             assertTrue(commits == 1)
+        }
+    }
+
+    @Test
+    fun contextBarExposesElementActions() {
+        var duplicated = false
+        var broughtForward = false
+        var deleted = false
+        rule.setContent {
+            MaterialTheme {
+                ElementContextBar(
+                    onDuplicate = { duplicated = true },
+                    onBringForward = { broughtForward = true },
+                    onDelete = { deleted = true },
+                )
+            }
+        }
+
+        rule.onNodeWithTag("element-context-bar").assertIsDisplayed()
+        rule.onNodeWithText("Duplicate").performClick()
+        rule.onNodeWithText("Bring forward").performClick()
+        rule.onNodeWithText("Delete element").performClick()
+
+        rule.runOnIdle {
+            assertTrue(duplicated)
+            assertTrue(broughtForward)
+            assertTrue(deleted)
         }
     }
 

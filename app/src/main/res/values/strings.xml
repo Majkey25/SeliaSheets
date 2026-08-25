@@ -160,4 +160,11 @@
     <string name="replace_library_title">Replace entire library?</string>
     <string name="replace_library_message">The current notebooks will be replaced by the selected backup. SeliaDocs validates and creates a private rollback backup first.</string>
     <string name="keep_existing_library">Keep existing library</string>
+    <string name="element_selected">Object selected</string>
+    <string name="duplicate_element">Duplicate</string>
+    <string name="bring_forward">Bring forward</string>
+    <string name="delete_element">Delete element</string>
+    <string name="move_element">Move selected element</string>
+    <string name="resize_element">Resize selected element</string>
+    <string name="rotate_element">Rotate selected element</string>
 </resources>

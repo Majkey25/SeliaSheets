@@ -19,7 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 
@@ -32,6 +36,9 @@ internal fun ElementSelectionOverlay(
     onPreview: (ElementTransform?) -> Unit,
     onCommit: (ElementTransform) -> Unit,
 ) {
+    val moveDescription = stringResource(R.string.move_element)
+    val resizeDescription = stringResource(R.string.resize_element)
+    val rotateDescription = stringResource(R.string.rotate_element)
     var current by
         remember(element.id, element.x, element.y, element.width, element.height, element.rotation) {
             mutableStateOf(element.transform())
@@ -72,6 +79,7 @@ internal fun ElementSelectionOverlay(
                             ) { current = it }
                         }
                     }
+                    .semantics { contentDescription = moveDescription }
                     .testTag("element-move-handle"),
         )
         Box(
@@ -82,6 +90,7 @@ internal fun ElementSelectionOverlay(
                     .border(2.dp, MaterialTheme.colorScheme.primary),
         )
         Handle(
+            contentDescription = resizeDescription,
             modifier =
                 Modifier
                     .align(Alignment.BottomEnd)
@@ -107,6 +116,7 @@ internal fun ElementSelectionOverlay(
                     .testTag("element-resize-handle"),
         )
         Handle(
+            contentDescription = rotateDescription,
             modifier =
                 Modifier
                     .align(Alignment.TopCenter)
@@ -136,12 +146,15 @@ internal fun ElementSelectionOverlay(
 }
 
 @Composable
-private fun Handle(modifier: Modifier) {
+private fun Handle(contentDescription: String, modifier: Modifier) {
     Surface(
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = CircleShape,
-        modifier = modifier.size(TOUCH_TARGET.dp),
+        modifier =
+            modifier
+                .size(TOUCH_TARGET.dp)
+                .semantics { this.contentDescription = contentDescription },
     ) {}
 }
 
