@@ -22,11 +22,11 @@ internal class SeliaDocsRepository(
     fun observePages(notebookId: String): Flow<List<PageEntity>> =
         notebooks.observePages(notebookId)
 
-    fun observeStrokes(notebookId: String): Flow<List<StrokeEntity>> =
-        pageContent.observeStrokes(notebookId)
+    fun observeStrokes(pageId: String): Flow<List<StrokeEntity>> =
+        pageContent.observeStrokes(pageId)
 
-    fun observeElements(notebookId: String): Flow<List<ElementEntity>> =
-        pageContent.observeElements(notebookId)
+    fun observeElements(pageId: String): Flow<List<ElementEntity>> =
+        pageContent.observeElements(pageId)
 
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()

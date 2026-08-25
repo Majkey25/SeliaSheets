@@ -18,9 +18,13 @@ import com.majkeylab.seliadocs.data.StrokePayload
 import java.io.File
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,6 +70,7 @@ private data class EditorControls(
     val failed: Boolean = false,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 internal class EditorViewModel(
     application: Application,
     private val notebookId: String,
@@ -81,28 +86,45 @@ internal class EditorViewModel(
     private var historyPageId: String? = null
     private var pageHistory: PageHistory<PageSnapshot>? = null
 
+    private val pages =
+        repository.observePages(notebookId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val effectiveSelectedPageId =
+        combine(pages, selectedPageId) { notebookPages, selected ->
+                selected?.takeIf { id -> notebookPages.any { it.id == id } }
+                    ?: notebookPages.firstOrNull()?.id
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    private val selectedPageContent =
+        effectiveSelectedPageId.flatMapLatest { pageId ->
+            if (pageId == null) {
+                flowOf(EditorContent(emptyList(), emptyList(), emptyList()))
+            } else {
+                combine(
+                    repository.observeStrokes(pageId),
+                    repository.observeElements(pageId),
+                ) { strokes, elements -> EditorContent(emptyList(), strokes, elements) }
+            }
+        }
     private val content =
-        combine(
-            repository.observePages(notebookId),
-            repository.observeStrokes(notebookId),
-            repository.observeElements(notebookId),
-            ::EditorContent,
-        )
+        combine(pages, selectedPageContent) { notebookPages, pageContent ->
+            pageContent.copy(pages = notebookPages)
+        }
 
     val state =
         combine(
                 repository.observeNotebook(notebookId),
                 content,
-                selectedPageId,
+                effectiveSelectedPageId,
                 controls,
             ) { notebook, document, selected, editorControls ->
-                val validSelection = selected?.takeIf { id -> document.pages.any { it.id == id } }
                 EditorUiState(
                     notebook = notebook,
                     pages = document.pages,
                     strokes = document.strokes,
                     elements = document.elements,
-                    selectedPageId = validSelection ?: document.pages.firstOrNull()?.id,
+                    selectedPageId = selected,
                     tool = editorControls.tool,
                     selectedStrokeIds = editorControls.selectedStrokeIds,
                     canUndo = editorControls.canUndo,

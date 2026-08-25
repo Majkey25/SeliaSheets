@@ -39,15 +39,8 @@ internal interface PageDao {
     @Query("DELETE FROM strokes WHERE pageId = :pageId")
     suspend fun deleteStrokes(pageId: String)
 
-    @Query(
-        """
-        SELECT strokes.* FROM strokes
-        INNER JOIN pages ON pages.id = strokes.pageId
-        WHERE pages.notebookId = :notebookId
-        ORDER BY strokes.zIndex
-        """,
-    )
-    fun observeStrokes(notebookId: String): Flow<List<StrokeEntity>>
+    @Query("SELECT * FROM strokes WHERE pageId = :pageId ORDER BY zIndex")
+    fun observeStrokes(pageId: String): Flow<List<StrokeEntity>>
 
     @Insert
     suspend fun insertElement(element: ElementEntity)
@@ -79,15 +72,8 @@ internal interface PageDao {
     @Query("SELECT MAX(zIndex) FROM elements WHERE pageId = :pageId")
     suspend fun getMaxElementZIndex(pageId: String): Int?
 
-    @Query(
-        """
-        SELECT elements.* FROM elements
-        INNER JOIN pages ON pages.id = elements.pageId
-        WHERE pages.notebookId = :notebookId
-        ORDER BY elements.zIndex
-        """,
-    )
-    fun observeElements(notebookId: String): Flow<List<ElementEntity>>
+    @Query("SELECT * FROM elements WHERE pageId = :pageId ORDER BY zIndex")
+    fun observeElements(pageId: String): Flow<List<ElementEntity>>
 
     @Query("SELECT COUNT(*) FROM elements WHERE assetId = :assetId")
     suspend fun getAssetReferenceCount(assetId: String): Int
