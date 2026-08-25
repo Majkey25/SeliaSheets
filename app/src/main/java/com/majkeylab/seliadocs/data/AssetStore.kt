@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.data
 
 import java.io.File
+import java.io.FileNotFoundException
 
 internal class AssetStore(private val root: File) {
     fun prepare(): File {
@@ -14,4 +15,7 @@ internal class AssetStore(private val root: File) {
         require(file.canonicalPath.startsWith(root.canonicalPath + File.separator))
         return file
     }
+
+    fun requireFile(id: String): File =
+        file(id).takeIf(File::isFile) ?: throw FileNotFoundException(id)
 }

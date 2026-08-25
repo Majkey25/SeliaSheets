@@ -68,6 +68,8 @@ internal class SeliaDocsRepository(
     suspend fun getNotebook(id: String): NotebookEntity =
         requireNotNull(notebooks.getNotebook(id)) { "Notebook not found" }
 
+    suspend fun getAllNotebooks(): List<NotebookEntity> = notebooks.getAllNotebooks()
+
     suspend fun getPages(notebookId: String): List<PageEntity> = notebooks.getPages(notebookId)
 
     suspend fun getStrokes(pageId: String): List<StrokeEntity> = pageContent.getStrokes(pageId)

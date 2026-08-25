@@ -18,6 +18,9 @@ internal interface NotebookDao {
     @Query("SELECT * FROM notebooks WHERE id = :id")
     suspend fun getNotebook(id: String): NotebookEntity?
 
+    @Query("SELECT * FROM notebooks ORDER BY createdAt, id")
+    suspend fun getAllNotebooks(): List<NotebookEntity>
+
     @Query("SELECT * FROM notebooks WHERE id = :id")
     fun observeNotebook(id: String): Flow<NotebookEntity?>
 

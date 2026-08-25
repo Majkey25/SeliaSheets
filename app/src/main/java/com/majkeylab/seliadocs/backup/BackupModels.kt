@@ -16,6 +16,21 @@ internal data class BackupManifest(
 
 internal sealed interface BackupRecord
 
+internal sealed interface BackupScope {
+    data class Notebook(val id: String) : BackupScope
+
+    data class Selected(val ids: Set<String>) : BackupScope
+
+    data object Library : BackupScope
+}
+
+internal data class BackupSummary(
+    val notebooks: Int,
+    val pages: Int,
+    val assets: Int,
+    val bytesWritten: Long,
+)
+
 internal data class BackupNotebook(
     val id: String,
     val title: String,
@@ -85,4 +100,14 @@ internal sealed class BackupFailure(message: String, cause: Throwable? = null) :
         BackupFailure("Missing required backup field: $field")
 
     class Malformed(cause: Throwable? = null) : BackupFailure("Malformed backup data", cause)
+}
+
+internal sealed class BackupExportFailure(message: String) : IOException(message) {
+    class MissingNotebook(val notebookId: String) :
+        BackupExportFailure("Notebook is unavailable: $notebookId")
+
+    class MissingAsset(val assetId: String) :
+        BackupExportFailure("Asset is unavailable: $assetId")
+
+    class SourceChanged : BackupExportFailure("Notebook data changed during backup")
 }
