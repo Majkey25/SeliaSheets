@@ -73,7 +73,8 @@ class ElementFlowTest {
             onMain(viewModel::undo)
             val undone =
                 viewModel.awaitState("element transform undo") {
-                    it.elements.single { element -> element.id == textElement.id }.x == textElement.x
+                    it.elements.single { element -> element.id == textElement.id }.x == textElement.x &&
+                        it.selectedElementId == textElement.id
                 }
             assertEquals(textElement.width, undone.elements.single { it.id == textElement.id }.width)
 
