@@ -144,4 +144,20 @@
     <string name="highlighter_sample">Highlighter sample</string>
     <string name="paper_option">Paper option: %1$s</string>
     <string name="orientation_option">Orientation option: %1$s</string>
+    <string name="backup_restore">Backup &amp; restore</string>
+    <string name="backup_restore_summary">Move editable notebooks between devices</string>
+    <string name="backup_intro">Create one editable SeliaDocs backup with notebook covers, pages, ink, text, images, shapes, and math.</string>
+    <string name="backup_entire_library">Entire library</string>
+    <string name="backup_library_count">%1$d notebooks · %2$d pages</string>
+    <string name="backup_export_hint">Saved as a .seliadocs file. Choose any folder or cloud provider available on this device.</string>
+    <string name="export_library">Export library</string>
+    <string name="restore_backup">Restore a backup</string>
+    <string name="restore_intro">SeliaDocs verifies file paths, checksums, size limits, and notebook relationships before changing local data.</string>
+    <string name="merge_backup">Merge backup</string>
+    <string name="merge_backup_hint">Keeps this library and adds the backup. Colliding IDs are remapped automatically.</string>
+    <string name="replace_library">Replace library</string>
+    <string name="replace_library_hint">Removes the current library only after the backup passes every validation check.</string>
+    <string name="replace_library_title">Replace entire library?</string>
+    <string name="replace_library_message">The current notebooks will be replaced by the selected backup. SeliaDocs validates and creates a private rollback backup first.</string>
+    <string name="keep_existing_library">Keep existing library</string>
 </resources>

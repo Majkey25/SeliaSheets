@@ -74,6 +74,7 @@ import kotlinx.coroutines.withContext
 internal fun SettingsScreen(
     settings: AppSettings,
     onUpdate: (AppSettings) -> Unit,
+    onBackup: () -> Unit,
     onClose: () -> Unit,
 ) {
     Scaffold(
@@ -177,6 +178,11 @@ internal fun SettingsScreen(
                 ) {
                     InfoText(stringResource(R.string.recognition_details))
                     StorageUsage()
+                    NavigationSetting(
+                        title = stringResource(R.string.backup_restore),
+                        summary = stringResource(R.string.backup_restore_summary),
+                        onClick = onBackup,
+                    )
                     InfoText(stringResource(R.string.autosave_details))
                     Text(
                         stringResource(R.string.app_details),
@@ -188,6 +194,29 @@ internal fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NavigationSetting(title: String, summary: String, onClick: () -> Unit) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text("›", style = MaterialTheme.typography.titleLarge)
     }
 }
 

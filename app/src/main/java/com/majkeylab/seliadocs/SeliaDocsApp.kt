@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.majkeylab.seliadocs.backup.BackupRoute
 import com.majkeylab.seliadocs.editor.EditorRoute
 import com.majkeylab.seliadocs.library.LibraryScreen
 import com.majkeylab.seliadocs.library.LibraryViewModel
@@ -32,8 +33,11 @@ internal fun SeliaDocsApp() {
     val scope = rememberCoroutineScope()
     var notebookId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = settingsOpen || notebookId != null) {
-        if (settingsOpen) {
+    var backupOpen by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = backupOpen || settingsOpen || notebookId != null) {
+        if (backupOpen) {
+            backupOpen = false
+        } else if (settingsOpen) {
             settingsOpen = false
         } else {
             notebookId = null
@@ -47,10 +51,12 @@ internal fun SeliaDocsApp() {
         }
     SeliaDocsTheme(darkTheme = darkTheme) {
         when {
+            backupOpen -> BackupRoute(onClose = { backupOpen = false })
             settingsOpen ->
                 SettingsScreen(
                     settings = settings,
                     onUpdate = { value -> scope.launch { settingsRepository.update { value } } },
+                    onBackup = { backupOpen = true },
                     onClose = { settingsOpen = false },
                 )
             notebookId == null -> {
