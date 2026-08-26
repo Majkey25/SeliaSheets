@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.data
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.test.runTest
@@ -17,6 +18,7 @@ import org.junit.runner.RunWith
 class SeliaDocsRepositoryTest {
     private lateinit var database: SeliaDocsDatabase
     private lateinit var repository: SeliaDocsRepository
+    private var now = 1_000L
 
     @Before
     fun setUp() {
@@ -29,7 +31,7 @@ class SeliaDocsRepositoryTest {
         repository =
             SeliaDocsRepository(
                 database = database,
-                clock = { 1_000L },
+                clock = { now },
                 idFactory = { "id-${nextId++}" },
             )
     }
@@ -244,6 +246,36 @@ class SeliaDocsRepositoryTest {
         repository.deleteChapter(chapterId)
         assertTrue(repository.getChapters(notebookId).isEmpty())
         assertEquals(null, repository.getPages(notebookId).single().chapterId)
+    }
+
+    @Test
+    fun fingerDrawingUpdatePersistsAndTouchesNotebook() = runTest {
+        val id = repository.createNotebook(request())
+        now = 2_000L
+
+        repository.setFingerDrawing(id, true)
+
+        val updated = repository.getNotebook(id)
+        assertTrue(updated.fingerDrawing)
+        assertEquals(2_000L, updated.updatedAt)
+    }
+
+    @Test
+    fun deletingChapterAtTemporaryOffsetBoundaryReindexesWithoutCollision() = runTest {
+        val notebookId = repository.createNotebook(request())
+        database.withTransaction {
+            repeat(10_001) { index ->
+                database.notebookDao().insertChapter(
+                    ChapterEntity("chapter-$index", notebookId, "Chapter $index", 0, index),
+                )
+            }
+        }
+
+        repository.deleteChapter("chapter-5000")
+
+        val chapters = repository.getChapters(notebookId)
+        assertEquals(10_000, chapters.size)
+        assertEquals((0 until 10_000).toList(), chapters.map(ChapterEntity::orderIndex))
     }
 
     @Test

@@ -23,6 +23,7 @@ class PageViewportFlowTest {
             PageCanvas(
                 page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
                 pageNumber = 1,
+                pageCount = 1,
                 strokes = emptyList(),
                 elements = emptyList(),
                 blocks = emptyList(),
@@ -33,6 +34,8 @@ class PageViewportFlowTest {
                 penWidth = 4f,
                 highlighterWidth = 16f,
                 pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
                 onStrokeFinished = { _, _ -> },
                 onEraseFinished = { _, _ -> },
                 onSelectContent = { _, _ -> },

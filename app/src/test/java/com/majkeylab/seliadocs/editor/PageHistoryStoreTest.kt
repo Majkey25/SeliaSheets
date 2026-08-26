@@ -26,4 +26,22 @@ class PageHistoryStoreTest {
         assertNull(store.existing("two"))
         assertEquals("a", store.existing("one")?.current)
     }
+
+    @Test
+    fun historyUsesPerPageWeightBudget() {
+        val store =
+            PageHistoryStore<String>(
+                maxPages = 2,
+                stepsPerPage = 100,
+                maxWeight = 8,
+                weightOf = String::length,
+            )
+        val history = store.history("one", "")
+        history.push("aaaa")
+        history.push("bbbb")
+        history.push("cccc")
+
+        assertEquals("bbbb", history.undo())
+        assertNull(history.undo())
+    }
 }

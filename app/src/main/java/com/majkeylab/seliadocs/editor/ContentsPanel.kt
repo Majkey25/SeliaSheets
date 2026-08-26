@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +61,10 @@ internal fun PageLocationBar(
     modifier: Modifier = Modifier,
 ) {
     val page = state.selectedPage ?: return
+    val bookmarkDescription =
+        stringResource(if (page.bookmarked) R.string.remove_page_bookmark else R.string.bookmark_page)
+    val bookmarkState =
+        stringResource(if (page.bookmarked) R.string.bookmarked else R.string.not_bookmarked)
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -79,7 +84,14 @@ internal fun PageLocationBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = { onBookmarkPage(page.id, !page.bookmarked) }) {
+            TextButton(
+                onClick = { onBookmarkPage(page.id, !page.bookmarked) },
+                modifier =
+                    Modifier.semantics {
+                        contentDescription = bookmarkDescription
+                        stateDescription = bookmarkState
+                    },
+            ) {
                 Text(if (page.bookmarked) "★" else "☆")
             }
         }
@@ -350,6 +362,8 @@ private fun ContentsPageRow(
     val actionsDescription = stringResource(R.string.page_actions, page.pageIndex + 1)
     val bookmarkDescription =
         stringResource(if (page.bookmarked) R.string.remove_page_bookmark else R.string.bookmark_page)
+    val bookmarkState =
+        stringResource(if (page.bookmarked) R.string.bookmarked else R.string.not_bookmarked)
     Surface(
         onClick = { onSelect(page.id) },
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -383,6 +397,7 @@ private fun ContentsPageRow(
                 modifier =
                     Modifier.testTag("contents-bookmark").semantics {
                         contentDescription = bookmarkDescription
+                        stateDescription = bookmarkState
                     },
             ) {
                 Text(if (page.bookmarked) "★" else "☆")

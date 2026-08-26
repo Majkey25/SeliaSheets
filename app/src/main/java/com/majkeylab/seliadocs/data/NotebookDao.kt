@@ -97,6 +97,12 @@ internal interface NotebookDao {
     @Query("SELECT MAX(orderIndex) FROM chapters WHERE notebookId = :notebookId")
     suspend fun getMaxChapterIndex(notebookId: String): Int?
 
+    @Query("UPDATE chapters SET orderIndex = orderIndex + :offset WHERE notebookId = :notebookId")
+    suspend fun offsetChapterIndexes(notebookId: String, offset: Int)
+
+    @Query("UPDATE chapters SET orderIndex = :orderIndex WHERE id = :id")
+    suspend fun updateChapterIndex(id: String, orderIndex: Int)
+
     @Query("UPDATE pages SET chapterId = NULL WHERE chapterId = :chapterId")
     suspend fun clearChapterFromPages(chapterId: String)
 

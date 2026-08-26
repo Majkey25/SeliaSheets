@@ -2,6 +2,20 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.2.1-beta.1] - 2026-08-26
+
+### Added
+
+- One-finger page turns when finger drawing is off and two-finger page turns when it is on.
+- Compact phone editor controls with accessible More and Insert menus.
+
+### Changed
+
+- Hardened backup replacement, large-notebook export, chapter ordering, text autosave, and bounded Undo memory.
+- Improved stylus/finger ownership, page-gesture cancellation, system insets, and adaptive phone/tablet layouts.
+- Made PDF export failure-safe and kept Undo/Redo history aligned with transactional writes.
+- Preserved pending text across Back, Settings, and Activity recreation before clearing editor state.
+
 ## [0.2.0-beta.1] - 2026-08-25
 
 ### Added
@@ -31,3 +45,4 @@ All notable changes to SeliaSheets are documented here.
 
 [0.2.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.0-beta.1
 [0.1.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.1.0-beta.1
+[0.2.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.1-beta.1

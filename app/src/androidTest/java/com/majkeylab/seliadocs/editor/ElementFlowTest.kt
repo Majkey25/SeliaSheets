@@ -15,10 +15,12 @@ import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -258,6 +260,32 @@ class ElementFlowTest {
 
             val restored = viewModel.awaitState("page text redo") { it.blocks.singleOrNull() != null }
             assertEquals("First paragraph\n\nSecond paragraph", restored.blocks.single().text)
+        } finally {
+            repository.deleteNotebook(notebookId)
+        }
+    }
+
+    @Test
+    fun closeFlushTreatsDeletedDraftPageAsSuccessfulNoOp() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Deleted draft page"))
+        try {
+            val deletedPage = repository.getPages(notebookId).single()
+            repository.addPage(notebookId)
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            viewModel.awaitState("two pages load") { it.pages.size == 2 }
+            repository.deletePage(deletedPage.id)
+            val completed = CompletableDeferred<Boolean>()
+
+            onMain {
+                viewModel.flushPageTextBeforeClose(deletedPage.id, "Stale draft", completed::complete)
+            }
+
+            assertEquals(true, withTimeoutOrNull(TIMEOUT_MS) { completed.await() })
+            assertTrue(repository.getBlocks(deletedPage.id).isEmpty())
+            assertFalse(viewModel.state.value.failed)
         } finally {
             repository.deleteNotebook(notebookId)
         }

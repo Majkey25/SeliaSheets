@@ -14,7 +14,7 @@ SeliaSheets turns an Android tablet or phone into a private backpack of paper no
 
 Start with an illustrated ruled, grid, dotted, or blank template. A live preview shows the cover, paper, and orientation before creation. Organize ordered pages into chapters, add page titles and bookmarks, and search typed page text.
 
-Type directly on a page or write with a stylus using pressure and tilt. Switch between pen, pencil, and highlighter. Erase stroke segments or complete strokes, select with a lasso, and use up to 100 Undo and Redo steps. Draw and hold to clean a line, arrow, ellipse, rectangle, or triangle. Undo restores the original ink.
+Type directly on a page or write with a stylus using pressure. Switch between pen, pencil, and highlighter. Erase stroke segments or complete strokes, select with a lasso, and use up to 100 Undo and Redo steps. Draw and hold to clean a line, arrow, ellipse, rectangle, or triangle. Undo restores the original ink.
 
 Import images through Android Photo Picker. Import a PDF, annotate its pages, and preserve the original document in an editable backup. Calculate arithmetic locally and place the result on the page. Export the complete notebook to a PDF location that you choose.
 

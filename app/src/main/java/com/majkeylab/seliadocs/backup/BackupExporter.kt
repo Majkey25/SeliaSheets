@@ -27,79 +27,89 @@ internal class BackupExporter(
     private val assets: AssetStore,
     private val appVersion: String,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val maxRecords: Int = MAX_BACKUP_RECORDS,
 ) {
     suspend fun export(scope: BackupScope, output: OutputStream): BackupSummary =
         withContext(Dispatchers.IO) {
-            val plan = createPlan(scope)
-            val counting = CountingOutputStream(output)
-            val zip = ZipOutputStream(counting)
-            val checksums = linkedMapOf<String, String>()
-            val written = WrittenCounts()
-
-            checksums[RECORDS_ENTRY] =
-                zip.writeHashedEntry(RECORDS_ENTRY) { entry ->
-                    val writer = OutputStreamWriter(entry, Charsets.UTF_8)
-                    plan.notebookIds.forEach { notebookId ->
-                        val content = loadNotebook(notebookId)
-                        BackupJson.writeRecord(writer, content.notebook.toBackup())
-                        content.chapters.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
-                        content.pdfSources.forEach { source ->
-                            BackupJson.writeRecord(writer, source.toBackup())
-                            written.assetIds += source.assetId
-                        }
-                        content.pages.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
-                        content.strokes.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
-                        content.elements.forEach { element ->
-                            BackupJson.writeRecord(writer, element.toBackup())
-                            element.assetId?.let(written.assetIds::add)
-                        }
-                        content.blocks.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
-                        written.pages += content.pages.size
-                    }
-                    writer.flush()
-                }
-            if (written.pages != plan.pageCount || written.assetIds != plan.assetFiles.keys) {
-                throw BackupExportFailure.SourceChanged()
-            }
-
-            val manifest =
-                BackupManifest(
-                    formatVersion = BACKUP_FORMAT_VERSION,
-                    appVersion = appVersion,
-                    exportedAt = clock(),
-                    notebookCount = plan.notebookIds.size,
-                    pageCount = plan.pageCount,
-                    assetCount = plan.assetFiles.size,
-                    featureFlags = featureFlags(plan),
-                )
-            checksums[MANIFEST_ENTRY] =
-                zip.writeHashedEntry(MANIFEST_ENTRY) { entry ->
-                    BackupJson.writeManifest(OutputStreamWriter(entry, Charsets.UTF_8), manifest)
-                }
-
-            plan.assetFiles.forEach { (id, file) ->
-                val entryName = "assets/$id"
-                checksums[entryName] =
-                    zip.writeHashedEntry(entryName) { entry ->
-                        try {
-                            file.inputStream().buffered().use { input ->
-                                input.copyTo(entry, COPY_BUFFER_SIZE)
-                            }
-                        } catch (_: FileNotFoundException) {
-                            throw BackupExportFailure.MissingAsset(id)
-                        }
-                    }
-            }
-            zip.writeHashedEntry(CHECKSUMS_ENTRY) { entry -> writeChecksums(entry, checksums) }
-            zip.finish()
-            zip.flush()
-            BackupSummary(
-                notebooks = plan.notebookIds.size,
-                pages = plan.pageCount,
-                assets = plan.assetFiles.size,
-                bytesWritten = counting.count,
-            )
+            writePlan(createPlan(scope), output)
         }
+
+    suspend fun export(scope: BackupScope, outputFactory: () -> OutputStream): BackupSummary =
+        withContext(Dispatchers.IO) {
+            val plan = createPlan(scope)
+            outputFactory().use { output -> writePlan(plan, output) }
+        }
+
+    private suspend fun writePlan(plan: ExportPlan, output: OutputStream): BackupSummary {
+        val counting = CountingOutputStream(output)
+        val zip = ZipOutputStream(counting)
+        val checksums = linkedMapOf<String, String>()
+        val written = WrittenCounts()
+
+        checksums[RECORDS_ENTRY] =
+            zip.writeHashedEntry(RECORDS_ENTRY) { entry ->
+                val writer = OutputStreamWriter(entry, Charsets.UTF_8)
+                plan.notebookIds.forEach { notebookId ->
+                    val content = loadNotebook(notebookId)
+                    BackupJson.writeRecord(writer, content.notebook.toBackup())
+                    content.chapters.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
+                    content.pdfSources.forEach { source ->
+                        BackupJson.writeRecord(writer, source.toBackup())
+                        written.assetIds += source.assetId
+                    }
+                    content.pages.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
+                    content.strokes.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
+                    content.elements.forEach { element ->
+                        BackupJson.writeRecord(writer, element.toBackup())
+                        element.assetId?.let(written.assetIds::add)
+                    }
+                    content.blocks.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
+                    written.pages += content.pages.size
+                }
+                writer.flush()
+            }
+        if (written.pages != plan.pageCount || written.assetIds != plan.assetFiles.keys) {
+            throw BackupExportFailure.SourceChanged()
+        }
+
+        val manifest =
+            BackupManifest(
+                formatVersion = BACKUP_FORMAT_VERSION,
+                appVersion = appVersion,
+                exportedAt = clock(),
+                notebookCount = plan.notebookIds.size,
+                pageCount = plan.pageCount,
+                assetCount = plan.assetFiles.size,
+                featureFlags = featureFlags(plan),
+            )
+        checksums[MANIFEST_ENTRY] =
+            zip.writeHashedEntry(MANIFEST_ENTRY) { entry ->
+                BackupJson.writeManifest(OutputStreamWriter(entry, Charsets.UTF_8), manifest)
+            }
+
+        plan.assetFiles.forEach { (id, file) ->
+            val entryName = "assets/$id"
+            checksums[entryName] =
+                zip.writeHashedEntry(entryName) { entry ->
+                    try {
+                        file.inputStream().buffered().use { input ->
+                            input.copyTo(entry, COPY_BUFFER_SIZE)
+                        }
+                    } catch (_: FileNotFoundException) {
+                        throw BackupExportFailure.MissingAsset(id)
+                    }
+                }
+        }
+        zip.writeHashedEntry(CHECKSUMS_ENTRY) { entry -> writeChecksums(entry, checksums) }
+        zip.finish()
+        zip.flush()
+        return BackupSummary(
+            notebooks = plan.notebookIds.size,
+            pages = plan.pageCount,
+            assets = plan.assetFiles.size,
+            bytesWritten = counting.count,
+        )
+    }
 
     private suspend fun createPlan(scope: BackupScope): ExportPlan {
         val notebooks = repository.getAllNotebooks()
@@ -122,9 +132,19 @@ internal class BackupExporter(
         var hasBlocks = false
         var hasChapters = false
         var hasPdfSources = false
+        var recordCount = notebookIds.size.toLong()
+        if (recordCount > maxRecords) throw BackupFailure.LimitExceeded("recordCount")
         val assetIds = linkedSetOf<String>()
         notebookIds.forEach { notebookId ->
             val content = loadNotebook(notebookId)
+            recordCount +=
+                content.chapters.size.toLong() +
+                    content.pdfSources.size +
+                    content.pages.size +
+                    content.strokes.size +
+                    content.elements.size +
+                    content.blocks.size
+            if (recordCount > maxRecords) throw BackupFailure.LimitExceeded("recordCount")
             pageCount += content.pages.size
             hasBlocks = hasBlocks || content.blocks.isNotEmpty()
             hasChapters = hasChapters || content.chapters.isNotEmpty()

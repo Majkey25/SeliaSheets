@@ -1,6 +1,5 @@
 package com.majkeylab.seliadocs.library
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -28,12 +26,16 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,12 +47,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -138,12 +144,18 @@ internal fun LibraryScreen(
                 if (state.notebooks.isEmpty()) {
                     EmptyLibrary(modifier = Modifier.align(Alignment.Center))
                 } else {
+                    val columns =
+                        if (LocalDensity.current.fontScale >= 1.5f) {
+                            GridCells.Fixed(1)
+                        } else {
+                            GridCells.Adaptive(148.dp)
+                        }
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(176.dp),
+                        columns = columns,
                         state = gridState,
-                        contentPadding = PaddingValues(20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(state.notebooks, key = NotebookEntity::id) { notebook ->
                             NotebookCover(
@@ -194,34 +206,38 @@ internal fun LibraryScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun LibraryTopBar(
     state: LibraryUiState,
     onQueryChange: (String) -> Unit,
     onTrashChange: (Boolean) -> Unit,
     onSettings: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+        TopAppBar(
+            modifier = Modifier.testTag("library-top-bar"),
+            title = {
                 Text(
                     text = stringResource(if (state.trash) R.string.trash else R.string.app_name),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.testTag("library-top-bar-title"),
                 )
+            },
+            actions = {
                 TextButton(onClick = { onTrashChange(!state.trash) }) {
                     Text(stringResource(if (state.trash) R.string.active_notebooks else R.string.trash))
                 }
                 TextButton(onClick = onSettings) { Text(stringResource(R.string.settings)) }
-            }
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = onQueryChange,
-                placeholder = { Text(stringResource(R.string.search_notebooks)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+            },
+        )
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = onQueryChange,
+            placeholder = { Text(stringResource(R.string.search_notebooks)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+        )
     }
 }
 
@@ -247,6 +263,7 @@ private fun NotebookCover(
     onOpen: () -> Unit,
     onActions: () -> Unit,
 ) {
+    val openDescription = stringResource(R.string.open_notebook, notebook.title)
     val actionsDescription = stringResource(R.string.notebook_actions, notebook.title)
     Surface(
         color = notebookCoverColor(notebook.coverColor),
@@ -263,7 +280,11 @@ private fun NotebookCover(
                 shape = RoundedCornerShape(bottomStart = 7.dp, bottomEnd = 7.dp),
                 modifier = Modifier.align(Alignment.TopCenter).size(width = 48.dp, height = 22.dp),
             ) {}
-            Box(Modifier.matchParentSize().clickable(onClick = onOpen))
+            Box(
+                Modifier.matchParentSize()
+                    .clickable(role = Role.Button, onClick = onOpen)
+                    .semantics { contentDescription = openDescription },
+            )
             Column(modifier = Modifier.padding(start = 28.dp, top = 14.dp, end = 14.dp, bottom = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (notebook.favorite) Text("★", color = Color(0xFFE07B67))
@@ -286,16 +307,14 @@ private fun NotebookCover(
                 Surface(
                     color = Color(0xFFFDFBF7),
                     shape = RoundedCornerShape(6.dp),
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 72.dp)
-                            .clickable(onClick = onOpen),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
                 ) {
                     Text(
                         text = notebook.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(14.dp),
                     )
                 }
@@ -305,6 +324,7 @@ private fun NotebookCover(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun NotebookActionSheet(
     notebook: NotebookEntity,
     trash: Boolean,
@@ -315,44 +335,29 @@ private fun NotebookActionSheet(
     onRestore: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    BackHandler(onBack = onDismiss)
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(Color.Black.copy(alpha = 0.32f))
-                .clickable(onClick = onDismiss),
-        )
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            tonalElevation = 6.dp,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                Text(
-                    text = notebook.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Text(
+                text = notebook.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            if (trash) {
+                ActionButton(R.string.restore, onRestore)
+                ActionButton(R.string.delete_permanently, onDelete)
+            } else {
+                ActionButton(R.string.rename, onRename)
+                ActionButton(
+                    if (notebook.favorite) R.string.remove_favorite else R.string.favorite,
+                    onFavorite,
                 )
-                if (trash) {
-                    ActionButton(R.string.restore, onRestore)
-                    ActionButton(R.string.delete_permanently, onDelete)
-                } else {
-                    ActionButton(R.string.rename, onRename)
-                    ActionButton(
-                        if (notebook.favorite) R.string.remove_favorite else R.string.favorite,
-                        onFavorite,
-                    )
-                    ActionButton(R.string.move_to_trash, onTrash)
-                }
-                ActionButton(R.string.cancel, onDismiss)
+                ActionButton(R.string.move_to_trash, onTrash)
             }
+            ActionButton(R.string.cancel, onDismiss)
         }
     }
 }

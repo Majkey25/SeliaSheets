@@ -101,6 +101,63 @@ class BackupValidatorTest {
     }
 
     @Test
+    fun pageCannotReferenceChapterFromAnotherNotebook() = runTest {
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(2, "test", 1L, 2, 2, 0, setOf("editable", "chapters")),
+        )
+        val records =
+            records(
+                notebook(),
+                notebook().copy(id = "notebook-b", title = "Biology"),
+                BackupChapter("chapter-b", "notebook-b", "Cells", 0xFF3156D9.toInt(), 0),
+                page().copy(chapterId = "chapter-b"),
+                page().copy(id = "page-b", notebookId = "notebook-b"),
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archiveWithChecksums(manifestOutput.toString().toByteArray(), records),
+        )
+    }
+
+    @Test
+    fun pdfPageCannotReferenceSourceFromAnotherNotebook() = runTest {
+        val pdf = testPdf(1)
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(3, "test", 1L, 2, 2, 1, setOf("editable", "assets", "pdf-sources")),
+        )
+        val content =
+            listOf(
+                "manifest.json" to manifestOutput.toString().toByteArray(),
+                "records.jsonl" to
+                    records(
+                        notebook(),
+                        notebook().copy(id = "notebook-b", title = "Biology"),
+                        BackupPdfSource(
+                            "source-b",
+                            "notebook-b",
+                            "source.pdf",
+                            "Source.pdf",
+                            1,
+                            pdf.size.toLong(),
+                            sha256(pdf),
+                            1L,
+                        ),
+                        page().copy(pageMode = "PDF", pdfSourceId = "source-b", pdfPageIndex = 0),
+                        page().copy(id = "page-b", notebookId = "notebook-b"),
+                    ),
+                "assets/source.pdf" to pdf,
+            )
+
+        assertFailure<BackupFailure.InvalidRelationship>(
+            archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
+        )
+    }
+
+    @Test
     fun missingReferencedAssetIsRejected() = runTest {
         val records =
             records(
@@ -361,6 +418,26 @@ class BackupValidatorTest {
                 maxEntryBytes = Long.MAX_VALUE,
                 maxExtractedBytes = { 10 },
             ),
+        )
+    }
+
+    @Test
+    fun recordLimitIsEnforced() = runTest {
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(2, "test", 1L, 1, 1, 0, setOf("editable", "chapters")),
+        )
+        val records =
+            records(
+                notebook(),
+                BackupChapter("chapter", "notebook", "Main", 0xFF3156D9.toInt(), 0),
+                page(),
+            )
+
+        assertFailure<BackupFailure.LimitExceeded>(
+            archiveWithChecksums(manifestOutput.toString().toByteArray(), records),
+            BackupValidator(stagingRoot, pdfSandbox::inspect, maxRecords = 2),
         )
     }
 

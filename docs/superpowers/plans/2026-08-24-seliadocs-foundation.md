@@ -326,7 +326,7 @@ git commit -m "docs: complete SeliaDocs release identity"
 - [ ] **Step 1: Run the complete local build**
 
 ```powershell
-$env:SELIADOCS_KEYSTORE_PROPERTIES='C:\Users\mates\Documents\Codex\2026-08-24\p-ko-j-pot-ebuju-ud\work\perko-release-secrets\keystore.properties'
+$env:SELIADOCS_KEYSTORE_PROPERTIES='<external-properties-file>'
 .\gradlew.bat clean :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease :app:bundleRelease --console=plain
 $code=$LASTEXITCODE
 Remove-Item Env:SELIADOCS_KEYSTORE_PROPERTIES

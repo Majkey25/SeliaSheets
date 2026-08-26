@@ -25,6 +25,8 @@ internal enum class EraserMode { SEGMENT, STROKE }
 
 private enum class GestureKind { ERASE, LASSO, MOVE }
 
+private data class ActiveStroke(val id: InProgressStrokeId, val toolType: Int)
+
 internal class InkCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -46,11 +48,12 @@ internal class InkCanvasView @JvmOverloads constructor(
     private val inProgressView = InProgressStrokesView(context)
     private val gestureOverlay = GestureOverlayView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
-    private val activeStrokes = mutableMapOf<Int, InProgressStrokeId>()
+    private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
     private val gesturePoints = mutableListOf<CanvasPoint>()
     private val identity = Matrix()
     private var gesturePointerId: Int? = null
     private var gestureKind: GestureKind? = null
+    private var gestureToolType: Int? = null
     private var pageWidth = 595f
     private var pageHeight = 842f
 
@@ -117,6 +120,10 @@ internal class InkCanvasView @JvmOverloads constructor(
             if (!hasStylus) cancelAll(event)
             return true
         }
+        if (inputTool == MotionEvent.TOOL_TYPE_STYLUS || inputTool == MotionEvent.TOOL_TYPE_ERASER) {
+            cancelFingerStrokes(event)
+            cancelFingerGesture()
+        }
         if (gesturePointerId != null) return true
         return startInteraction(event) || hasActiveInteraction()
     }
@@ -140,6 +147,7 @@ internal class InkCanvasView @JvmOverloads constructor(
         if (gesture != null) {
             gesturePointerId = pointerId
             gestureKind = gesture
+            gestureToolType = inputTool
             gesturePoints.clear()
             addGesturePoint(event, pointerId)
             return true
@@ -152,7 +160,10 @@ internal class InkCanvasView @JvmOverloads constructor(
                 )
             }
         activeStrokes[pointerId] =
-            inProgressView.startStroke(event, pointerId, brush, inputToWorld, identity)
+            ActiveStroke(
+                inProgressView.startStroke(event, pointerId, brush, inputToWorld, identity),
+                inputTool,
+            )
         return true
     }
 
@@ -161,8 +172,8 @@ internal class InkCanvasView @JvmOverloads constructor(
         if (activeStrokes.isEmpty()) return false
         val prediction = predictor.predict()
         try {
-            activeStrokes.forEach { (pointerId, strokeId) ->
-                inProgressView.addToStroke(event, pointerId, strokeId, prediction)
+            activeStrokes.forEach { (pointerId, stroke) ->
+                inProgressView.addToStroke(event, pointerId, stroke.id, prediction)
             }
         } finally {
             prediction?.recycle()
@@ -173,13 +184,13 @@ internal class InkCanvasView @JvmOverloads constructor(
     private fun finishInteraction(event: MotionEvent): Boolean {
         val pointerId = event.getPointerId(event.actionIndex)
         if (pointerId == gesturePointerId) return finishGesture(event, pointerId)
-        val strokeId = activeStrokes.remove(pointerId) ?: return false
+        val stroke = activeStrokes.remove(pointerId) ?: return false
         val canceled = event.flags and MotionEvent.FLAG_CANCELED != 0
         if (canceled) {
-            inProgressView.cancelStroke(strokeId, event)
+            inProgressView.cancelStroke(stroke.id, event)
             listener?.onStrokeCanceled(pointerId)
         } else {
-            inProgressView.finishStroke(event, pointerId, strokeId)
+            inProgressView.finishStroke(event, pointerId, stroke.id)
         }
         if (activeStrokes.isEmpty()) parent?.requestDisallowInterceptTouchEvent(false)
         return true
@@ -187,18 +198,32 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     private fun cancelAll(event: MotionEvent?): Boolean {
         if (activeStrokes.isEmpty() && gesturePointerId == null) return false
-        activeStrokes.forEach { (pointerId, strokeId) ->
-            inProgressView.cancelStroke(strokeId, event)
+        activeStrokes.forEach { (pointerId, stroke) ->
+            inProgressView.cancelStroke(stroke.id, event)
             listener?.onStrokeCanceled(pointerId)
         }
         activeStrokes.clear()
         gesturePointerId?.let { listener?.onStrokeCanceled(it) }
-        gesturePointerId = null
-        gestureKind = null
-        gesturePoints.clear()
-        gestureOverlay.setPoints(emptyList())
+        clearGesture()
         parent?.requestDisallowInterceptTouchEvent(false)
         return true
+    }
+
+    private fun cancelFingerStrokes(event: MotionEvent) {
+        val iterator = activeStrokes.iterator()
+        while (iterator.hasNext()) {
+            val (pointerId, stroke) = iterator.next()
+            if (stroke.toolType != MotionEvent.TOOL_TYPE_FINGER) continue
+            inProgressView.cancelStroke(stroke.id, event)
+            listener?.onStrokeCanceled(pointerId)
+            iterator.remove()
+        }
+    }
+
+    private fun cancelFingerGesture() {
+        if (gestureToolType != MotionEvent.TOOL_TYPE_FINGER) return
+        gesturePointerId?.let { listener?.onStrokeCanceled(it) }
+        clearGesture()
     }
 
     private fun finishGesture(event: MotionEvent, pointerId: Int): Boolean {
@@ -220,12 +245,17 @@ internal class InkCanvasView @JvmOverloads constructor(
                 else -> Unit
             }
         }
-        gesturePointerId = null
-        gestureKind = null
-        gesturePoints.clear()
-        gestureOverlay.setPoints(emptyList())
+        clearGesture()
         parent?.requestDisallowInterceptTouchEvent(false)
         return true
+    }
+
+    private fun clearGesture() {
+        gesturePointerId = null
+        gestureKind = null
+        gestureToolType = null
+        gesturePoints.clear()
+        gestureOverlay.setPoints(emptyList())
     }
 
     private fun addGesturePoint(event: MotionEvent, pointerId: Int): Boolean {

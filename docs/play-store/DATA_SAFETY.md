@@ -1,6 +1,6 @@
 # Google Play data safety
 
-Answers for version `0.2.0-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
+Answers for version `0.2.1-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
 
 ## Collection and sharing
 

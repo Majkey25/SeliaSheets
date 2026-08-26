@@ -21,8 +21,8 @@ internal interface PageDao {
     @Delete
     suspend fun deleteStroke(stroke: StrokeEntity)
 
-    @Query("SELECT * FROM strokes WHERE pageId IN (:pageIds) ORDER BY zIndex")
-    suspend fun getStrokes(pageIds: List<String>): List<StrokeEntity>
+    @Query("SELECT * FROM strokes WHERE pageId IN (SELECT id FROM pages WHERE notebookId = :notebookId) ORDER BY zIndex")
+    suspend fun getStrokesForNotebook(notebookId: String): List<StrokeEntity>
 
     @Query("SELECT id FROM strokes")
     suspend fun getAllStrokeIds(): List<String>
@@ -57,8 +57,8 @@ internal interface PageDao {
     @Query("DELETE FROM elements WHERE pageId = :pageId")
     suspend fun deleteElements(pageId: String)
 
-    @Query("SELECT * FROM elements WHERE pageId IN (:pageIds) ORDER BY zIndex")
-    suspend fun getElements(pageIds: List<String>): List<ElementEntity>
+    @Query("SELECT * FROM elements WHERE pageId IN (SELECT id FROM pages WHERE notebookId = :notebookId) ORDER BY zIndex")
+    suspend fun getElementsForNotebook(notebookId: String): List<ElementEntity>
 
     @Query("SELECT id FROM elements")
     suspend fun getAllElementIds(): List<String>
@@ -99,8 +99,8 @@ internal interface PageDao {
     @Query("SELECT id FROM blocks")
     suspend fun getAllBlockIds(): List<String>
 
-    @Query("SELECT * FROM blocks WHERE pageId IN (:pageIds) ORDER BY pageId, orderIndex")
-    suspend fun getBlocks(pageIds: List<String>): List<BlockEntity>
+    @Query("SELECT * FROM blocks WHERE pageId IN (SELECT id FROM pages WHERE notebookId = :notebookId) ORDER BY pageId, orderIndex")
+    suspend fun getBlocksForNotebook(notebookId: String): List<BlockEntity>
 
     @Query("SELECT * FROM blocks WHERE pageId = :pageId ORDER BY orderIndex")
     fun observeBlocks(pageId: String): Flow<List<BlockEntity>>

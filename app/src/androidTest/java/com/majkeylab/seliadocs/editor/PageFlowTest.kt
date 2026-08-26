@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -25,17 +26,23 @@ class PageFlowTest {
     fun addDuplicateAndDeletePages() {
         val title = "Pages ${System.nanoTime()}"
         createNotebook(title)
-        rule.onNodeWithText(title).performClick()
+        rule.onNodeWithContentDescription("Open $title").performClick()
         rule.waitForIdle()
         val usesSheet = rule.onAllNodes(hasTestTag("page-thumbnail")).fetchSemanticsNodes().isEmpty()
-        if (usesSheet) rule.onNodeWithText("Contents").performClick()
+        val compact = rule.onAllNodes(hasTestTag("compact-more")).fetchSemanticsNodes().isNotEmpty()
+        if (usesSheet) openContents(compact)
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasTestTag("page-thumbnail")).fetchSemanticsNodes().size == 1
         }
 
         if (usesSheet) pressBack()
-        rule.onNodeWithContentDescription("Add page").performClick()
-        if (usesSheet) rule.onNodeWithText("Contents").performClick()
+        if (compact) {
+            rule.onNodeWithTag("compact-more").performClick()
+            rule.onNodeWithText("Add page").performClick()
+        } else {
+            rule.onNodeWithContentDescription("Add page").performClick()
+        }
+        if (usesSheet) openContents(compact)
         waitForPageCount(2)
         rule.onNodeWithContentDescription("Page 2 actions").performClick()
         rule.onNodeWithText("Duplicate page").performClick()
@@ -67,5 +74,13 @@ class PageFlowTest {
             expected,
             rule.onAllNodes(hasTestTag("page-thumbnail")).fetchSemanticsNodes().size,
         )
+    }
+
+    private fun openContents(compact: Boolean) {
+        if (compact) {
+            rule.onNodeWithTag("compact-page-location").performClick()
+        } else {
+            rule.onNodeWithText("Contents").performClick()
+        }
     }
 }

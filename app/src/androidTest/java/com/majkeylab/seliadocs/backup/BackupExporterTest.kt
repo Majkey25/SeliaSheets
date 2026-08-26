@@ -11,6 +11,7 @@ import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.CreateNotebookRequest
 import com.majkeylab.seliadocs.data.ElementDraft
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.PdfPageSpec
@@ -21,11 +22,20 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.StringReader
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipInputStream
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -201,6 +211,126 @@ class BackupExporterTest {
         assertTrue(failure is BackupExportFailure.MissingAsset)
         assertEquals("missing.png", (failure as BackupExportFailure.MissingAsset).assetId)
         assertEquals(0, output.size())
+    }
+
+    @Test
+    fun libraryExportWaitsForLibraryMutationGate() = runBlocking {
+        repository.createNotebook(request("Locked export"))
+        val gateLocked = CompletableDeferred<Unit>()
+        val releaseGate = CompletableDeferred<Unit>()
+        val gateOwner =
+            launch(Dispatchers.Default) {
+                LibraryMutationGate.withLock {
+                    gateLocked.complete(Unit)
+                    releaseGate.await()
+                }
+            }
+        withTimeout(10_000) { gateLocked.await() }
+        val output = ByteArrayOutputStream()
+        val factoryOpened = AtomicBoolean(false)
+        val export =
+            async(Dispatchers.IO) {
+                exportUserLibrary(exporter) {
+                    factoryOpened.set(true)
+                    output
+                }
+            }
+
+        var factoryOpenedWhileLocked = false
+        val completedWhileLocked =
+            try {
+                (withTimeoutOrNull(5_000) { export.await() } != null).also {
+                    factoryOpenedWhileLocked = factoryOpened.get()
+                }
+            } finally {
+                releaseGate.complete(Unit)
+                withTimeout(10_000) { gateOwner.join() }
+            }
+
+        assertFalse("Library export completed while a mutation owned the gate", completedWhileLocked)
+        assertFalse(factoryOpenedWhileLocked)
+        withTimeout(10_000) { export.await() }
+        assertTrue(output.size() > 0)
+    }
+
+    @Test
+    fun recordLimitFailsBeforeOpeningDestination() = runTest {
+        createEightRecordNotebook()
+        val limitedExporter =
+            BackupExporter(
+                repository = repository,
+                assets = assets,
+                appVersion = "test",
+                clock = { 42L },
+                maxRecords = 7,
+            )
+        val output = ByteArrayOutputStream()
+        val factoryOpened = AtomicBoolean(false)
+
+        val failure =
+            runCatching {
+                    exportUserLibrary(limitedExporter) {
+                        factoryOpened.set(true)
+                        output
+                    }
+                }
+                .exceptionOrNull()
+
+        assertTrue(failure is BackupFailure.LimitExceeded)
+        assertEquals("recordCount", (failure as BackupFailure.LimitExceeded).field)
+        assertFalse(factoryOpened.get())
+        assertEquals(0, output.size())
+    }
+
+    @Test
+    fun exactRecordLimitOpensDestinationAndExportsAllRecords() = runTest {
+        createEightRecordNotebook()
+        val limitedExporter =
+            BackupExporter(
+                repository = repository,
+                assets = assets,
+                appVersion = "test",
+                clock = { 42L },
+                maxRecords = 8,
+            )
+        val output = ByteArrayOutputStream()
+        val factoryOpened = AtomicBoolean(false)
+
+        limitedExporter.export(BackupScope.Library) {
+            factoryOpened.set(true)
+            output
+        }
+
+        val records = mutableListOf<BackupRecord>()
+        BackupJson.readRecords(
+            readZip(output.toByteArray()).getValue("records.jsonl").inputStream().reader(),
+            records::add,
+        )
+        assertTrue(factoryOpened.get())
+        assertEquals(8, records.size)
+    }
+
+    private suspend fun createEightRecordNotebook() {
+        val notebookId = repository.createNotebook(request("Eight records"))
+        val page = repository.getPages(notebookId).single()
+        repository.createChapter(notebookId, "Chapter", 0xFF3156D9.toInt())
+        repository.addStroke(page.id, validTestStrokePayload())
+        repository.addElement(
+            page.id,
+            ElementDraft(ElementKind.TEXT, 10f, 20f, 120f, 48f, text = "Element"),
+        )
+        repository.updatePageText(page.id, "Block")
+        val pdfBytes = testPdf(1)
+        assets.prepare()
+        assets.file("limit.pdf").writeBytes(pdfBytes)
+        repository.importPdf(
+            notebookId,
+            "limit.pdf",
+            "Limit.pdf",
+            pdfBytes.size.toLong(),
+            sha256(pdfBytes),
+            listOf(PdfPageSpec(595, 842)),
+        )
     }
 
     private fun request(title: String) =

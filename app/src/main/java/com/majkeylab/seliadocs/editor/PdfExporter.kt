@@ -26,11 +26,55 @@ import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.pageTextLayout
 import com.majkeylab.seliadocs.pdf.fitPdfRenderSize
+import java.io.File
 import java.io.OutputStream
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.sin
+
+private const val MAX_IMAGE_DECODE_DIMENSION = 4_096
+private const val MAX_IMAGE_DECODE_PIXELS = 16L * 1_024 * 1_024
+
+internal fun imageSampleSize(width: Int, height: Int, targetWidth: Int, targetHeight: Int): Int {
+    require(width > 0 && height > 0 && targetWidth > 0 && targetHeight > 0)
+    var sample = 1
+    while (width / sample / 2 >= targetWidth && height / sample / 2 >= targetHeight) sample *= 2
+    while (
+        ((width.toLong() + sample - 1) / sample) * ((height.toLong() + sample - 1) / sample) >
+            MAX_IMAGE_DECODE_PIXELS
+    ) {
+        sample *= 2
+    }
+    return sample
+}
+
+internal suspend fun writePdfToDestination(
+    cacheDir: File,
+    render: suspend (OutputStream) -> Unit,
+    openDestination: () -> OutputStream?,
+    deleteDestination: () -> Unit,
+) {
+    var temporaryPdf: File? = null
+    var destinationOpened = false
+    try {
+        temporaryPdf = File.createTempFile("seliasheets-", ".pdf", cacheDir)
+        temporaryPdf.outputStream().use { render(it) }
+        val destination = openDestination() ?: error("PDF destination unavailable")
+        destinationOpened = true
+        destination.use { output -> temporaryPdf.inputStream().use { it.copyTo(output) } }
+    } catch (failure: Throwable) {
+        if (destinationOpened) {
+            try {
+                deleteDestination()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+        }
+        throw failure
+    } finally {
+        temporaryPdf?.delete()
+    }
+}
 
 internal class PdfExporter(private val assets: AssetStore) {
     suspend fun write(
@@ -38,45 +82,63 @@ internal class PdfExporter(private val assets: AssetStore) {
         output: OutputStream,
         renderPdfPage: suspend (PdfSourceEntity, PageEntity, Int, Int) -> android.graphics.Bitmap? =
             { _, _, _, _ -> null },
-    ) =
-        withContext(Dispatchers.IO) {
-            require(content.pages.isNotEmpty())
-            val document = PdfDocument()
-            val pdfSources = content.pdfSources.associateBy(PdfSourceEntity::id)
-            try {
-                content.pages.sortedBy(PageEntity::pageIndex).forEachIndexed { index, page ->
-                    val info =
-                        PdfDocument.PageInfo.Builder(
-                                page.widthPoints,
-                                page.heightPoints,
-                                index + 1,
-                            )
-                            .create()
-                    val pdfPage = document.startPage(info)
-                    val background =
+    ) {
+        require(content.pages.isNotEmpty())
+        val pdfSources = content.pdfSources.associateBy(PdfSourceEntity::id)
+        val strokesByPage = content.strokes.groupBy { it.pageId }
+        val elementsByPage = content.elements.groupBy { it.pageId }
+        val blocksByPage = content.blocks.groupBy { it.pageId }
+        val document = PdfDocument()
+        var documentFailure: Throwable? = null
+        try {
+            content.pages.sortedBy(PageEntity::pageIndex).forEachIndexed { index, page ->
+                val info =
+                    PdfDocument.PageInfo.Builder(
+                            page.widthPoints,
+                            page.heightPoints,
+                            index + 1,
+                        )
+                        .create()
+                val pdfPage = document.startPage(info)
+                var background: android.graphics.Bitmap? = null
+                var pageFailure: Throwable? = null
+                try {
+                    background =
                         page.pdfSourceId?.let(pdfSources::get)?.let { source ->
                             val size = fitPdfRenderSize(page.widthPoints, page.heightPoints)
                             renderPdfPage(source, page, size.width, size.height)
                         }
-                    try {
-                        renderPage(
-                            pdfPage.canvas,
-                            page,
-                            content.strokes.filter { it.pageId == page.id },
-                            content.elements.filter { it.pageId == page.id },
-                            content.blocks.filter { it.pageId == page.id },
-                            background,
-                        )
-                    } finally {
-                        background?.recycle()
-                        document.finishPage(pdfPage)
+                    renderPage(
+                        pdfPage.canvas,
+                        page,
+                        strokesByPage[page.id].orEmpty(),
+                        elementsByPage[page.id].orEmpty(),
+                        blocksByPage[page.id].orEmpty(),
+                        background,
+                    )
+                } catch (failure: Throwable) {
+                    pageFailure = failure
+                    throw failure
+                } finally {
+                    var cleanupFailure = runCatching { document.finishPage(pdfPage) }.exceptionOrNull()
+                    runCatching { background?.recycle() }.exceptionOrNull()?.let { recycleFailure ->
+                        cleanupFailure?.addSuppressed(recycleFailure) ?: run { cleanupFailure = recycleFailure }
+                    }
+                    cleanupFailure?.let { failure ->
+                        pageFailure?.addSuppressed(failure) ?: throw failure
                     }
                 }
-                document.writeTo(output)
-            } finally {
-                document.close()
+            }
+            document.writeTo(output)
+        } catch (failure: Throwable) {
+            documentFailure = failure
+            throw failure
+        } finally {
+            runCatching(document::close).exceptionOrNull()?.let { cleanupFailure ->
+                documentFailure?.addSuppressed(cleanupFailure) ?: throw cleanupFailure
             }
         }
+    }
 
     private fun renderPage(
         canvas: Canvas,
@@ -193,7 +255,32 @@ internal class PdfExporter(private val assets: AssetStore) {
         val id = element.assetId ?: return
         val file = assets.file(id)
         require(file.isFile) { "Image asset missing" }
-        val bitmap = BitmapFactory.decodeFile(file.path) ?: error("Image asset is corrupt")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("Image asset is corrupt")
+        val targetWidth =
+            minOf(
+                ceil(element.width).toInt().coerceAtLeast(1),
+                canvas.width.coerceAtLeast(1),
+                MAX_IMAGE_DECODE_DIMENSION,
+            )
+        val targetHeight =
+            minOf(
+                ceil(element.height).toInt().coerceAtLeast(1),
+                canvas.height.coerceAtLeast(1),
+                MAX_IMAGE_DECODE_DIMENSION,
+            )
+        val options =
+            BitmapFactory.Options().apply {
+                inSampleSize =
+                    imageSampleSize(
+                        bounds.outWidth,
+                        bounds.outHeight,
+                        targetWidth,
+                        targetHeight,
+                    )
+            }
+        val bitmap = BitmapFactory.decodeFile(file.path, options) ?: error("Image asset is corrupt")
         try {
             canvas.drawBitmap(
                 bitmap,
@@ -251,6 +338,4 @@ internal class PdfExporter(private val assets: AssetStore) {
         }
     }
 
-    private companion object {
-    }
 }

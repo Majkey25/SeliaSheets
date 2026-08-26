@@ -27,12 +27,83 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PdfExporterTest {
+    @Test
+    fun backgroundFailureIsNotMaskedByUnfinishedPageCleanup() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val assetStore = AssetStore(File(context.cacheDir, "pdf-assets-${System.nanoTime()}"))
+        val output = File(context.cacheDir, "seliadocs-${System.nanoTime()}.pdf")
+        val page =
+            PageEntity(
+                "page",
+                "notebook",
+                0,
+                PaperTemplate.BLANK.name,
+                595,
+                842,
+                pdfSourceId = "pdf",
+                pdfPageIndex = 0,
+            )
+        val content =
+            NotebookContent(
+                notebook =
+                    NotebookEntity(
+                        "notebook",
+                        "Physics",
+                        CoverColor.PERIWINKLE.name,
+                        CoverPattern.SOLID.name,
+                        PaperTemplate.BLANK.name,
+                        PageOrientation.PORTRAIT.name,
+                        false,
+                        false,
+                        1L,
+                        1L,
+                        null,
+                    ),
+                pages = listOf(page),
+                strokes = emptyList(),
+                elements = emptyList(),
+                blocks = emptyList(),
+                pdfSources =
+                    listOf(
+                        PdfSourceEntity(
+                            "pdf",
+                            "notebook",
+                            "source.pdf",
+                            "Source.pdf",
+                            1,
+                            100,
+                            "0".repeat(64),
+                            1,
+                        ),
+                    ),
+            )
+        val expected = IllegalStateException("background failed")
+        try {
+            var actual: IllegalStateException? = null
+            try {
+                output.outputStream().use { stream ->
+                    PdfExporter(assetStore).write(content, stream) { _, _, _, _ -> throw expected }
+                }
+                fail("Expected background failure")
+            } catch (failure: IllegalStateException) {
+                actual = failure
+            }
+
+            assertSame(expected, actual)
+        } finally {
+            output.delete()
+            assetStore.file("unused").parentFile?.deleteRecursively()
+        }
+    }
+
     @Test
     fun everyPageAndInkIsWritten() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()

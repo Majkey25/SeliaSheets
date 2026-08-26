@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import android.graphics.BitmapFactory
+import android.view.MotionEvent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -57,6 +59,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalFocusManager
@@ -67,6 +70,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,6 +92,7 @@ import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.pageTextFits
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +110,7 @@ private data class CanvasPageFrame(
 internal fun PageCanvas(
     page: PageEntity?,
     pageNumber: Int,
+    pageCount: Int,
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
     blocks: List<BlockEntity>,
@@ -116,6 +122,8 @@ internal fun PageCanvas(
     penWidth: Float,
     highlighterWidth: Float,
     pageTransitionEnabled: Boolean,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
     onStrokeFinished: (String, Stroke) -> Unit,
     onEraseFinished: (String, List<CanvasPoint>) -> Unit,
     onSelectContent: (String, List<CanvasPoint>) -> Unit,
@@ -123,10 +131,14 @@ internal fun PageCanvas(
     onPageTextChanged: (String, String) -> Unit,
     onCommitElementTransform: (ElementTransform) -> Unit,
     assetFile: (String) -> File,
+    onPageTextDraftChanged: (String, TextFieldValue) -> Boolean = { _, _ -> true },
+    initialPageTextDraft: TextFieldValue? = null,
+    pageTextInputEnabled: Boolean = true,
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _, _ -> null },
     modifier: Modifier = Modifier,
 ) {
     val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks)
+    val currentPageId = rememberUpdatedState(page?.id)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
             targetState = frame,
@@ -138,6 +150,8 @@ internal fun PageCanvas(
                 Paper(
                     targetPage,
                     target.pageNumber,
+                    pageCount,
+                    { currentPageId.value == targetPage.id },
                     target.strokes,
                     target.elements,
                     target.blocks,
@@ -148,6 +162,8 @@ internal fun PageCanvas(
                     tool,
                     penWidth,
                     highlighterWidth,
+                    onPreviousPage,
+                    onNextPage,
                     onStrokeFinished,
                     onEraseFinished,
                     onSelectContent,
@@ -155,6 +171,9 @@ internal fun PageCanvas(
                     onPageTextChanged,
                     onCommitElementTransform,
                     assetFile,
+                    onPageTextDraftChanged,
+                    initialPageTextDraft,
+                    pageTextInputEnabled,
                     loadPdfPage,
                 )
             }
@@ -174,6 +193,8 @@ private fun pageTransition(enabled: Boolean): ContentTransform =
 private fun Paper(
     page: PageEntity,
     pageNumber: Int,
+    pageCount: Int,
+    isCurrentPage: () -> Boolean,
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
     blocks: List<BlockEntity>,
@@ -184,6 +205,8 @@ private fun Paper(
     tool: EditorTool,
     penWidth: Float,
     highlighterWidth: Float,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
     onStrokeFinished: (String, Stroke) -> Unit,
     onEraseFinished: (String, List<CanvasPoint>) -> Unit,
     onSelectContent: (String, List<CanvasPoint>) -> Unit,
@@ -191,6 +214,9 @@ private fun Paper(
     onPageTextChanged: (String, String) -> Unit,
     onCommitElementTransform: (ElementTransform) -> Unit,
     assetFile: (String) -> File,
+    onPageTextDraftChanged: (String, TextFieldValue) -> Boolean,
+    initialPageTextDraft: TextFieldValue?,
+    pageTextInputEnabled: Boolean,
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap?,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
@@ -235,6 +261,7 @@ private fun Paper(
         val paperWidthPx = with(density) { paperWidth.toPx() }
         val paperHeightPx = with(density) { paperHeight.toPx() }
         val zoomDescription = stringResource(R.string.zoom_level, (viewportZoom * 100).roundToInt())
+        val nativeReleased = remember(page.id) { AtomicBoolean(false) }
         val viewportModifier =
             Modifier
                 .fillMaxSize()
@@ -252,8 +279,13 @@ private fun Paper(
                         )
                     }
                 }
-                .pointerInput(page.id, fingerDrawing, paperWidthPx, paperHeightPx) {
+                .pointerInput(page.id, fingerDrawing, tool, paperWidthPx, paperHeightPx) {
                     awaitEachGesture {
+                        val arbiter = PageGestureArbiter()
+                        var startCentroid: Offset? = null
+                        var lastCentroid: Offset? = null
+                        var initialTouchSpan: Float? = null
+                        var pinchOwned = false
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val hasStylus =
@@ -261,11 +293,47 @@ private fun Paper(
                                     change.pressed &&
                                         (change.type == PointerType.Stylus || change.type == PointerType.Eraser)
                                 }
-                            val touches = event.changes.filter { it.pressed && it.type == PointerType.Touch }
-                            if (!hasStylus && (touches.size >= 2 || (!fingerDrawing && touches.isNotEmpty()))) {
+                            val touchChanges = event.changes.filter { it.type == PointerType.Touch }
+                            val touches = touchChanges.filter { it.pressed }
+                            val requiredTouches = if (fingerDrawing) 2 else 1
+                            val endingTouches = touchChanges.filter { it.pressed || it.previousPressed }
+                            val newPointerDownAfterOwnership =
+                                startCentroid != null && touchChanges.any { it.pressed && !it.previousPressed }
+                            if (startCentroid == null && touches.size == requiredTouches) {
+                                val centroid =
+                                    touches.fold(Offset.Zero) { total, change -> total + change.position } /
+                                        touches.size.toFloat()
+                                startCentroid = centroid
+                                lastCentroid = centroid
+                            } else if (startCentroid != null && endingTouches.size == requiredTouches) {
+                                lastCentroid =
+                                    endingTouches.fold(Offset.Zero) { total, change -> total + change.position } /
+                                        endingTouches.size.toFloat()
+                            }
+                            if (endingTouches.size == 2) {
+                                val touchSpan = (endingTouches[0].position - endingTouches[1].position).getDistance()
+                                val initialSpan = initialTouchSpan
+                                if (initialSpan == null) {
+                                    initialTouchSpan = touchSpan
+                                } else if (kotlin.math.abs(touchSpan - initialSpan) > viewConfiguration.touchSlop) {
+                                    pinchOwned = true
+                                }
+                            }
+                            val gestureOwned =
+                                !fingerDrawing &&
+                                    touches.isNotEmpty() &&
+                                    (tool == EditorTool.ERASER || tool == EditorTool.LASSO)
+                            if (
+                                !hasStylus &&
+                                    !gestureOwned &&
+                                    (touches.size >= 2 || (!fingerDrawing && touches.isNotEmpty()))
+                            ) {
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
-                                if (zoomChange != 1f || panChange.x != 0f || panChange.y != 0f) {
+                                if (
+                                    (pinchOwned || viewportZoom > 1f) &&
+                                        (zoomChange != 1f || panChange.x != 0f || panChange.y != 0f)
+                                ) {
                                     val focus = event.calculateCentroid(useCurrent = true)
                                     val updated =
                                         updatePageViewport(
@@ -286,8 +354,42 @@ private fun Paper(
                                     event.changes.filter { it.type == PointerType.Touch }.forEach { it.consume() }
                                 }
                             }
-                            if (event.changes.none { it.pressed }) break
+                            val start = startCentroid
+                            val end = lastCentroid
+                            val finished = event.changes.none { it.pressed }
+                            if (finished) awaitPointerEvent(PointerEventPass.Final)
+                            val turn =
+                                arbiter.onGesture(
+                                    pageWidth = paperWidthPx,
+                                    horizontal = if (start != null && end != null) end.x - start.x else 0f,
+                                    vertical = if (start != null && end != null) end.y - start.y else 0f,
+                                    pointerCount = touches.size,
+                                    fingerDrawing = fingerDrawing,
+                                    zoomed = viewportZoom > 1f,
+                                    scaleChanged = pinchOwned,
+                                    stylusOwned = hasStylus,
+                                    gestureOwned = gestureOwned,
+                                    newPointerDownAfterOwnership = newPointerDownAfterOwnership,
+                                    canceled = finished && !nativeReleased.get(),
+                                    finished = finished,
+                                    currentPage = pageNumber - 1,
+                                    pageCount = pageCount,
+                                )
+                            if (isCurrentPage()) {
+                                when (turn) {
+                                    PageTurn.NONE -> Unit
+                                    PageTurn.PREVIOUS -> onPreviousPage()
+                                    PageTurn.NEXT -> onNextPage()
+                                }
+                            }
+                            if (finished) break
                         }
+                    }
+                }
+                .motionEventSpy { event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> nativeReleased.set(false)
+                        MotionEvent.ACTION_UP -> nativeReleased.set(true)
                     }
                 }
         Box(viewportModifier, contentAlignment = Alignment.Center) {
@@ -318,6 +420,9 @@ private fun Paper(
                     scaleX = scaleX,
                     scaleY = scaleY,
                     onTextChanged = onPageTextChanged,
+                    onDraftChanged = onPageTextDraftChanged,
+                    initialDraft = initialPageTextDraft,
+                    inputEnabled = pageTextInputEnabled,
                 )
                 ElementLayer(
                     page,
@@ -416,9 +521,13 @@ private fun PageTextLayer(
     scaleX: Float,
     scaleY: Float,
     onTextChanged: (String, String) -> Unit,
+    onDraftChanged: (String, TextFieldValue) -> Boolean,
+    initialDraft: TextFieldValue?,
+    inputEnabled: Boolean,
 ) {
     val storedText = blocks.singleOrNull()?.text.orEmpty()
-    var draft by remember(page.id) { mutableStateOf(TextFieldValue(storedText)) }
+    var draft by remember(page.id) { mutableStateOf(initialDraft ?: TextFieldValue(storedText)) }
+    var lastObservedStoredText by remember(page.id) { mutableStateOf(storedText) }
     var pageFull by remember(page.id) { mutableStateOf(false) }
     val focusRequester = remember(page.id) { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -447,7 +556,21 @@ private fun PageTextLayer(
         )
 
     LaunchedEffect(storedText) {
-        if (storedText != draft.text) draft = TextFieldValue(storedText)
+        val previousStoredText = lastObservedStoredText
+        lastObservedStoredText = storedText
+        if (storedText == draft.text) return@LaunchedEffect
+        if (draft.text == previousStoredText) {
+            val updatedDraft =
+                TextFieldValue(
+                    text = storedText,
+                    selection =
+                        TextRange(
+                            draft.selection.start.coerceAtMost(storedText.length),
+                            draft.selection.end.coerceAtMost(storedText.length),
+                        ),
+                )
+            if (onDraftChanged(page.id, updatedDraft)) draft = updatedDraft
+        }
     }
     LaunchedEffect(draft.text) {
         if (draft.text == storedText) return@LaunchedEffect
@@ -475,7 +598,9 @@ private fun PageTextLayer(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            if (latestText != latestStoredText) latestCallback(page.id, latestText)
+            if (latestText != latestStoredText) {
+                latestCallback(page.id, latestText)
+            }
         }
     }
 
@@ -487,8 +612,11 @@ private fun PageTextLayer(
                     value.text.length <= PAGE_TEXT_MAX_LENGTH &&
                         pageTextFits(value.text, page.widthPoints, page.heightPoints)
                 pageFull = !fits
-                if (fits) draft = value
+                if (fits && onDraftChanged(page.id, value)) {
+                    draft = value
+                }
             },
+            enabled = inputEnabled,
             textStyle = textStyle,
             cursorBrush = SolidColor(Color(0xFF3156D9)),
             modifier = modifier.focusRequester(focusRequester),

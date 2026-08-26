@@ -31,7 +31,7 @@
 ## Release
 
 1. Enroll in Play App Signing.
-2. Upload the signed `app-release.aab` with version code 2.
+2. Upload the signed `app-release.aab` with version code 3.
 3. Create a closed testing track after all dashboard declarations are complete.
 4. Add the required tester list and publish the closed release.
 5. Do not publish to production until Play reports zero blocking tasks and the hosted privacy URL is live.
