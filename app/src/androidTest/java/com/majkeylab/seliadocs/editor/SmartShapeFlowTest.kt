@@ -17,9 +17,13 @@ import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 @RunWith(AndroidJUnit4::class)
 class SmartShapeFlowTest {
@@ -58,6 +62,40 @@ class SmartShapeFlowTest {
         }
     }
 
+    @Test
+    fun heldArrowAndEllipseConvertAndUndoRestoresRawInk() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(request())
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val pageId = await(viewModel, "page") { it.selectedPage != null }.selectedPage!!.id
+
+            listOf(ShapeKind.ARROW to heldArrow(), ShapeKind.ELLIPSE to heldEllipse()).forEach { (kind, stroke) ->
+                val expected = InkCodec.encode(stroke)
+                onMain { viewModel.addStroke(pageId, stroke, shapeAssist = true) }
+                val converted = await(viewModel, "held $kind") {
+                    it.elements.singleOrNull()?.shapeKind == kind.name && it.strokes.isEmpty()
+                }
+                assertEquals(kind.name, converted.elements.single().shapeKind)
+
+                onMain(viewModel::undo)
+                val raw = await(viewModel, "$kind undo") { it.elements.isEmpty() && it.strokes.size == 1 }
+                val restored = raw.strokes.single()
+                assertEquals(expected.brushKind.name, restored.brushKind)
+                assertEquals(expected.colorArgb, restored.colorArgb)
+                assertEquals(expected.size, restored.size)
+                assertEquals(expected.epsilon, restored.epsilon)
+                assertArrayEquals(expected.inputs, restored.inputs)
+                onMain(viewModel::undo)
+                await(viewModel, "$kind clear") { it.elements.isEmpty() && it.strokes.isEmpty() }
+            }
+        } finally {
+            repository.deleteNotebook(notebookId)
+        }
+    }
+
     private fun heldLine(): Stroke =
         Stroke(
             InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f),
@@ -67,6 +105,56 @@ class SmartShapeFlowTest {
                 .add(InputToolType.STYLUS, 220f, 80f, 260L, 0.01f, 0.7f, 0.2f, 0.3f)
                 .add(InputToolType.STYLUS, 220f, 80f, 600L, 0.01f, 0.7f, 0.2f, 0.3f),
         )
+
+    private fun heldArrow(): Stroke =
+        heldStroke(
+            listOf(
+                TimedCanvasPoint(CanvasPoint(40f, 80f), 0L),
+                TimedCanvasPoint(CanvasPoint(90f, 80f), 80L),
+                TimedCanvasPoint(CanvasPoint(140f, 80f), 160L),
+                TimedCanvasPoint(CanvasPoint(122f, 64f), 220L),
+                TimedCanvasPoint(CanvasPoint(140f, 80f), 260L),
+                TimedCanvasPoint(CanvasPoint(122f, 96f), 320L),
+                TimedCanvasPoint(CanvasPoint(140f, 80f), 360L),
+                TimedCanvasPoint(CanvasPoint(140f, 80f), 700L),
+            ),
+        )
+
+    private fun heldEllipse(): Stroke {
+        val points =
+            (0..16).map { index ->
+                val angle = 2.0 * PI * index / 16.0
+                TimedCanvasPoint(
+                    CanvasPoint(
+                        150f + 60f * cos(angle).toFloat(),
+                        180f + 40f * sin(angle).toFloat(),
+                    ),
+                    index * 20L,
+                )
+            }
+        return heldStroke(
+            points +
+                TimedCanvasPoint(CanvasPoint(210f, 180f), 650L) +
+                TimedCanvasPoint(CanvasPoint(210f, 180f), 720L),
+        )
+    }
+
+    private fun heldStroke(points: List<TimedCanvasPoint>): Stroke {
+        val inputs = MutableStrokeInputBatch()
+        points.forEach { point ->
+            inputs.add(
+                InputToolType.STYLUS,
+                point.point.x,
+                point.point.y,
+                point.elapsedTimeMillis,
+                0.01f,
+                0.7f,
+                0.2f,
+                0.3f,
+            )
+        }
+        return Stroke(InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f), inputs)
+    }
 
     private suspend fun await(
         viewModel: EditorViewModel,

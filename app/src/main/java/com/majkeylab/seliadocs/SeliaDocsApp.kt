@@ -14,6 +14,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.majkeylab.seliadocs.backup.BackupRoute
+import com.majkeylab.seliadocs.backup.BackupViewModel
+import com.majkeylab.seliadocs.backup.LibraryReplacementReporter
 import com.majkeylab.seliadocs.editor.EditorRoute
 import com.majkeylab.seliadocs.library.LibraryScreen
 import com.majkeylab.seliadocs.library.LibraryViewModel
@@ -25,8 +27,10 @@ import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun SeliaDocsApp() {
+internal fun SeliaDocsApp(backupViewModel: BackupViewModel? = null) {
     val application = LocalContext.current.applicationContext as Application
+    val rootBackupViewModel: BackupViewModel = backupViewModel ?: viewModel()
+    val backupState by rootBackupViewModel.state.collectAsStateWithLifecycle()
     val settingsRepository = remember(application) { SettingsRepository.create(application) }
     val settings by
         settingsRepository.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
@@ -34,6 +38,7 @@ internal fun SeliaDocsApp() {
     var notebookId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var backupOpen by rememberSaveable { mutableStateOf(false) }
+    var libraryGeneration by rememberSaveable { mutableStateOf(0L) }
     BackHandler(enabled = backupOpen || settingsOpen || notebookId != null) {
         if (backupOpen) {
             backupOpen = false
@@ -50,8 +55,24 @@ internal fun SeliaDocsApp() {
             AppTheme.DARK -> true
         }
     SeliaDocsTheme(darkTheme = darkTheme) {
+        LibraryReplacementReporter(
+            replacementGeneration = backupState.replacementGeneration,
+            claimReplacement = rootBackupViewModel::claimPendingReplacement,
+            acknowledgeReplacement = rootBackupViewModel::acknowledgeReplacement,
+            releaseReplacementClaim = rootBackupViewModel::releaseReplacementClaim,
+            onLibraryReplaced = {
+                notebookId = null
+                backupOpen = false
+                settingsOpen = false
+                libraryGeneration++
+            },
+        )
         when {
-            backupOpen -> BackupRoute(onClose = { backupOpen = false })
+            backupOpen ->
+                BackupRoute(
+                    viewModel = rootBackupViewModel,
+                    onClose = { backupOpen = false },
+                )
             settingsOpen ->
                 SettingsScreen(
                     settings = settings,
@@ -71,6 +92,7 @@ internal fun SeliaDocsApp() {
             else ->
                 EditorRoute(
                     notebookId = requireNotNull(notebookId),
+                    libraryGeneration = libraryGeneration,
                     settings = settings,
                     onBack = { notebookId = null },
                     onSettings = { settingsOpen = true },

@@ -3,6 +3,8 @@ package com.majkeylab.seliadocs.editor
 internal class PageHistoryStore<T>(
     private val maxPages: Int = 10,
     private val stepsPerPage: Int = 100,
+    private val maxWeight: Int = Int.MAX_VALUE,
+    private val weightOf: (T) -> Int = { 0 },
 ) {
     private val histories = LinkedHashMap<String, PageHistory<T>>(16, 0.75f, true)
 
@@ -10,12 +12,12 @@ internal class PageHistoryStore<T>(
         get() = histories.size
 
     init {
-        require(maxPages > 0 && stepsPerPage > 0)
+        require(maxPages > 0 && stepsPerPage > 0 && maxWeight >= 0)
     }
 
     fun history(pageId: String, initial: T): PageHistory<T> =
         histories[pageId]
-            ?: PageHistory(initial, stepsPerPage).also { history ->
+            ?: PageHistory(initial, stepsPerPage, maxWeight, weightOf).also { history ->
                 histories[pageId] = history
                 if (histories.size > maxPages) histories.remove(histories.entries.first().key)
             }

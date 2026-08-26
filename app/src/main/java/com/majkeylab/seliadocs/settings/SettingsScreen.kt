@@ -26,6 +26,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -34,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun SettingsScreen(
     settings: AppSettings,
     onUpdate: (AppSettings) -> Unit,
@@ -80,35 +84,27 @@ internal fun SettingsScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onClose) { Text(stringResource(R.string.back)) }
+            TopAppBar(
+                modifier = Modifier.testTag("settings-top-bar"),
+                title = {
                     Text(
                         stringResource(R.string.settings),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("settings-top-bar-title"),
                     )
-                }
-            }
+                },
+                navigationIcon = {
+                    TextButton(onClick = onClose) { Text(stringResource(R.string.back)) }
+                },
+            )
         },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("settings-list")) {
             item {
-                Text(
-                    stringResource(R.string.settings_visual_intro),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
-                )
-            }
-            item {
                 SettingsGroup(
                     title = stringResource(R.string.notebook_defaults),
                     summary = stringResource(R.string.notebook_defaults_summary),
-                    initiallyExpanded = true,
                 ) {
                     NotebookDefaults(settings, onUpdate)
                 }
@@ -364,14 +360,15 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
 private fun SettingsGroup(
     title: String,
     summary: String,
-    initiallyExpanded: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Column {
         Row(
             modifier =
-                Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable { expanded = !expanded }
+                Modifier.fillMaxWidth().heightIn(min = 72.dp)
+                    .clickable(role = Role.Button) { expanded = !expanded }
+                    .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
                     .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

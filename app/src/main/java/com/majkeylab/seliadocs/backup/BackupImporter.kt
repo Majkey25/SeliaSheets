@@ -5,6 +5,7 @@ import com.majkeylab.seliadocs.data.AssetStore
 import com.majkeylab.seliadocs.data.BlockEntity
 import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.ElementEntity
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PdfSourceEntity
@@ -15,7 +16,9 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 internal class BackupImporter(
@@ -28,31 +31,40 @@ internal class BackupImporter(
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
     suspend fun restore(input: InputStream, mode: RestoreMode): RestoreSummary =
-        withContext(Dispatchers.IO) {
-            validator.validate(input).use { backup ->
-                val mappings = createMappings(backup, mode)
-                val oldAssets = if (mode == RestoreMode.REPLACE) assets.files() else emptyList()
-                val rollback = if (mode == RestoreMode.REPLACE) createRollback() else null
-                var installedAssets: List<File> = emptyList()
+        validator.validate(input).use { backup ->
+            LibraryMutationGate.withLock {
+                var completed: RestoreSummary? = null
                 try {
-                    installedAssets = installAssets(backup, mappings.assets)
-                    insertRecords(backup.recordsFile, mappings, mode)
-                } catch (failure: Exception) {
-                    installedAssets.forEach(File::delete)
-                    rollback?.delete()
-                    if (failure is BackupFailure) throw failure
-                    throw BackupFailure.RestoreFailed(failure)
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        val mappings = createMappings(backup, mode)
+                        val oldAssets = if (mode == RestoreMode.REPLACE) assets.files() else emptyList()
+                        val rollback = if (mode == RestoreMode.REPLACE) createRollback() else null
+                        var installedAssets: List<File> = emptyList()
+                        try {
+                            installedAssets = installAssets(backup, mappings.assets)
+                            insertRecords(backup.recordsFile, mappings, mode)
+                        } catch (failure: Exception) {
+                            installedAssets.forEach(File::delete)
+                            rollback?.delete()
+                            if (failure is CancellationException) throw failure
+                            if (failure is BackupFailure) throw failure
+                            throw BackupFailure.RestoreFailed(failure)
+                        }
+                        if (mode == RestoreMode.REPLACE) {
+                            oldAssets.forEach(File::delete)
+                        }
+                        rollback?.delete()
+                        RestoreSummary(
+                            notebooks = backup.manifest.notebookCount,
+                            pages = backup.manifest.pageCount,
+                            assets = backup.manifest.assetCount,
+                            remappedIds = mappings.remappedCount,
+                        )
+                            .also { completed = it }
+                    }
+                } catch (failure: CancellationException) {
+                    completed ?: throw failure
                 }
-                if (mode == RestoreMode.REPLACE) {
-                    oldAssets.forEach(File::delete)
-                }
-                rollback?.delete()
-                RestoreSummary(
-                    notebooks = backup.manifest.notebookCount,
-                    pages = backup.manifest.pageCount,
-                    assets = backup.manifest.assetCount,
-                    remappedIds = mappings.remappedCount,
-                )
             }
         }
 

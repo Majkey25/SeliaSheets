@@ -4,6 +4,7 @@ import java.io.IOException
 
 internal const val BACKUP_FORMAT_VERSION = 3
 internal const val MIN_BACKUP_FORMAT_VERSION = 1
+internal const val MAX_BACKUP_RECORDS = 200_000
 
 internal data class BackupManifest(
     val formatVersion: Int,

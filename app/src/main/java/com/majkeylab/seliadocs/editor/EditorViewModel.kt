@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.editor
 
 import android.app.Application
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.ink.strokes.Stroke
@@ -13,6 +14,7 @@ import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.ElementDraft
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PageTextMatch
@@ -36,8 +38,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal data class EditorUiState(
@@ -97,6 +97,53 @@ private data class PageSnapshot(
     val blocks: List<BlockEntity>,
 )
 
+internal fun estimatePageSnapshotWeight(
+    strokes: List<StrokeEntity>,
+    elements: List<ElementEntity>,
+    blocks: List<BlockEntity>,
+): Int {
+    val fixedBytes =
+        (strokes.size.toLong() + elements.size + blocks.size) * PAGE_HISTORY_ENTITY_OVERHEAD_BYTES
+    val strokeBytes =
+        strokes.sumOf { stroke ->
+            stroke.inputs.size.toLong() +
+                stroke.id.estimatedBytes() +
+                stroke.pageId.estimatedBytes() +
+                stroke.brushKind.estimatedBytes()
+        }
+    val elementBytes =
+        elements.sumOf { element ->
+            element.id.estimatedBytes() +
+                element.pageId.estimatedBytes() +
+                element.kind.estimatedBytes() +
+                element.text.estimatedBytes() +
+                element.assetId.estimatedBytes() +
+                element.shapeKind.estimatedBytes() +
+                element.expression.estimatedBytes() +
+                element.resultText.estimatedBytes()
+        }
+    val blockBytes =
+        blocks.sumOf { block ->
+            block.id.estimatedBytes() +
+                block.pageId.estimatedBytes() +
+                block.kind.estimatedBytes() +
+                block.text.estimatedBytes() +
+                block.alignment.estimatedBytes() +
+                block.payloadId.estimatedBytes()
+        }
+    return saturatePageSnapshotWeight(fixedBytes + strokeBytes + elementBytes + blockBytes)
+}
+
+internal fun saturatePageSnapshotWeight(bytes: Long): Int {
+    require(bytes >= 0)
+    return bytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
+private fun String?.estimatedBytes(): Long = orEmpty().length * PAGE_HISTORY_BYTES_PER_CHAR
+
+private const val PAGE_HISTORY_BYTES_PER_CHAR = 2L
+private const val PAGE_HISTORY_ENTITY_OVERHEAD_BYTES = 64L
+
 internal data class PagePreviewData(
     val strokes: List<StrokeEntity>,
     val elements: List<ElementEntity>,
@@ -122,6 +169,7 @@ internal class EditorViewModel(
     application: Application,
     private val notebookId: String,
     initialTool: EditorTool = EditorTool.PEN,
+    private val mutationAllowed: () -> Boolean = { true },
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -132,9 +180,14 @@ internal class EditorViewModel(
     private val pdfImporter = PdfImporter(application.contentResolver, assets, repository, pdfSandbox)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls(tool = initialTool))
-    private val pageHistories = PageHistoryStore<PageSnapshot>()
-    private val mutationMutex = Mutex()
-
+    private val pageHistories =
+        PageHistoryStore<PageSnapshot>(
+            maxPages = PAGE_HISTORY_MAX_PAGES,
+            maxWeight = PAGE_HISTORY_MAX_BYTES,
+            weightOf = { snapshot ->
+                estimatePageSnapshotWeight(snapshot.strokes, snapshot.elements, snapshot.blocks)
+            },
+        )
     private val pages =
         repository.observePages(notebookId)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -214,6 +267,10 @@ internal class EditorViewModel(
     fun selectNextPage() {
         val index = state.value.pages.indexOf(state.value.selectedPage)
         state.value.pages.getOrNull(index + 1)?.let { selectPage(it.id) }
+    }
+
+    fun setFingerDrawing(enabled: Boolean) = mutate {
+        repository.setFingerDrawing(notebookId, enabled)
     }
 
     fun selectTool(tool: EditorTool) {
@@ -512,10 +569,36 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
-    fun updatePageText(pageId: String, text: String) = mutate {
+    fun updatePageText(pageId: String, text: String) = mutate { savePageText(pageId, text) }
+
+    fun flushPageTextBeforeClose(
+        pageId: String?,
+        text: String?,
+        onComplete: (Boolean) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val didFail =
+                LibraryMutationGate.withLock {
+                    runCatching {
+                        if (
+                            pageId != null &&
+                                text != null &&
+                                repository.getPages(notebookId).any { it.id == pageId }
+                        ) {
+                            savePageText(pageId, text)
+                        }
+                    }.isFailure.also { failed ->
+                        controls.value = controls.value.copy(failed = failed)
+                    }
+                }
+            onComplete(!didFail)
+        }
+    }
+
+    private suspend fun savePageText(pageId: String, text: String) {
         val history = history(pageId)
         val current = history.current.blocks.singleOrNull()?.text.orEmpty()
-        if (current == text) return@mutate
+        if (current == text) return
         repository.updatePageText(pageId, text)
         history.push(snapshot(pageId))
         updateHistoryControls(history)
@@ -668,21 +751,31 @@ internal class EditorViewModel(
 
     fun exportPdf(uri: Uri) = mutate {
         val content = repository.loadNotebook(notebookId)
-        val resolver = getApplication<Application>().contentResolver
-        withContext(kotlinx.coroutines.Dispatchers.IO) {
-            resolver.openOutputStream(uri, "w").use { output ->
-                pdfExporter.write(
-                    content,
-                    requireNotNull(output) { "PDF destination unavailable" },
-                ) { source, page, width, height ->
-                    pdfSandbox.renderPage(
-                        assets.requireFile(source.assetId),
-                        requireNotNull(page.pdfPageIndex),
-                        width,
-                        height,
-                    )
-                }
-            }
+        val application = getApplication<Application>()
+        val resolver = application.contentResolver
+        withContext(Dispatchers.IO) {
+            writePdfToDestination(
+                cacheDir = application.cacheDir,
+                render = { output ->
+                    pdfExporter.write(
+                        content,
+                        output,
+                    ) { source, page, width, height ->
+                        pdfSandbox.renderPage(
+                            assets.requireFile(source.assetId),
+                            requireNotNull(page.pdfPageIndex),
+                            width,
+                            height,
+                        )
+                    }
+                },
+                openDestination = { resolver.openOutputStream(uri, "rwt") },
+                deleteDestination = {
+                    check(DocumentsContract.deleteDocument(resolver, uri)) {
+                        "Incomplete PDF destination could not be deleted"
+                    }
+                },
+            )
         }
     }
 
@@ -690,8 +783,10 @@ internal class EditorViewModel(
         val pageId = state.value.selectedPage?.id ?: return
         mutate {
             val history = history(pageId)
-            val snapshot = history.undo() ?: return@mutate
-            repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements, snapshot.blocks)
+            val snapshot =
+                history.undo { previous ->
+                    repository.replacePageContent(pageId, previous.strokes, previous.elements, previous.blocks)
+                } ?: return@mutate
             controls.value =
                 controls.value.copy(
                     selectedStrokeIds = emptySet(),
@@ -708,8 +803,10 @@ internal class EditorViewModel(
         val pageId = state.value.selectedPage?.id ?: return
         mutate {
             val history = history(pageId)
-            val snapshot = history.redo() ?: return@mutate
-            repository.replacePageContent(pageId, snapshot.strokes, snapshot.elements, snapshot.blocks)
+            val snapshot =
+                history.redo { next ->
+                    repository.replacePageContent(pageId, next.strokes, next.elements, next.blocks)
+                } ?: return@mutate
             controls.value =
                 controls.value.copy(
                     selectedStrokeIds = emptySet(),
@@ -748,8 +845,10 @@ internal class EditorViewModel(
         )
 
     private fun mutate(block: suspend () -> Unit) {
+        if (!mutationAllowed()) return
         viewModelScope.launch {
-            mutationMutex.withLock {
+            LibraryMutationGate.withLock {
+                if (!mutationAllowed()) return@withLock
                 val didFail = runCatching { block() }.isFailure
                 controls.value = controls.value.copy(failed = didFail)
             }
@@ -769,6 +868,8 @@ internal class EditorViewModel(
     private companion object {
         const val DEFAULT_CHAPTER_COLOR = 0xFF3156D9.toInt()
         const val ERASER_RADIUS = 16f
+        const val PAGE_HISTORY_MAX_BYTES = 8 * 1024 * 1024
+        const val PAGE_HISTORY_MAX_PAGES = 4
         const val SMART_SHAPE_PREVIEW_MS = 900L
     }
 }

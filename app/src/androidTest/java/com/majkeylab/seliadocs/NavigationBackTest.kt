@@ -1,9 +1,11 @@
 package com.majkeylab.seliadocs
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -27,8 +29,8 @@ class NavigationBackTest {
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }
-        rule.onNodeWithText(title).performClick()
-        rule.onNodeWithContentDescription("Add page").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Open $title").performClick()
+        assertEditorDisplayed()
 
         pressBack()
 
@@ -44,14 +46,22 @@ class NavigationBackTest {
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }
-        rule.onNodeWithText(title).performClick()
-        rule.onNodeWithContentDescription("Add page").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Open $title").performClick()
+        assertEditorDisplayed()
         rule.onNodeWithContentDescription("More options").performClick()
         rule.onNodeWithText("Export PDF").assertIsDisplayed()
         rule.onNodeWithText("Settings").performClick()
 
         pressBack()
 
-        rule.onNodeWithContentDescription("Add page").assertIsDisplayed()
+        assertEditorDisplayed()
+    }
+
+    private fun assertEditorDisplayed() {
+        if (rule.onAllNodes(hasTestTag("compact-page-location")).fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithTag("compact-page-location").assertIsDisplayed()
+        } else {
+            rule.onNodeWithContentDescription("Add page").assertIsDisplayed()
+        }
     }
 }

@@ -56,35 +56,43 @@ internal class BackupValidator(
     private val maxExtractedBytes: () -> Long = {
         min(stagingRoot.usableSpace / 10 * 8, 8L * 1024 * 1024 * 1024)
     },
+    private val maxRecords: Int = MAX_BACKUP_RECORDS,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
-    suspend fun validate(input: InputStream): StagedBackup =
-        withContext(Dispatchers.IO) {
-            val directory = createStagingDirectory()
-            try {
-                val extracted = extract(input, directory)
-                verifyChecksums(extracted)
-                val manifestFile =
-                    extracted.files[MANIFEST_ENTRY]
-                        ?: throw BackupFailure.MissingField(MANIFEST_ENTRY)
-                val recordsFile =
-                    extracted.files[RECORDS_ENTRY]
-                        ?: throw BackupFailure.MissingField(RECORDS_ENTRY)
-                val manifest = manifestFile.reader(Charsets.UTF_8).use(BackupJson::readManifest)
-                val assetFiles = assetFiles(extracted.files)
-                val index = validateRecords(recordsFile, manifest, assetFiles)
-                StagedBackup(directory, manifest, index, recordsFile, assetFiles)
-            } catch (failure: CancellationException) {
-                directory.deleteRecursively()
-                throw failure
-            } catch (failure: BackupFailure) {
-                directory.deleteRecursively()
-                throw failure
-            } catch (failure: Exception) {
-                directory.deleteRecursively()
-                throw BackupFailure.Malformed(failure)
+    suspend fun validate(input: InputStream): StagedBackup {
+        var completed: StagedBackup? = null
+        try {
+            return withContext(Dispatchers.IO) {
+                val directory = createStagingDirectory()
+                try {
+                    val extracted = extract(input, directory)
+                    verifyChecksums(extracted)
+                    val manifestFile =
+                        extracted.files[MANIFEST_ENTRY]
+                            ?: throw BackupFailure.MissingField(MANIFEST_ENTRY)
+                    val recordsFile =
+                        extracted.files[RECORDS_ENTRY]
+                            ?: throw BackupFailure.MissingField(RECORDS_ENTRY)
+                    val manifest = manifestFile.reader(Charsets.UTF_8).use(BackupJson::readManifest)
+                    val assetFiles = assetFiles(extracted.files)
+                    val index = validateRecords(recordsFile, manifest, assetFiles)
+                    StagedBackup(directory, manifest, index, recordsFile, assetFiles).also { completed = it }
+                } catch (failure: CancellationException) {
+                    directory.deleteRecursively()
+                    throw failure
+                } catch (failure: BackupFailure) {
+                    directory.deleteRecursively()
+                    throw failure
+                } catch (failure: Exception) {
+                    directory.deleteRecursively()
+                    throw BackupFailure.Malformed(failure)
+                }
             }
+        } catch (failure: CancellationException) {
+            completed?.close()
+            throw failure
         }
+    }
 
     private fun createStagingDirectory(): File {
         if ((!stagingRoot.isDirectory && !stagingRoot.mkdirs()) || !stagingRoot.canWrite()) {
@@ -246,11 +254,11 @@ internal class BackupValidator(
         val strokes = linkedSetOf<String>()
         val elements = linkedSetOf<String>()
         val blocks = linkedSetOf<String>()
-        val pageNotebooks = mutableListOf<Pair<String, String>>()
-        val chapterNotebooks = mutableListOf<Pair<String, String>>()
+        val pageNotebooks = mutableMapOf<String, String>()
+        val chapterNotebooks = mutableMapOf<String, String>()
         val chapterIndexes = mutableMapOf<String, MutableList<Int>>()
         val pageChapters = mutableListOf<Pair<String, String>>()
-        val pdfSourceNotebooks = mutableListOf<Pair<String, String>>()
+        val pdfSourceNotebooks = mutableMapOf<String, String>()
         val pdfSourcePageCounts = mutableMapOf<String, Int>()
         val pdfSourceRecords = mutableListOf<BackupPdfSource>()
         val pagePdfSources = mutableListOf<Pair<String, String>>()
@@ -264,18 +272,21 @@ internal class BackupValidator(
         val pageBlocks = mutableMapOf<String, MutableList<BackupBlock>>()
         val referencedAssets = linkedSetOf<String>()
         val imageAssetIds = linkedSetOf<String>()
+        var recordCount = 0
         recordsFile.reader(Charsets.UTF_8).use { input ->
             BackupJson.records(input).forEach { record ->
+                recordCount++
+                if (recordCount > maxRecords) throw BackupFailure.LimitExceeded("recordCount")
                 when (record) {
                     is BackupNotebook -> addUnique(notebooks, record.id, "notebook")
                     is BackupChapter -> {
                         addUnique(chapters, record.id, "chapter")
-                        chapterNotebooks += record.id to record.notebookId
+                        chapterNotebooks[record.id] = record.notebookId
                         chapterIndexes.getOrPut(record.notebookId, ::mutableListOf) += record.orderIndex
                     }
                     is BackupPdfSource -> {
                         addUnique(pdfSources, record.id, "pdfSource")
-                        pdfSourceNotebooks += record.id to record.notebookId
+                        pdfSourceNotebooks[record.id] = record.notebookId
                         pdfSourcePageCounts[record.id] = record.pageCount
                         pdfSourceRecords += record
                         referencedAssets += record.assetId
@@ -283,7 +294,7 @@ internal class BackupValidator(
                     is BackupPage -> {
                         addUnique(pages, record.id, "page")
                         pageSizes[record.id] = record.widthPoints to record.heightPoints
-                        pageNotebooks += record.id to record.notebookId
+                        pageNotebooks[record.id] = record.notebookId
                         pageIndexes.getOrPut(record.notebookId, ::mutableListOf) += record.pageIndex
                         record.chapterId?.let { pageChapters += record.id to it }
                         if ((record.pdfSourceId == null) != (record.pdfPageIndex == null)) {
@@ -317,14 +328,14 @@ internal class BackupValidator(
         }
         if (notebooks.size != manifest.notebookCount) countFailure("notebookCount")
         if (pages.size != manifest.pageCount) countFailure("pageCount")
-        pageNotebooks.firstOrNull { it.second !in notebooks }?.let {
-            throw BackupFailure.InvalidRelationship("page:${it.first}")
+        pageNotebooks.entries.firstOrNull { it.value !in notebooks }?.let {
+            throw BackupFailure.InvalidRelationship("page:${it.key}")
         }
-        chapterNotebooks.firstOrNull { it.second !in notebooks }?.let {
-            throw BackupFailure.InvalidRelationship("chapter:${it.first}")
+        chapterNotebooks.entries.firstOrNull { it.value !in notebooks }?.let {
+            throw BackupFailure.InvalidRelationship("chapter:${it.key}")
         }
-        pdfSourceNotebooks.firstOrNull { it.second !in notebooks }?.let {
-            throw BackupFailure.InvalidRelationship("pdfSource:${it.first}")
+        pdfSourceNotebooks.entries.firstOrNull { it.value !in notebooks }?.let {
+            throw BackupFailure.InvalidRelationship("pdfSource:${it.key}")
         }
         pagePdfSources.firstOrNull { it.second !in pdfSources }?.let {
             throw BackupFailure.InvalidRelationship("pdfPageSource:${it.first}")
@@ -342,6 +353,14 @@ internal class BackupValidator(
         pageChapters.firstOrNull { it.second !in chapters }?.let {
             throw BackupFailure.InvalidRelationship("pageChapter:${it.first}")
         }
+        pageChapters.firstOrNull { (pageId, chapterId) ->
+            pageNotebooks.getValue(pageId) != chapterNotebooks.getValue(chapterId)
+        }
+            ?.let { throw BackupFailure.InvalidRelationship("pageChapter:${it.first}") }
+        pagePdfSources.firstOrNull { (pageId, sourceId) ->
+            pageNotebooks.getValue(pageId) != pdfSourceNotebooks.getValue(sourceId)
+        }
+            ?.let { throw BackupFailure.InvalidRelationship("pdfPageSource:${it.first}") }
         strokePages.firstOrNull { it.second !in pages }?.let {
             throw BackupFailure.InvalidRelationship("stroke:${it.first}")
         }

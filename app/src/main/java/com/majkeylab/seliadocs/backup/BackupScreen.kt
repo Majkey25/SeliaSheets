@@ -1,5 +1,6 @@
 package com.majkeylab.seliadocs.backup
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -28,13 +30,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -42,12 +47,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.majkeylab.seliadocs.R
 
 @Composable
-internal fun BackupRoute(onClose: () -> Unit) {
-    val viewModel: BackupViewModel = viewModel()
+internal fun BackupRoute(
+    viewModel: BackupViewModel,
+    onClose: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     BackupScreen(
         state = state,
@@ -58,12 +64,34 @@ internal fun BackupRoute(onClose: () -> Unit) {
 }
 
 @Composable
-private fun BackupScreen(
+internal fun LibraryReplacementReporter(
+    replacementGeneration: Long,
+    claimReplacement: () -> Long?,
+    acknowledgeReplacement: suspend (Long) -> Unit,
+    releaseReplacementClaim: (Long) -> Unit,
+    onLibraryReplaced: () -> Unit,
+) {
+    LaunchedEffect(replacementGeneration) {
+        val generation = claimReplacement() ?: return@LaunchedEffect
+        try {
+            onLibraryReplaced()
+            acknowledgeReplacement(generation)
+        } catch (failure: Throwable) {
+            releaseReplacementClaim(generation)
+            throw failure
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun BackupScreen(
     state: BackupUiState,
     onClose: () -> Unit,
     onExport: (android.net.Uri) -> Unit,
     onRestore: (android.net.Uri, RestoreMode) -> Unit,
 ) {
+    BackHandler(enabled = state.running) {}
     var replaceConfirmation by rememberSaveable { mutableStateOf(false) }
     val exportLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(BACKUP_MIME_TYPE)) { uri ->
@@ -107,21 +135,22 @@ private fun BackupScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onClose, enabled = !state.running) {
-                        Text(stringResource(R.string.back))
-                    }
+            TopAppBar(
+                modifier = Modifier.testTag("backup-top-bar"),
+                title = {
                     Text(
                         stringResource(R.string.backup_restore),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("backup-top-bar-title"),
                     )
-                }
-            }
+                },
+                navigationIcon = {
+                    TextButton(onClick = onClose, enabled = !state.running) {
+                        Text(stringResource(R.string.back))
+                    }
+                },
+            )
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {

@@ -9,13 +9,13 @@
   <img src="branding/seliasheets-android-icon-preview.png" width="220" alt="SeliaSheets notebook and stylus icon">
 </p>
 
-SeliaSheets is a private, offline-first Android notebook for students. It combines ordered paper pages, low-latency ink, full-page typing, chapters, imported PDFs, images, smart shapes, local arithmetic, and editable backups.
+SeliaSheets is a private, offline-first Android notebook for students. It combines ordered paper pages, AndroidX Ink, full-page typing, chapters, imported PDFs, images, smart shapes, local arithmetic, and editable backups.
 
 ## Highlights
 
 - Android 10 through Android 17 (`minSdk 29`, `targetSdk 37`).
-- Low-latency AndroidX Ink with pressure, tilt, stylus eraser, palm cancellation, and motion prediction.
-- Pen, pencil, highlighter, segment and whole-stroke erasers, polygon lasso selection, and 100-step undo/redo.
+- AndroidX Ink with pressure, stylus eraser, palm cancellation, and motion prediction.
+- Pen, pencil, highlighter, segment and whole-stroke erasers, polygon lasso selection, and up to 100-step undo/redo.
 - Multiple notebooks with covers, chapters, page titles, bookmarks, typed-text search, favorites, and trash.
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
@@ -62,7 +62,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-The beta was validated on dedicated Android 17 tablet and Android 10 phone emulators. Both targets passed the same 97-test instrumentation suite. See the [current acceptance report](docs/qa/2026-08-25-seliasheets-acceptance.md).
+The beta passed 59 JVM tests and 163 QA-package instrumentation tests on an authorized Android 10 physical device. The signed release identity, APK, and AAB were verified separately. See the [current acceptance report](docs/qa/2026-08-26-seliasheets-release-hardening.md).
 
 ## Scope
 

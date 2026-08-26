@@ -3,8 +3,9 @@ package com.majkeylab.seliadocs.library
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.majkeylab.seliadocs.data.CreateNotebookRequest
 import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.data.CreateNotebookRequest
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
@@ -22,9 +23,17 @@ internal data class LibraryUiState(
     val failed: Boolean = false,
 )
 
-internal class LibraryViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
-    private val assets = AssetStore(File(application.filesDir, "assets"))
+internal class LibraryViewModel(
+    application: Application,
+    private val repository: SeliaDocsRepository,
+    private val assets: AssetStore,
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(
+        application,
+        SeliaDocsRepository(SeliaDocsDatabase.get(application)),
+        AssetStore(File(application.filesDir, "assets")),
+    )
+
     private val query = MutableStateFlow("")
     private val trash = MutableStateFlow(false)
     private val failed = MutableStateFlow(false)
@@ -93,7 +102,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
 
     private fun mutate(block: suspend () -> Unit) {
         viewModelScope.launch {
-            failed.value = runCatching { block() }.isFailure
+            failed.value = runCatching { LibraryMutationGate.withLock { block() } }.isFailure
         }
     }
 

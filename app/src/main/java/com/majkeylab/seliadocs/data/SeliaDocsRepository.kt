@@ -1,6 +1,8 @@
 package com.majkeylab.seliadocs.data
 
 import androidx.room.withTransaction
+import com.majkeylab.seliadocs.editor.clampElementTransform
+import com.majkeylab.seliadocs.editor.transform
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
@@ -229,6 +231,7 @@ internal class SeliaDocsRepository(
             val chapter = requireNotNull(notebooks.getChapter(id)) { "Chapter not found" }
             notebooks.clearChapterFromPages(id)
             notebooks.deleteChapter(chapter)
+            replaceChapterOrder(chapter.notebookId, notebooks.getChapters(chapter.notebookId))
             touch(getNotebook(chapter.notebookId))
         }
     }
@@ -361,14 +364,23 @@ internal class SeliaDocsRepository(
         database.withTransaction {
             val source = requireNotNull(pageContent.getElement(id)) { "Element not found" }
             val page = requireNotNull(notebooks.getPage(source.pageId)) { "Page not found" }
-            val maxX = (page.widthPoints - source.width).coerceAtLeast(0f)
-            val maxY = (page.heightPoints - source.height).coerceAtLeast(0f)
+            val transform =
+                requireNotNull(
+                    clampElementTransform(
+                        source.transform().copy(x = source.x + 12f, y = source.y + 12f),
+                        page.widthPoints.toFloat(),
+                        page.heightPoints.toFloat(),
+                    ),
+                )
             pageContent.insertElement(
                 source.copy(
                     id = duplicateId,
                     zIndex = (pageContent.getMaxElementZIndex(source.pageId) ?: -1) + 1,
-                    x = (source.x + 12f).coerceIn(0f, maxX),
-                    y = (source.y + 12f).coerceIn(0f, maxY),
+                    x = transform.x,
+                    y = transform.y,
+                    width = transform.width,
+                    height = transform.height,
+                    rotation = transform.rotation,
                 ),
             )
             touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
@@ -518,6 +530,12 @@ internal class SeliaDocsRepository(
         notebooks.updateNotebook(getNotebook(id).copy(title = normalized, updatedAt = clock()))
     }
 
+    suspend fun setFingerDrawing(notebookId: String, enabled: Boolean) {
+        database.withTransaction {
+            touch(getNotebook(notebookId).copy(fingerDrawing = enabled))
+        }
+    }
+
     suspend fun setFavorite(id: String, favorite: Boolean) {
         notebooks.updateNotebook(getNotebook(id).copy(favorite = favorite, updatedAt = clock()))
     }
@@ -533,24 +551,30 @@ internal class SeliaDocsRepository(
         notebooks.deleteNotebook(getNotebook(id))
     }
 
-    suspend fun loadNotebook(id: String): NotebookContent {
-        val notebook = getNotebook(id)
-        val pages = getPages(id)
-        val pageIds = pages.map(PageEntity::id)
-        return NotebookContent(
-            notebook = notebook,
-            pages = pages,
-            strokes = pageContent.getStrokes(pageIds),
-            elements = pageContent.getElements(pageIds),
-            blocks = pageContent.getBlocks(pageIds),
-            chapters = notebooks.getChapters(id),
-            pdfSources = notebooks.getPdfSources(id),
-        )
-    }
+    suspend fun loadNotebook(id: String): NotebookContent =
+        database.withTransaction {
+            val notebook = getNotebook(id)
+            val pages = getPages(id)
+            NotebookContent(
+                notebook = notebook,
+                pages = pages,
+                strokes = pageContent.getStrokesForNotebook(id),
+                elements = pageContent.getElementsForNotebook(id),
+                blocks = pageContent.getBlocksForNotebook(id),
+                chapters = notebooks.getChapters(id),
+                pdfSources = notebooks.getPdfSources(id),
+            )
+        }
 
     private suspend fun replacePageOrder(notebookId: String, pages: List<PageEntity>) {
         notebooks.offsetPageIndexes(notebookId, 10_000)
         pages.forEachIndexed { index, page -> notebooks.updatePageIndex(page.id, index) }
+    }
+
+    private suspend fun replaceChapterOrder(notebookId: String, chapters: List<ChapterEntity>) {
+        if (chapters.isEmpty()) return
+        notebooks.offsetChapterIndexes(notebookId, chapters.maxOf(ChapterEntity::orderIndex) + 1)
+        chapters.forEachIndexed { index, chapter -> notebooks.updateChapterIndex(chapter.id, index) }
     }
 
     private suspend fun touch(notebook: NotebookEntity) {

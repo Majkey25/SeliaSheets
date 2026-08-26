@@ -143,7 +143,7 @@ Store exact commands, test counts, device API levels, build duration, file sizes
 - [ ] **Step 1: Verify signing files exist without printing their contents**
 
 ```powershell
-Test-Path 'C:\Users\mates\Documents\Codex\2026-08-24\p-ko-j-pot-ebuju-ud\work\perko-release-secrets\keystore.properties'
+Test-Path '<external-properties-file>'
 ```
 
 Expected: `True`.
@@ -151,7 +151,7 @@ Expected: `True`.
 - [ ] **Step 2: Run the signed clean build**
 
 ```powershell
-$env:SELIADOCS_KEYSTORE_PROPERTIES='C:\Users\mates\Documents\Codex\2026-08-24\p-ko-j-pot-ebuju-ud\work\perko-release-secrets\keystore.properties'
+$env:SELIADOCS_KEYSTORE_PROPERTIES='<external-properties-file>'
 .\gradlew.bat clean :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease :app:bundleRelease --console=plain
 $code=$LASTEXITCODE
 Remove-Item Env:SELIADOCS_KEYSTORE_PROPERTIES
@@ -401,7 +401,7 @@ Resolve every target under the repository or this task's `work` directory before
 <task>/work/tmp/pdfs
 ```
 
-Preserve `work/perko-release-secrets` until it is moved to the user's chosen permanent secure location.
+Preserve the external signing-material directory until it is moved to the user's chosen permanent secure location.
 
 - [ ] **Step 6: Verify preserved deliverables**
 
