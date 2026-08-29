@@ -2,6 +2,16 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.3.0-beta.1] - 2026-08-28
+
+### Added
+
+- Optional on-device handwriting recognition for simple single-line arithmetic after an explicit Google ML Kit language-model download.
+
+### Changed
+
+- Updated privacy and Play data-safety disclosures for Google ML Kit Digital Ink Recognition.
+
 ## [0.2.1-beta.1] - 2026-08-26
 
 ### Added

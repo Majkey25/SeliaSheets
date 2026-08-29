@@ -2,13 +2,15 @@ package com.majkeylab.seliadocs.editor
 
 import android.view.InputDevice
 import android.view.MotionEvent
+import androidx.activity.ComponentActivity
 import androidx.ink.strokes.Stroke
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.majkeylab.seliadocs.MainActivity
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -17,7 +19,7 @@ class StylusRoutingTest {
     @Test
     fun completedStylusStrokeIsCommitted() {
         val committed = CountDownLatch(1)
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -51,7 +53,7 @@ class StylusRoutingTest {
     @Test
     fun canceledPalmStrokeIsNotCommitted() {
         val finished = mutableListOf<Stroke>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 view.listener =
@@ -91,7 +93,7 @@ class StylusRoutingTest {
     fun canceledFingerPointerDoesNotCancelActiveStylus() {
         val committed = CountDownLatch(1)
         val canceled = mutableListOf<Int>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -145,7 +147,7 @@ class StylusRoutingTest {
         val committed = CountDownLatch(1)
         val finished = mutableListOf<Stroke>()
         val canceled = mutableListOf<Int>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -230,7 +232,7 @@ class StylusRoutingTest {
     fun secondFingerCancelsActiveFingerStrokeBeforePinch() {
         val canceled = mutableListOf<Int>()
         val finished = mutableListOf<Stroke>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -269,7 +271,7 @@ class StylusRoutingTest {
     fun hardwareEraserEmitsEraseGestureWithoutInk() {
         val erased = CountDownLatch(1)
         val finished = mutableListOf<Stroke>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -317,7 +319,7 @@ class StylusRoutingTest {
     @Test
     fun lassoReturnsPageCoordinates() {
         val lasso = mutableListOf<CanvasPoint>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
@@ -351,6 +353,144 @@ class StylusRoutingTest {
         assertTrue(lasso.contains(CanvasPoint(300f, 300f)))
     }
 
+    @Test
+    fun zoomedLassoReturnsTransformedPageCoordinates() {
+        val lasso = mutableListOf<CanvasPoint>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.tool = EditorTool.LASSO
+                view.setPageSize(1_000, 1_000)
+                view.setViewportTransform(zoom = 2f)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) = Unit
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                        override fun onLassoFinished(points: List<CanvasPoint>) {
+                            lasso += points
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 300f, 200f),
+                )
+            }
+        }
+
+        assertEquals(CanvasPoint(300f, 200f), lasso.last())
+    }
+
+    @Test
+    fun zoomedStylusStrokeUsesTransformedPageCoordinates() {
+        val committed = CountDownLatch(1)
+        val finished = AtomicReference<Stroke>()
+        val expected = AtomicReference<CanvasPoint>()
+        val viewRef = AtomicReference<InkCanvasView>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.setPageSize(1_000, 1_000)
+                view.setViewportTransform(zoom = 2f)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished.set(stroke)
+                            committed.countDown()
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                viewRef.set(view)
+            }
+            scenario.onActivity {
+                val view = requireNotNull(viewRef.get())
+                assertTrue(view.isAttachedToWindow)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                expected.set(
+                    CanvasPoint(
+                        300f / 2f * 1_000f / view.width,
+                        200f / 2f * 1_000f / view.height,
+                    ),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 300f, 200f),
+                )
+            }
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
+        }
+
+        val first = requireNotNull(finished.get()).inputs[0]
+        assertEquals(requireNotNull(expected.get()).x, first.x, 0.001f)
+        assertEquals(requireNotNull(expected.get()).y, first.y, 0.001f)
+    }
+
+    @Test
+    fun fingerIsIgnoredWhenFingerDrawingIsOff() {
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f))
+                view.dispatchTouchEvent(fingerEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f))
+            }
+        }
+
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
+    fun typeToolDoesNotCaptureStylusInput() {
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.tool = EditorTool.TYPE
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f))
+                view.dispatchTouchEvent(stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f))
+            }
+        }
+
+        assertTrue(finished.isEmpty())
+    }
+
     private fun assertIncomingPenCancelsFingerGesture(
         fingerTool: EditorTool,
         incomingTool: Int,
@@ -359,7 +499,7 @@ class StylusRoutingTest {
         val canceled = mutableListOf<Int>()
         val erased = mutableListOf<List<CanvasPoint>>()
         val selected = mutableListOf<List<CanvasPoint>>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)

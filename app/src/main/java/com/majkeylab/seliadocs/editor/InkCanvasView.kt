@@ -56,6 +56,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     private var gestureToolType: Int? = null
     private var pageWidth = 595f
     private var pageHeight = 842f
+    private var viewportZoom = 1f
 
     var listener: Listener? = null
     var fingerDrawing: Boolean = false
@@ -81,6 +82,17 @@ internal class InkCanvasView @JvmOverloads constructor(
         pageHeight = height.toFloat()
         finishedView.setPageSize(pageWidth, pageHeight)
         gestureOverlay.setPageSize(pageWidth, pageHeight)
+    }
+
+    fun setViewportTransform(zoom: Float) {
+        require(zoom > 0f && zoom.isFinite())
+        viewportZoom = zoom
+        updateMotionEventToViewTransform()
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updateMotionEventToViewTransform()
     }
 
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
@@ -110,14 +122,14 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     private fun startAdditionalInteraction(event: MotionEvent): Boolean {
         val inputTool = event.getToolType(event.actionIndex)
-        if (inputTool == MotionEvent.TOOL_TYPE_FINGER && hasActiveInteraction()) {
+        if (inputTool == MotionEvent.TOOL_TYPE_FINGER && event.pointerCount > 1) {
             val hasStylus =
                 (0 until event.pointerCount).any { index ->
                     index != event.actionIndex &&
                         (event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS ||
                             event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER)
                 }
-            if (!hasStylus) cancelAll(event)
+            if (!hasStylus && hasActiveInteraction()) cancelAll(event)
             return true
         }
         if (inputTool == MotionEvent.TOOL_TYPE_STYLUS || inputTool == MotionEvent.TOOL_TYPE_ERASER) {
@@ -152,13 +164,7 @@ internal class InkCanvasView @JvmOverloads constructor(
             addGesturePoint(event, pointerId)
             return true
         }
-        val inputToWorld =
-            Matrix().apply {
-                setScale(
-                    pageWidth / width.coerceAtLeast(1),
-                    pageHeight / height.coerceAtLeast(1),
-                )
-            }
+        val inputToWorld = inputTransform(pageWidth, pageHeight)
         activeStrokes[pointerId] =
             ActiveStroke(
                 inProgressView.startStroke(event, pointerId, brush, inputToWorld, identity),
@@ -264,8 +270,18 @@ internal class InkCanvasView @JvmOverloads constructor(
         repeat(event.historySize) { historyIndex ->
             gesturePoints +=
                 CanvasPoint(
-                    event.getHistoricalX(index, historyIndex) * pageWidth / width.coerceAtLeast(1),
-                    event.getHistoricalY(index, historyIndex) * pageHeight / height.coerceAtLeast(1),
+                    viewportCoordinateToPage(
+                        event.getHistoricalX(index, historyIndex),
+                        width.coerceAtLeast(1).toFloat(),
+                        pageWidth,
+                        viewportZoom,
+                    ),
+                    viewportCoordinateToPage(
+                        event.getHistoricalY(index, historyIndex),
+                        height.coerceAtLeast(1).toFloat(),
+                        pageHeight,
+                        viewportZoom,
+                    ),
                 )
         }
         gesturePoints +=
@@ -278,16 +294,55 @@ internal class InkCanvasView @JvmOverloads constructor(
         val index = event.findPointerIndex(pointerId)
         require(index >= 0)
         return CanvasPoint(
-            event.getX(index) * pageWidth / width.coerceAtLeast(1),
-            event.getY(index) * pageHeight / height.coerceAtLeast(1),
+            viewportCoordinateToPage(
+                event.getX(index),
+                width.coerceAtLeast(1).toFloat(),
+                pageWidth,
+                viewportZoom,
+            ),
+            viewportCoordinateToPage(
+                event.getY(index),
+                height.coerceAtLeast(1).toFloat(),
+                pageHeight,
+                viewportZoom,
+            ),
         )
     }
 
+    private fun updateMotionEventToViewTransform() {
+        // Compose offsets the platform event to the transformed layer origin; only scale remains.
+        inProgressView.motionEventToViewTransform =
+            inputTransform(
+                width.coerceAtLeast(1).toFloat(),
+                height.coerceAtLeast(1).toFloat(),
+            )
+    }
+
+    private fun inputTransform(targetWidth: Float, targetHeight: Float): Matrix {
+        val viewWidth = width.coerceAtLeast(1).toFloat()
+        val viewHeight = height.coerceAtLeast(1).toFloat()
+        return Matrix().apply {
+            setValues(
+                floatArrayOf(
+                    targetWidth / viewWidth / viewportZoom,
+                    0f,
+                    0f,
+                    0f,
+                    targetHeight / viewHeight / viewportZoom,
+                    0f,
+                    0f,
+                    0f,
+                    1f,
+                ),
+            )
+        }
+    }
+
     private fun canInteract(inputTool: Int, selectedTool: EditorTool): Boolean =
-        inputTool == MotionEvent.TOOL_TYPE_STYLUS ||
-            inputTool == MotionEvent.TOOL_TYPE_ERASER ||
-            (inputTool == MotionEvent.TOOL_TYPE_FINGER &&
-                (fingerDrawing || selectedTool == EditorTool.ERASER || selectedTool == EditorTool.LASSO))
+        selectedTool != EditorTool.TYPE &&
+            (inputTool == MotionEvent.TOOL_TYPE_STYLUS ||
+                inputTool == MotionEvent.TOOL_TYPE_ERASER ||
+                (inputTool == MotionEvent.TOOL_TYPE_FINGER && fingerDrawing))
 
     private fun hasActiveInteraction(): Boolean = activeStrokes.isNotEmpty() || gesturePointerId != null
 }

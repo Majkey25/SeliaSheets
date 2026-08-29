@@ -1,21 +1,32 @@
 package com.majkeylab.seliadocs.editor
 
+import android.graphics.Matrix
+import android.view.InputDevice
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import androidx.ink.strokes.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
+import androidx.activity.ComponentActivity
+import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 class PageViewportFlowTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun twoFingerPinchZoomsPage() {
@@ -61,6 +72,266 @@ class PageViewportFlowTest {
         assertTrue(zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100)
     }
 
+    @Test
+    fun rootStylusWithKnownZoomAndPanCommitsAtVisiblePaperPoint() {
+        val finished = AtomicReference<Stroke>()
+        renderPage(
+            EditorTool.PEN,
+            initialViewport = PageViewport(zoom = 2f, panX = 120f, panY = -80f),
+            onStrokeFinished = finished::set,
+        )
+        val viewport = compose.onNodeWithTag("page-viewport")
+        assertEquals("Zoom 200%", zoomDescription(viewport))
+        val rootPoint = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            compose.activity.window.decorView.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            )
+            compose.activity.window.decorView.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            )
+        }
+        compose.waitUntil(10_000) { finished.get() != null }
+
+        val first = requireNotNull(finished.get()).inputs[0]
+        assertEquals(595f * 0.5f, first.x, 4f)
+        assertEquals(842f * 0.5f, first.y, 4f)
+    }
+
+    @Test
+    fun rootLassoWithKnownZoomAndPanReturnsVisiblePaperPoint() {
+        val selected = AtomicReference<List<CanvasPoint>>()
+        renderPage(
+            EditorTool.LASSO,
+            initialViewport = PageViewport(zoom = 2f, panX = 120f, panY = -80f),
+            onLassoFinished = selected::set,
+        )
+        val viewport = compose.onNodeWithTag("page-viewport")
+        assertEquals("Zoom 200%", zoomDescription(viewport))
+        val rootPoint = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            compose.activity.window.decorView.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            )
+            compose.activity.window.decorView.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            )
+        }
+        compose.waitUntil(10_000) { selected.get() != null }
+
+        val last = requireNotNull(selected.get()).last()
+        assertEquals(595f * 0.5f, last.x, 4f)
+        assertEquals(842f * 0.5f, last.y, 4f)
+    }
+
+    @Test
+    fun selectedElementRootDragDoesNotPanViewportOrTurnPage() {
+        val committed = AtomicReference<ElementTransform>()
+        val turns = AtomicInteger()
+        val element = element()
+        compose.setContent {
+            PageCanvas(
+                page = PageEntity("page", "notebook", 1, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 2,
+                pageCount = 3,
+                strokes = emptyList(),
+                elements = listOf(element),
+                blocks = emptyList(),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = element.id,
+                fingerDrawing = false,
+                tool = EditorTool.LASSO,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = turns::incrementAndGet,
+                onNextPage = turns::incrementAndGet,
+                onStrokeFinished = { _, _ -> },
+                onEraseFinished = { _, _ -> },
+                onSelectContent = { _, _ -> },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { _, _ -> },
+                onCommitElementTransform = committed::set,
+                assetFile = { File(it) },
+                initialViewport = PageViewport(zoom = 2f),
+            )
+        }
+        compose.waitForIdle()
+        val handleCenter =
+            compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val down = rootPoint(handleCenter)
+        val move = down + Offset(300f, 0f)
+        val before = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            decor.dispatchTouchEvent(fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, down.x, down.y))
+        }
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            decor.dispatchTouchEvent(fingerEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, move.x, move.y))
+            decor.dispatchTouchEvent(fingerEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, move.x, move.y))
+        }
+        compose.waitUntil(3_000) { committed.get() != null }
+        val after = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
+
+        assertTrue(requireNotNull(committed.get()).x > element.x)
+        assertEquals(0, turns.get())
+        assertEquals(before.x, after.x, 0.5f)
+        assertEquals(before.y, after.y, 0.5f)
+    }
+
     private fun zoomDescription(viewport: androidx.compose.ui.test.SemanticsNodeInteraction): String =
         viewport.fetchSemanticsNode().config[SemanticsProperties.StateDescription]
+
+    private fun visiblePaperPoint(xFraction: Float, yFraction: Float): Offset {
+        val result = AtomicReference<Offset>()
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            val canvas = requireNotNull(findInkCanvas(decor))
+            val transform = Matrix()
+            canvas.transformMatrixToGlobal(transform)
+            decor.transformMatrixToLocal(transform)
+            val point = floatArrayOf(canvas.width * xFraction, canvas.height * yFraction)
+            transform.mapPoints(point)
+            result.set(Offset(point[0], point[1]))
+        }
+        return requireNotNull(result.get())
+    }
+
+    private fun rootPoint(point: Offset): Offset {
+        val result = AtomicReference<Offset>()
+        compose.runOnUiThread {
+            val location = IntArray(2)
+            compose.activity.findViewById<View>(android.R.id.content).getLocationInWindow(location)
+            result.set(point + Offset(location[0].toFloat(), location[1].toFloat()))
+        }
+        return requireNotNull(result.get())
+    }
+
+    private fun findInkCanvas(view: View): InkCanvasView? {
+        if (view is InkCanvasView) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) {
+            findInkCanvas(view.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun renderPage(
+        tool: EditorTool,
+        initialViewport: PageViewport = PageViewport(),
+        onStrokeFinished: (Stroke) -> Unit = {},
+        onLassoFinished: (List<CanvasPoint>) -> Unit = {},
+    ) {
+        compose.setContent {
+            PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = emptyList(),
+                elements = emptyList(),
+                blocks = emptyList(),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = null,
+                fingerDrawing = false,
+                tool = tool,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, stroke -> onStrokeFinished(stroke) },
+                onEraseFinished = { _, _ -> },
+                onSelectContent = { _, points -> onLassoFinished(points) },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { _, _ -> },
+                onCommitElementTransform = {},
+                assetFile = { File(it) },
+                initialViewport = initialViewport,
+            )
+        }
+        compose.waitForIdle()
+    }
+
+    private fun stylusEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =
+        MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            1,
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_STYLUS
+                },
+            ),
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    this.x = x
+                    this.y = y
+                    pressure = 0.7f
+                },
+            ),
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_STYLUS,
+            0,
+        )
+
+    private fun fingerEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =
+        MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            1,
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                },
+            ),
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    this.x = x
+                    this.y = y
+                    pressure = 0.8f
+                    size = 0.8f
+                },
+            ),
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            0,
+        )
+
+    private fun element() =
+        ElementEntity(
+            id = "element",
+            pageId = "page",
+            zIndex = 0,
+            kind = "TEXT",
+            x = 180f,
+            y = 220f,
+            width = 100f,
+            height = 60f,
+            rotation = 0f,
+            text = "Physics",
+            assetId = null,
+            shapeKind = null,
+            expression = null,
+            resultText = null,
+        )
 }

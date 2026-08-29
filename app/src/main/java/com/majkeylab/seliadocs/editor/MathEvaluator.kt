@@ -18,6 +18,14 @@ internal fun formatMathResult(value: Double): String {
     return BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
 }
 
+internal fun completeTrailingMath(text: String): String {
+    val equationEnd = text.indexOfLast { !it.isWhitespace() } + 1
+    if (equationEnd == 0) return text
+    val expression = text.substring(text.lastIndexOf('\n', equationEnd - 1) + 1, equationEnd)
+    val value = evaluateExpression(expression).getOrNull() ?: return text
+    return text.substring(0, equationEnd) + formatMathResult(value) + text.substring(equationEnd)
+}
+
 private class Parser(private val source: String) {
     private var index = 0
 

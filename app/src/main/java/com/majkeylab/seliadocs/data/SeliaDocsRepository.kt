@@ -190,9 +190,7 @@ internal class SeliaDocsRepository(
                     )
                 else -> pageContent.updateBlock(existing.copy(text = text))
             }
-            val now = clock()
-            notebooks.updatePage(page.copy(updatedAt = now))
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -241,9 +239,7 @@ internal class SeliaDocsRepository(
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             val chapter = chapterId?.let { requireNotNull(notebooks.getChapter(it)) { "Chapter not found" } }
             require(chapter == null || chapter.notebookId == page.notebookId) { "Chapter belongs to another notebook" }
-            val now = clock()
-            notebooks.updatePage(page.copy(chapterId = chapterId, updatedAt = now))
-            touch(getNotebook(page.notebookId))
+            touchPage(page.copy(chapterId = chapterId))
         }
     }
 
@@ -252,16 +248,14 @@ internal class SeliaDocsRepository(
         require(normalized == null || normalized.length <= 160)
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
-            notebooks.updatePage(page.copy(title = normalized, updatedAt = clock()))
-            touch(getNotebook(page.notebookId))
+            touchPage(page.copy(title = normalized))
         }
     }
 
     suspend fun setPageBookmarked(pageId: String, bookmarked: Boolean) {
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
-            notebooks.updatePage(page.copy(bookmarked = bookmarked, updatedAt = clock()))
-            touch(getNotebook(page.notebookId))
+            touchPage(page.copy(bookmarked = bookmarked))
         }
     }
 
@@ -281,7 +275,7 @@ internal class SeliaDocsRepository(
                     inputs = payload.inputs,
                 ),
             )
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
         return id
     }
@@ -291,7 +285,7 @@ internal class SeliaDocsRepository(
         database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.deleteStrokes(pageId, ids)
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -301,26 +295,29 @@ internal class SeliaDocsRepository(
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.deleteStrokes(pageId)
             if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
-    suspend fun addElement(pageId: String, draft: ElementDraft): String {
+    suspend fun addElement(pageId: String, draft: ElementDraft): String =
+        addElementEntity(pageId, draft).id
+
+    suspend fun addElementEntity(pageId: String, draft: ElementDraft): ElementEntity {
         validateElement(draft)
         val id = idFactory()
-        database.withTransaction {
+        return database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
-            pageContent.insertElement(
+            val element =
                 elementFromDraft(
                     id,
                     pageId,
                     (pageContent.getMaxElementZIndex(pageId) ?: -1) + 1,
                     draft,
-                ),
-            )
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+                )
+            pageContent.insertElement(element)
+            touchPage(page)
+            element
         }
-        return id
     }
 
     suspend fun replaceStrokesWithElement(
@@ -344,7 +341,7 @@ internal class SeliaDocsRepository(
                     draft,
                 ),
             )
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
         return id
     }
@@ -355,7 +352,7 @@ internal class SeliaDocsRepository(
             requireNotNull(pageContent.getElement(element.id)) { "Element not found" }
             pageContent.updateElement(element)
             val page = requireNotNull(notebooks.getPage(element.pageId)) { "Page not found" }
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -383,7 +380,7 @@ internal class SeliaDocsRepository(
                     rotation = transform.rotation,
                 ),
             )
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
         return duplicateId
     }
@@ -398,7 +395,7 @@ internal class SeliaDocsRepository(
             pageContent.updateElement(selected.copy(zIndex = next.zIndex))
             pageContent.updateElement(next.copy(zIndex = selected.zIndex))
             val page = requireNotNull(notebooks.getPage(selected.pageId)) { "Page not found" }
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -407,7 +404,7 @@ internal class SeliaDocsRepository(
         database.withTransaction {
             pageContent.deleteElement(element)
             val page = requireNotNull(notebooks.getPage(element.pageId)) { "Page not found" }
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
         return element
     }
@@ -419,7 +416,7 @@ internal class SeliaDocsRepository(
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
             pageContent.deleteElements(pageId)
             if (elements.isNotEmpty()) pageContent.insertElements(elements)
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -443,7 +440,7 @@ internal class SeliaDocsRepository(
             if (strokes.isNotEmpty()) pageContent.insertStrokes(strokes)
             if (elements.isNotEmpty()) pageContent.insertElements(elements)
             if (blocks.isNotEmpty()) pageContent.insertBlocks(blocks)
-            touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
+            touchPage(page)
         }
     }
 
@@ -485,11 +482,18 @@ internal class SeliaDocsRepository(
         val newId = idFactory()
         database.withTransaction {
             val source = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            val now = clock()
             val sourceStrokes = pageContent.getStrokes(pageId)
             val sourceElements = pageContent.getElements(pageId)
             val sourceBlocks = pageContent.getBlocks(pageId)
             val pages = notebooks.getPages(source.notebookId).toMutableList()
-            val duplicate = source.copy(id = newId, pageIndex = source.pageIndex + 1)
+            val duplicate =
+                source.copy(
+                    id = newId,
+                    pageIndex = source.pageIndex + 1,
+                    createdAt = now,
+                    updatedAt = now,
+                )
             pages.add(source.pageIndex + 1, duplicate)
             notebooks.insertPage(duplicate.copy(pageIndex = pages.size + 10_000))
             sourceStrokes.forEach { stroke ->
@@ -579,6 +583,18 @@ internal class SeliaDocsRepository(
 
     private suspend fun touch(notebook: NotebookEntity) {
         notebooks.updateNotebook(notebook.copy(updatedAt = clock()))
+    }
+
+    private suspend fun touchPage(page: PageEntity) {
+        val now = clock()
+        val updatedAt =
+            when {
+                now > page.updatedAt -> now
+                page.updatedAt == Long.MAX_VALUE -> 0L
+                else -> page.updatedAt + 1
+            }
+        notebooks.updatePage(page.copy(updatedAt = updatedAt))
+        touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
     }
 
     private fun pageSize(orientation: PageOrientation): Pair<Int, Int> =

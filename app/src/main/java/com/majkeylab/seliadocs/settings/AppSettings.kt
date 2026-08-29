@@ -4,6 +4,7 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
+import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 
 internal enum class DefaultTool { PEN, PENCIL, HIGHLIGHTER }
 
@@ -13,6 +14,8 @@ internal data class AppSettings(
     val defaultTool: DefaultTool = DefaultTool.PEN,
     val penWidth: Float = 4f,
     val highlighterWidth: Float = 22f,
+    val penColorArgb: Int = 0xFF202124.toInt(),
+    val highlighterColorArgb: Int = 0x66FFD54F,
     val fingerDrawing: Boolean = false,
     val defaultCoverColor: CoverColor = CoverColor.PERIWINKLE,
     val defaultCoverPattern: CoverPattern = CoverPattern.SOLID,
@@ -21,6 +24,8 @@ internal data class AppSettings(
     val theme: AppTheme = AppTheme.SYSTEM,
     val pageTransition: Boolean = true,
     val shapeAssist: Boolean = true,
+    val handwritingRecognition: Boolean = false,
+    val recognitionLanguage: RecognitionLanguage = RecognitionLanguage.CZECH,
 ) {
     fun validated(): AppSettings =
         copy(

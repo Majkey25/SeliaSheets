@@ -6,7 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,16 +27,20 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -66,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -91,6 +99,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.majkeylab.seliadocs.R
+import com.majkeylab.seliadocs.recognition.InkMathCandidate
+import com.majkeylab.seliadocs.recognition.InkTextRecognizer
+import com.majkeylab.seliadocs.recognition.RecognitionLanguage
+import com.majkeylab.seliadocs.recognition.RecognitionModelManager
 import com.majkeylab.seliadocs.settings.AppSettings
 import com.majkeylab.seliadocs.settings.DefaultTool
 import kotlinx.coroutines.delay
@@ -175,8 +187,9 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
 
     @Synchronized
     fun consumeCompletedClose() {
-        check(mutableCloseState.value.completed)
-        viewModelStore.clear()
+        val completed = mutableCloseState.value
+        check(completed.completed)
+        if (completed.intent == EditorCloseIntent.BACK) viewModelStore.clear()
         draft = null
         mutableCloseState.value = EditorCloseState()
     }
@@ -190,7 +203,9 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
 internal fun EditorRoute(
     notebookId: String,
     libraryGeneration: Long,
+    recognitionModelManager: RecognitionModelManager,
     settings: AppSettings,
+    onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -202,11 +217,15 @@ internal fun EditorRoute(
             DefaultTool.HIGHLIGHTER -> EditorTool.HIGHLIGHTER
         }
     val holderFactory = remember { viewModelFactory { initializer { EditorSessionHolder() } } }
+    val recognizerProvider: suspend (RecognitionLanguage) -> InkTextRecognizer =
+        remember(recognitionModelManager) {
+            { language -> recognitionModelManager.createRecognizer(language) }
+        }
     val sessionHolder: EditorSessionHolder =
         viewModel(key = "editor-session-holder", factory = holderFactory)
     sessionHolder.prepare("$libraryGeneration:$notebookId")
     val factory =
-        remember(application, notebookId, initialTool, sessionHolder) {
+        remember(application, notebookId, initialTool, sessionHolder, recognizerProvider) {
             viewModelFactory {
                 initializer {
                     EditorViewModel(
@@ -214,6 +233,7 @@ internal fun EditorRoute(
                         notebookId,
                         initialTool,
                         sessionHolder::mutationsAllowed,
+                        recognizerProvider,
                     )
                 }
             }
@@ -224,6 +244,7 @@ internal fun EditorRoute(
             viewModel = editorViewModel,
             sessionHolder = sessionHolder,
             settings = settings,
+            onUpdateSettings = onUpdateSettings,
             onBack = onBack,
             onSettings = onSettings,
         )
@@ -236,6 +257,7 @@ private fun EditorScreen(
     viewModel: EditorViewModel,
     sessionHolder: EditorSessionHolder,
     settings: AppSettings,
+    onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -243,7 +265,6 @@ private fun EditorScreen(
     val closeState by sessionHolder.closeState.collectAsStateWithLifecycle()
     var textPageId by remember { mutableStateOf<String?>(null) }
     var imagePageId by remember { mutableStateOf<String?>(null) }
-    var mathPageId by remember { mutableStateOf<String?>(null) }
     var shapeDialogOpen by remember { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var contentsOpen by rememberSaveable { mutableStateOf(false) }
@@ -299,6 +320,13 @@ private fun EditorScreen(
             },
         )
     }
+    if (state.ambiguousMathCandidates.isNotEmpty()) {
+        MathCandidatesDialog(
+            candidates = state.ambiguousMathCandidates,
+            onSelect = viewModel::chooseMathCandidate,
+            onDismiss = viewModel::dismissMathCandidates,
+        )
+    }
     if (searchOpen) {
         SearchDialog(
             state = state,
@@ -336,15 +364,6 @@ private fun EditorScreen(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp, max = 720.dp),
             )
         }
-    }
-    mathPageId?.let { pageId ->
-        MathDialog(
-            onDismiss = { mathPageId = null },
-            onSave = { expression ->
-                viewModel.addMath(pageId, expression)
-                mathPageId = null
-            },
-        )
     }
     val onAddImage = {
         imagePageId = state.selectedPage?.id
@@ -423,7 +442,8 @@ private fun EditorScreen(
                             onAddImage = onAddImage,
                             onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                             onCleanShape = { shapeDialogOpen = true },
-                            onAddMath = { mathPageId = state.selectedPage?.id },
+                            settings = settings,
+                            onUpdateSettings = onUpdateSettings,
                         )
                     }
                     if (state.selectedElement != null) {
@@ -432,6 +452,17 @@ private fun EditorScreen(
                             onDuplicate = viewModel::duplicateSelectedElement,
                             onBringForward = viewModel::bringSelectedElementForward,
                             onDelete = viewModel::deleteSelectedElement,
+                        )
+                    }
+                    state.recognitionMessage?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier =
+                                Modifier
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .semantics { liveRegion = LiveRegionMode.Polite },
                         )
                     }
                 }
@@ -446,7 +477,8 @@ private fun EditorScreen(
                         onAddImage = onAddImage,
                         onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                         onCleanShape = { shapeDialogOpen = true },
-                        onAddMath = { mathPageId = state.selectedPage?.id },
+                        settings = settings,
+                        onUpdateSettings = onUpdateSettings,
                     )
                 }
             },
@@ -490,17 +522,26 @@ private fun EditorScreen(
                             tool = state.tool,
                             penWidth = settings.penWidth,
                             highlighterWidth = settings.highlighterWidth,
+                            penColorArgb = settings.penColorArgb,
+                            highlighterColorArgb = settings.highlighterColorArgb,
                             pageTransitionEnabled = settings.pageTransition,
                             onPreviousPage = viewModel::selectPreviousPage,
                             onNextPage = viewModel::selectNextPage,
                             onStrokeFinished = { pageId, stroke ->
-                                viewModel.addStroke(pageId, stroke, settings.shapeAssist)
+                                viewModel.addStroke(
+                                    pageId,
+                                    stroke,
+                                    settings.shapeAssist,
+                                    settings.handwritingRecognition,
+                                    settings.recognitionLanguage,
+                                )
                             },
                             onEraseFinished = viewModel::eraseStrokes,
                             onSelectContent = viewModel::selectContent,
                             onMoveSelection = viewModel::moveSelectedStrokes,
                             onPageTextChanged = viewModel::updatePageText,
                             onCommitElementTransform = viewModel::updateSelectedElement,
+                            onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
                             onPageTextDraftChanged = sessionHolder::acceptDraft,
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
@@ -535,17 +576,26 @@ private fun EditorScreen(
                             tool = state.tool,
                             penWidth = settings.penWidth,
                             highlighterWidth = settings.highlighterWidth,
+                            penColorArgb = settings.penColorArgb,
+                            highlighterColorArgb = settings.highlighterColorArgb,
                             pageTransitionEnabled = settings.pageTransition,
                             onPreviousPage = viewModel::selectPreviousPage,
                             onNextPage = viewModel::selectNextPage,
                             onStrokeFinished = { pageId, stroke ->
-                                viewModel.addStroke(pageId, stroke, settings.shapeAssist)
+                                viewModel.addStroke(
+                                    pageId,
+                                    stroke,
+                                    settings.shapeAssist,
+                                    settings.handwritingRecognition,
+                                    settings.recognitionLanguage,
+                                )
                             },
                             onEraseFinished = viewModel::eraseStrokes,
                             onSelectContent = viewModel::selectContent,
                             onMoveSelection = viewModel::moveSelectedStrokes,
                             onPageTextChanged = viewModel::updatePageText,
                             onCommitElementTransform = viewModel::updateSelectedElement,
+                            onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
                             onPageTextDraftChanged = sessionHolder::acceptDraft,
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
@@ -583,6 +633,8 @@ private fun CompactEditorTopBar(
         page?.let { stringResource(R.string.page_of_pages, it.pageIndex + 1, state.pages.size) }.orEmpty()
     val locationDescription = if (position.isEmpty()) title else "$title, $position"
     val backDescription = stringResource(R.string.back)
+    val undoDescription = stringResource(R.string.undo)
+    val redoDescription = stringResource(R.string.redo)
     val moreDescription = stringResource(R.string.more_options)
     Column {
         TopAppBar(
@@ -628,46 +680,36 @@ private fun CompactEditorTopBar(
                 }
             },
             navigationIcon = {
-                TextButton(
+                IconButton(
                     onClick = onBack,
-                    modifier =
-                        Modifier
-                            .then(if (largeFont) Modifier.width(48.dp) else Modifier)
-                            .heightIn(min = 48.dp)
-                            .testTag("compact-back")
-                            .semantics { contentDescription = backDescription },
+                    modifier = Modifier.size(48.dp).testTag("compact-back"),
                 ) {
-                    Text(if (largeFont) "←" else stringResource(R.string.back))
+                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = backDescription)
                 }
             },
             actions = {
                 if (!largeFont) {
-                    TextButton(
+                    IconButton(
                         onClick = onUndo,
                         enabled = state.canUndo,
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("compact-undo"),
+                        modifier = Modifier.size(48.dp).testTag("compact-undo"),
                     ) {
-                        Text(stringResource(R.string.undo))
+                        Icon(painterResource(R.drawable.ic_undo), contentDescription = undoDescription)
                     }
-                    TextButton(
+                    IconButton(
                         onClick = onRedo,
                         enabled = state.canRedo,
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("compact-redo"),
+                        modifier = Modifier.size(48.dp).testTag("compact-redo"),
                     ) {
-                        Text(stringResource(R.string.redo))
+                        Icon(painterResource(R.drawable.ic_redo), contentDescription = redoDescription)
                     }
                 }
                 Box {
-                    TextButton(
+                    IconButton(
                         onClick = { menuOpen = true },
-                        modifier =
-                            Modifier
-                                .then(if (largeFont) Modifier.width(48.dp) else Modifier)
-                                .heightIn(min = 48.dp)
-                                .testTag("compact-more")
-                                .semantics { contentDescription = moreDescription },
+                        modifier = Modifier.size(48.dp).testTag("compact-more"),
                     ) {
-                        Text(if (largeFont) "⋮" else stringResource(R.string.more))
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = moreDescription)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (largeFont) {
@@ -750,7 +792,8 @@ internal fun CompactEditorPalette(
     onAddImage: () -> Unit,
     onImportPdf: () -> Unit,
     onCleanShape: () -> Unit,
-    onAddMath: () -> Unit,
+    settings: AppSettings = AppSettings(),
+    onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit = {},
     contentInsets: WindowInsets =
         WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
 ) {
@@ -769,6 +812,19 @@ internal fun CompactEditorPalette(
     Surface(Modifier.testTag("compact-palette")) {
         Column {
             HorizontalDivider()
+            if (state.tool == EditorTool.PEN || state.tool == EditorTool.PENCIL || state.tool == EditorTool.HIGHLIGHTER) {
+                BrushOptions(
+                    tool = state.tool,
+                    settings = settings,
+                    onUpdate = onUpdateSettings,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(contentInsets.only(WindowInsetsSides.Horizontal))
+                            .horizontalScroll(rememberScrollState()),
+                )
+                HorizontalDivider()
+            }
             Row(
                 modifier =
                     Modifier
@@ -812,17 +868,15 @@ internal fun CompactEditorPalette(
                                 Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(
-                                    text = toolLabel(tool),
-                                    color =
+                                Icon(
+                                    painter = painterResource(toolIcon(tool)),
+                                    contentDescription = toolLabel(tool),
+                                    tint =
                                         if (selectedTool) {
                                             MaterialTheme.colorScheme.onPrimaryContainer
                                         } else {
-                                            MaterialTheme.colorScheme.onSurface
+                                            MaterialTheme.colorScheme.onSurfaceVariant
                                         },
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -866,9 +920,10 @@ internal fun CompactEditorPalette(
                             Modifier.fillMaxWidth().heightIn(min = 48.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                stringResource(R.string.insert),
-                                style = MaterialTheme.typography.labelSmall,
+                            Icon(
+                                painter = painterResource(R.drawable.ic_add),
+                                contentDescription = stringResource(R.string.insert),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -890,10 +945,6 @@ internal fun CompactEditorPalette(
                                 insertOpen = false
                                 onCleanShape()
                             }
-                        }
-                        CompactMenuItem(stringResource(R.string.tool_math), "compact-insert-math") {
-                            insertOpen = false
-                            onAddMath()
                         }
                     }
                 }
@@ -918,7 +969,118 @@ private fun CompactMenuItem(
 }
 
 @Composable
-private fun EditorToolBar(
+private fun BrushOptions(
+    tool: EditorTool,
+    settings: AppSettings,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val highlighter = tool == EditorTool.HIGHLIGHTER
+    val currentWidth = if (highlighter) settings.highlighterWidth else settings.penWidth
+    val currentColor = if (highlighter) settings.highlighterColorArgb else settings.penColorArgb
+    val widths = if (highlighter) listOf(12f, 22f, 36f) else listOf(2f, 4f, 8f)
+    val colors =
+        if (highlighter) {
+            listOf(
+                Triple("yellow", R.string.brush_color_yellow, 0x66FFD54F),
+                Triple("pink", R.string.brush_color_pink, 0x66F48FB1),
+                Triple("green", R.string.brush_color_green, 0x6681C784),
+                Triple("blue", R.string.brush_color_blue, 0x6664B5F6),
+            )
+        } else {
+            listOf(
+                Triple("black", R.string.brush_color_black, 0xFF202124.toInt()),
+                Triple("blue", R.string.brush_color_blue, 0xFF3156D9.toInt()),
+                Triple("red", R.string.brush_color_red, 0xFFD93F3F.toInt()),
+                Triple("green", R.string.brush_color_green, 0xFF2E7D32.toInt()),
+            )
+        }
+    Row(
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        widths.forEach { width ->
+            val selectedWidth = currentWidth == width
+            val widthDescription = stringResource(R.string.brush_width_value, width.toInt())
+            Surface(
+                onClick = {
+                    onUpdate { current ->
+                        if (highlighter) current.copy(highlighterWidth = width) else current.copy(penWidth = width)
+                    }
+                },
+                color = if (selectedWidth) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                border = BorderStroke(1.dp, if (selectedWidth) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                shape = RoundedCornerShape(12.dp),
+                modifier =
+                    Modifier
+                        .size(48.dp)
+                        .testTag("brush-width-${width.toInt()}")
+                        .semantics {
+                            selected = selectedWidth
+                            contentDescription = widthDescription
+                        },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(width.toInt().toString(), style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        colors.forEach { (tag, labelResource, colorArgb) ->
+            val selectedColor = currentColor == colorArgb
+            val label = stringResource(labelResource)
+            Surface(
+                onClick = {
+                    onUpdate { current ->
+                        if (highlighter) {
+                            current.copy(highlighterColorArgb = colorArgb)
+                        } else {
+                            current.copy(penColorArgb = colorArgb)
+                        }
+                    }
+                },
+                color = Color.Transparent,
+                border = BorderStroke(if (selectedColor) 2.dp else 1.dp, if (selectedColor) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                shape = CircleShape,
+                modifier =
+                    Modifier
+                        .size(48.dp)
+                        .testTag("brush-color-$tag")
+                        .semantics {
+                            selected = selectedColor
+                            contentDescription = label
+                        },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Surface(color = Color(colorArgb), shape = CircleShape, modifier = Modifier.size(24.dp)) {}
+                }
+            }
+        }
+        val smartShapesLabel = stringResource(R.string.smart_shapes)
+        Surface(
+            onClick = { onUpdate { current -> current.copy(shapeAssist = !current.shapeAssist) } },
+            color = if (settings.shapeAssist) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shape = RoundedCornerShape(12.dp),
+            modifier =
+                Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("brush-shape-assist")
+                    .semantics {
+                        role = Role.Switch
+                        toggleableState = if (settings.shapeAssist) ToggleableState.On else ToggleableState.Off
+                        contentDescription = smartShapesLabel
+                    },
+        ) {
+            Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                Text(smartShapesLabel, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun EditorToolBar(
     state: EditorUiState,
     onSelectTool: (EditorTool) -> Unit,
     onEraserMode: (EraserMode) -> Unit,
@@ -929,7 +1091,8 @@ private fun EditorToolBar(
     onAddImage: () -> Unit,
     onImportPdf: () -> Unit,
     onCleanShape: () -> Unit,
-    onAddMath: () -> Unit,
+    settings: AppSettings,
+    onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
@@ -942,14 +1105,21 @@ private fun EditorToolBar(
         VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
         EditorTool.entries.forEach { tool ->
             Surface(
-                onClick = { onSelectTool(tool) },
                 color =
                     if (state.tool == tool) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
                         Color.Transparent
-                    },
+                },
                 shape = RoundedCornerShape(10.dp),
+                modifier =
+                    Modifier
+                        .testTag("toolbar-tool-${tool.name.lowercase()}")
+                        .selectable(
+                            selected = state.tool == tool,
+                            onClick = { onSelectTool(tool) },
+                            role = Role.RadioButton,
+                        ),
             ) {
                 Text(
                     text = toolLabel(tool),
@@ -964,18 +1134,35 @@ private fun EditorToolBar(
                 )
             }
         }
+        if (state.tool == EditorTool.PEN || state.tool == EditorTool.PENCIL || state.tool == EditorTool.HIGHLIGHTER) {
+            VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
+            BrushOptions(state.tool, settings, onUpdateSettings)
+        }
         if (state.tool == EditorTool.ERASER) {
             VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
             EraserMode.entries.forEach { mode ->
                 Surface(
-                    onClick = { onEraserMode(mode) },
                     color =
                         if (state.eraserMode == mode) {
                             MaterialTheme.colorScheme.secondaryContainer
                         } else {
                             Color.Transparent
-                        },
+                    },
                     shape = RoundedCornerShape(10.dp),
+                    modifier =
+                        Modifier
+                            .testTag(
+                                if (mode == EraserMode.SEGMENT) {
+                                    "toolbar-eraser-segment"
+                                } else {
+                                    "toolbar-eraser-stroke"
+                                },
+                            )
+                            .selectable(
+                                selected = state.eraserMode == mode,
+                                onClick = { onEraserMode(mode) },
+                                role = Role.RadioButton,
+                            ),
                 ) {
                     Text(
                         eraserModeLabel(mode),
@@ -1008,13 +1195,6 @@ private fun EditorToolBar(
         }
         TextButton(onClick = onCleanShape, enabled = state.selectedStrokeIds.isNotEmpty()) {
             Text(stringResource(R.string.tool_shape))
-        }
-        Surface(onClick = onAddMath, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
-            Text(
-                stringResource(R.string.tool_math),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
         }
         if (state.selectedStrokeIds.isNotEmpty()) {
             Text(
@@ -1084,43 +1264,6 @@ private fun SearchDialog(
 }
 
 @Composable
-private fun MathDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var expression by remember { mutableStateOf("") }
-    val source = expression.trim().let { value -> if (value.endsWith('=')) value else "$value=" }
-    val valid = expression.isNotBlank() && evaluateExpression(source).isSuccess
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.add_math)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = expression,
-                    onValueChange = { expression = it.take(256) },
-                    label = { Text(stringResource(R.string.math_expression)) },
-                    singleLine = true,
-                    isError = expression.isNotBlank() && !valid,
-                )
-                if (expression.isNotBlank() && !valid) {
-                    Text(
-                        stringResource(R.string.invalid_expression),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(expression) }, enabled = valid) {
-                Text(stringResource(R.string.calculate))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
-}
-
-@Composable
 private fun ShapeDialog(onDismiss: () -> Unit, onSelect: (ShapeKind) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1137,6 +1280,49 @@ private fun ShapeDialog(onDismiss: () -> Unit, onSelect: (ShapeKind) -> Unit) {
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+@Composable
+internal fun MathCandidatesDialog(
+    candidates: List<InkMathCandidate>,
+    onSelect: (InkMathCandidate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.choose_math_result)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                candidates.forEachIndexed { index, candidate ->
+                    TextButton(
+                        onClick = { onSelect(candidate) },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("math-candidate-$index"),
+                    ) {
+                        Text(
+                            "${candidate.expression.dropLast(1).trim()} = ${candidate.result}",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("math-candidates-dismiss"),
+            ) {
+                Text(stringResource(R.string.dismiss))
+            }
         },
     )
 }
@@ -1191,6 +1377,15 @@ private fun toolLabel(tool: EditorTool): String =
         },
     )
 
+private fun toolIcon(tool: EditorTool): Int =
+    when (tool) {
+        EditorTool.TYPE -> R.drawable.ic_text_fields
+        EditorTool.PEN, EditorTool.PENCIL -> R.drawable.ic_stylus
+        EditorTool.HIGHLIGHTER -> R.drawable.ic_highlighter
+        EditorTool.ERASER -> R.drawable.ic_eraser
+        EditorTool.LASSO -> R.drawable.ic_lasso_select
+    }
+
 @Composable
 private fun eraserModeLabel(mode: EraserMode): String =
     stringResource(
@@ -1210,6 +1405,7 @@ private fun EditorTopBar(
     onSettings: () -> Unit,
     onExport: () -> Unit,
 ) {
+    val backDescription = stringResource(R.string.back)
     val addDescription = stringResource(R.string.add_page)
     val moreDescription = stringResource(R.string.more_options)
     var menuOpen by rememberSaveable { mutableStateOf(false) }
@@ -1227,21 +1423,21 @@ private fun EditorTopBar(
                 )
             },
             navigationIcon = {
-                TextButton(onClick = onBack) { Text(stringResource(R.string.back)) }
+                IconButton(onClick = onBack) {
+                    Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = backDescription)
+                }
             },
             actions = {
-                TextButton(
+                IconButton(
                     onClick = onAddPage,
-                    modifier = Modifier.semantics { contentDescription = addDescription },
                 ) {
-                    Text("+", fontSize = 26.sp)
+                    Icon(painterResource(R.drawable.ic_add), contentDescription = addDescription)
                 }
                 Box {
-                    TextButton(
+                    IconButton(
                         onClick = { menuOpen = true },
-                        modifier = Modifier.semantics { contentDescription = moreDescription },
                     ) {
-                        Text(stringResource(R.string.more))
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = moreDescription)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(

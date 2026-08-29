@@ -25,8 +25,8 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.1-beta.1"
+        versionCode = 4
+        versionName = "0.3.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -93,6 +93,7 @@ dependencies {
     implementation("androidx.ink:ink-storage:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
     implementation("androidx.input:input-motionprediction:1.0.0")
+    implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.room:room-runtime:2.8.4")

@@ -6,6 +6,16 @@ internal data class PageViewport(
     val panY: Float = 0f,
 )
 
+internal fun canUpdatePageViewport(
+    hasStylus: Boolean,
+    overlayOwned: Boolean,
+    touchCount: Int,
+    fingerDrawing: Boolean,
+): Boolean =
+    !hasStylus &&
+        !overlayOwned &&
+        (touchCount >= 2 || (!fingerDrawing && touchCount > 0))
+
 internal fun updatePageViewport(
     current: PageViewport,
     zoomChange: Float,
@@ -47,6 +57,13 @@ internal fun fitPageWidth(viewportWidth: Float, pageWidth: Float): PageViewport 
     require(viewportWidth > 0f && pageWidth > 0f)
     return PageViewport(zoom = (viewportWidth / pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM))
 }
+
+internal fun viewportCoordinateToPage(
+    coordinate: Float,
+    viewSize: Float,
+    pageSize: Float,
+    zoom: Float,
+): Float = coordinate / zoom * pageSize / viewSize
 
 private fun maxPan(pageSize: Float, zoom: Float, viewportSize: Float): Float =
     ((pageSize * zoom - viewportSize) / 2f).coerceAtLeast(0f)
