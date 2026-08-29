@@ -434,14 +434,14 @@ internal class EditorViewModel(
         val recognitionEligible =
             handwritingRecognition &&
                 (toolAtFinish == EditorTool.PEN || toolAtFinish == EditorTool.PENCIL)
-        val callbackEpoch =
-            if (recognitionEligible) {
-                invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
-            } else {
-                clearRecognition()
-                recognitionInvalidationEpoch
-            }
         mutate(cancelRecognition = false) {
+            val callbackEpoch =
+                if (recognitionEligible) {
+                    invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
+                } else {
+                    clearRecognition()
+                    recognitionInvalidationEpoch
+                }
             val history = history(pageId)
             val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
             val recognition =

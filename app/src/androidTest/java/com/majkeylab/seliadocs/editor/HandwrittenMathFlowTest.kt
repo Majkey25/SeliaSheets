@@ -94,7 +94,15 @@ class HandwrittenMathFlowTest {
             provider.enqueue(listOf(RecognitionCandidate("2+3="), RecognitionCandidate("2+8=")))
         val second =
             provider.enqueue(listOf(RecognitionCandidate("4+1="), RecognitionCandidate("4+7=")))
-        withEditor(provider::create) { viewModel, pageId ->
+        val commitStarted = CompletableDeferred<Unit>()
+        val releaseCommit = CompletableDeferred<Unit>()
+        withEditor(
+            recognizerProvider = provider::create,
+            recognitionCommitBoundary = {
+                commitStarted.complete(Unit)
+                releaseCommit.await()
+            },
+        ) { viewModel, pageId ->
             addRecognizedStroke(viewModel, pageId, rawStroke())
             val ambiguous = await(viewModel, "ambiguous math") {
                 it.ambiguousMathCandidates.size == 2
@@ -106,11 +114,24 @@ class HandwrittenMathFlowTest {
             onMain {
                 viewModel.chooseMathCandidate(InkMathCandidate("2+8=", "10"))
             }
+            commitStarted.await()
             val selected = await(viewModel, "chosen math") { it.elements.size == 1 }
             assertEquals("2+8=", selected.elements.single().expression)
             assertEquals(1, selected.strokes.size)
 
-            addRecognizedStroke(viewModel, pageId, rawStroke(180f))
+            try {
+                onMain {
+                    viewModel.addStroke(
+                        pageId,
+                        rawStroke(180f),
+                        shapeAssist = false,
+                        handwritingRecognition = true,
+                        recognitionLanguage = RecognitionLanguage.ENGLISH,
+                    )
+                }
+            } finally {
+                releaseCommit.complete(Unit)
+            }
             await(viewModel, "second ambiguity") { it.ambiguousMathCandidates.size == 2 }
             second.awaitStarted()
             second.awaitClosed()
