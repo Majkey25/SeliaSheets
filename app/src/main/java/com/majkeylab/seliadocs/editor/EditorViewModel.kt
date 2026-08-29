@@ -256,6 +256,7 @@ internal class EditorViewModel(
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
+    private var recognitionCommitInProgress = false
     private var pendingMathAmbiguity: PendingMathAmbiguity? = null
     private var recognitionBurstSession: RecognitionBurstSession? = null
     private val pageHistories =
@@ -434,14 +435,20 @@ internal class EditorViewModel(
         val recognitionEligible =
             handwritingRecognition &&
                 (toolAtFinish == EditorTool.PEN || toolAtFinish == EditorTool.PENCIL)
-        mutate(cancelRecognition = false) {
-            val callbackEpoch =
-                if (recognitionEligible) {
-                    invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
+        val callbackEpoch =
+            if (recognitionEligible) {
+                if (recognitionCommitInProgress) {
+                    null
                 } else {
-                    clearRecognition()
-                    recognitionInvalidationEpoch
+                    invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
                 }
+            } else {
+                clearRecognition()
+                recognitionInvalidationEpoch
+            }
+        mutate(cancelRecognition = false) {
+            val effectiveCallbackEpoch =
+                callbackEpoch ?: invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
             val history = history(pageId)
             val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
             val recognition =
@@ -496,14 +503,14 @@ internal class EditorViewModel(
             if (
                 recognition == null &&
                     recognitionEligible &&
-                    callbackEpoch == recognitionInvalidationEpoch &&
+                    effectiveCallbackEpoch == recognitionInvalidationEpoch &&
                     controls.value.tool == toolAtFinish
             ) {
                 scheduleRecognition(
                     pageId,
                     rawStrokeId,
                     recognitionLanguage,
-                    callbackEpoch,
+                    effectiveCallbackEpoch,
                     toolAtFinish,
                 )
             } else if (recognition != null) {
@@ -1231,59 +1238,64 @@ internal class EditorViewModel(
             val preInsert = snapshot(page.id)
             recognitionWriteBoundary()
             if (!revalidateRecognition(capture) || !mutationAllowed()) return@withContext
-            var inserted = false
-            var rollbackAttempted = false
+            recognitionCommitInProgress = true
             try {
-                val insertedElement =
-                    repository.addElementEntity(
-                        page.id,
-                        ElementDraft(
-                            kind = ElementKind.MATH,
-                            x = transform.x,
-                            y = transform.y,
-                            width = transform.width,
-                            height = transform.height,
-                            rotation = transform.rotation,
-                            expression = candidate.expression,
-                            resultText = "${candidate.expression.dropLast(1).trim()} = ${candidate.result}",
-                        ),
+                var inserted = false
+                var rollbackAttempted = false
+                try {
+                    val insertedElement =
+                        repository.addElementEntity(
+                            page.id,
+                            ElementDraft(
+                                kind = ElementKind.MATH,
+                                x = transform.x,
+                                y = transform.y,
+                                width = transform.width,
+                                height = transform.height,
+                                rotation = transform.rotation,
+                                expression = candidate.expression,
+                                resultText = "${candidate.expression.dropLast(1).trim()} = ${candidate.result}",
+                            ),
+                        )
+                    inserted = true
+                    recognitionCommitBoundary()
+                    if (
+                        capture.generation != recognitionGeneration ||
+                            state.value.selectedPage?.id != capture.request.pageId ||
+                            !mutationAllowed()
+                    ) {
+                        rollbackAttempted = true
+                        try {
+                            restoreRecognitionSnapshot(page.id, preInsert)
+                        } catch (rollbackFailure: Exception) {
+                            invalidateHistoryAfterRollbackFailure(page.id)
+                            throw rollbackFailure
+                        }
+                        return@withContext
+                    }
+                    history.push(preInsert.copy(elements = preInsert.elements + insertedElement))
+                } catch (failure: Exception) {
+                    if (inserted && !rollbackAttempted) {
+                        try {
+                            restoreRecognitionSnapshot(page.id, preInsert)
+                        } catch (rollbackFailure: Exception) {
+                            failure.addSuppressed(rollbackFailure)
+                            invalidateHistoryAfterRollbackFailure(page.id)
+                        }
+                    }
+                    throw failure
+                }
+                appliedRecognitionGeneration = capture.generation
+                pendingMathAmbiguity = null
+                updateHistoryControls(history)
+                controls.value =
+                    controls.value.copy(
+                        recognitionMessage = null,
+                        ambiguousMathCandidates = emptyList(),
                     )
-                inserted = true
-                recognitionCommitBoundary()
-                if (
-                    capture.generation != recognitionGeneration ||
-                        state.value.selectedPage?.id != capture.request.pageId ||
-                        !mutationAllowed()
-                ) {
-                    rollbackAttempted = true
-                    try {
-                        restoreRecognitionSnapshot(page.id, preInsert)
-                    } catch (rollbackFailure: Exception) {
-                        invalidateHistoryAfterRollbackFailure(page.id)
-                        throw rollbackFailure
-                    }
-                    return@withContext
-                }
-                history.push(preInsert.copy(elements = preInsert.elements + insertedElement))
-            } catch (failure: Exception) {
-                if (inserted && !rollbackAttempted) {
-                    try {
-                        restoreRecognitionSnapshot(page.id, preInsert)
-                    } catch (rollbackFailure: Exception) {
-                        failure.addSuppressed(rollbackFailure)
-                        invalidateHistoryAfterRollbackFailure(page.id)
-                    }
-                }
-                throw failure
+            } finally {
+                recognitionCommitInProgress = false
             }
-            appliedRecognitionGeneration = capture.generation
-            pendingMathAmbiguity = null
-            updateHistoryControls(history)
-            controls.value =
-                controls.value.copy(
-                    recognitionMessage = null,
-                    ambiguousMathCandidates = emptyList(),
-                )
         }
 
     private suspend fun restoreRecognitionSnapshot(pageId: String, snapshot: PageSnapshot) {
