@@ -81,6 +81,14 @@ class PageGestureArbiterTest {
     }
 
     @Test
+    fun gestureOwnershipStickyBlocksNavigation() {
+        val arbiter = PageGestureArbiter()
+        turn(arbiter = arbiter, gestureOwned = true, finished = false)
+
+        assertEquals(PageTurn.NONE, turn(arbiter = arbiter, horizontal = -200f))
+    }
+
+    @Test
     fun completedGestureEmitsAtMostOneTurn() {
         val arbiter = PageGestureArbiter()
 

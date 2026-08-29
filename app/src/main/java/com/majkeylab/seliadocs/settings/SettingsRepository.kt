@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -13,6 +14,7 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
+import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -33,6 +35,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
             defaultTool = enumValue(preferences[Keys.defaultTool], DefaultTool.PEN),
             penWidth = preferences[Keys.penWidth] ?: 4f,
             highlighterWidth = preferences[Keys.highlighterWidth] ?: 22f,
+            penColorArgb = preferences[Keys.penColorArgb] ?: 0xFF202124.toInt(),
+            highlighterColorArgb = preferences[Keys.highlighterColorArgb] ?: 0x66FFD54F,
             fingerDrawing = preferences[Keys.fingerDrawing] ?: false,
             defaultCoverColor =
                 enumValue(preferences[Keys.defaultCoverColor], CoverColor.PERIWINKLE),
@@ -44,12 +48,16 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
             theme = enumValue(preferences[Keys.theme], AppTheme.SYSTEM),
             pageTransition = preferences[Keys.pageTransition] ?: true,
             shapeAssist = preferences[Keys.shapeAssist] ?: true,
+            handwritingRecognition = preferences[Keys.handwritingRecognition] ?: false,
+            recognitionLanguage = enumValue(preferences[Keys.recognitionLanguage], RecognitionLanguage.CZECH),
         ).validated()
 
     private fun encode(preferences: androidx.datastore.preferences.core.MutablePreferences, value: AppSettings) {
         preferences[Keys.defaultTool] = value.defaultTool.name
         preferences[Keys.penWidth] = value.penWidth
         preferences[Keys.highlighterWidth] = value.highlighterWidth
+        preferences[Keys.penColorArgb] = value.penColorArgb
+        preferences[Keys.highlighterColorArgb] = value.highlighterColorArgb
         preferences[Keys.fingerDrawing] = value.fingerDrawing
         preferences[Keys.defaultCoverColor] = value.defaultCoverColor.name
         preferences[Keys.defaultCoverPattern] = value.defaultCoverPattern.name
@@ -58,6 +66,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.theme] = value.theme.name
         preferences[Keys.pageTransition] = value.pageTransition
         preferences[Keys.shapeAssist] = value.shapeAssist
+        preferences[Keys.handwritingRecognition] = value.handwritingRecognition
+        preferences[Keys.recognitionLanguage] = value.recognitionLanguage.name
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: String?, fallback: T): T =
@@ -67,6 +77,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val defaultTool = stringPreferencesKey("default_tool")
         val penWidth = floatPreferencesKey("pen_width")
         val highlighterWidth = floatPreferencesKey("highlighter_width")
+        val penColorArgb = intPreferencesKey("pen_color_argb")
+        val highlighterColorArgb = intPreferencesKey("highlighter_color_argb")
         val fingerDrawing = booleanPreferencesKey("finger_drawing")
         val defaultCoverColor = stringPreferencesKey("default_cover_color")
         val defaultCoverPattern = stringPreferencesKey("default_cover_pattern")
@@ -75,6 +87,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val theme = stringPreferencesKey("theme")
         val pageTransition = booleanPreferencesKey("page_transition")
         val shapeAssist = booleanPreferencesKey("shape_assist")
+        val handwritingRecognition = booleanPreferencesKey("handwriting_recognition")
+        val recognitionLanguage = stringPreferencesKey("recognition_language")
     }
 
     companion object {

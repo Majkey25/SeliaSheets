@@ -1,6 +1,8 @@
 package com.majkeylab.seliadocs.editor
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PageViewportTest {
@@ -50,5 +52,57 @@ class PageViewportTest {
         assertEquals(1f, fitPageWidth(400f, 500f).zoom)
         assertEquals(2f, fitPageWidth(1_000f, 500f).zoom)
         assertEquals(5f, fitPageWidth(10_000f, 500f).zoom)
+    }
+
+    @Test
+    fun inputCoordinateAccountsForViewportZoom() {
+        assertEquals(600f, viewportCoordinateToPage(300f, 500f, 1_000f, 1f), 0.001f)
+        assertEquals(
+            300f,
+            viewportCoordinateToPage(
+                coordinate = 300f,
+                viewSize = 500f,
+                pageSize = 1_000f,
+                zoom = 2f,
+            ),
+            0.001f,
+        )
+        assertEquals(
+            200f,
+            viewportCoordinateToPage(
+                coordinate = 200f,
+                viewSize = 500f,
+                pageSize = 1_000f,
+                zoom = 2f,
+            ),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun pageTransitionDirectionMatchesPageOrder() {
+        assertEquals(1, pageTransitionDirection(1, 2))
+        assertEquals(-1, pageTransitionDirection(2, 1))
+        assertEquals(0, pageTransitionDirection(2, 2))
+    }
+
+    @Test
+    fun overlayOwnershipBlocksViewportUpdates() {
+        assertFalse(
+            canUpdatePageViewport(
+                hasStylus = false,
+                overlayOwned = true,
+                touchCount = 2,
+                fingerDrawing = false,
+            ),
+        )
+        assertTrue(
+            canUpdatePageViewport(
+                hasStylus = false,
+                overlayOwned = false,
+                touchCount = 2,
+                fingerDrawing = false,
+            ),
+        )
     }
 }

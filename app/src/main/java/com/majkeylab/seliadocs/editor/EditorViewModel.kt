@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.AssetStore
 import com.majkeylab.seliadocs.data.BlockEntity
 import com.majkeylab.seliadocs.data.ChapterEntity
@@ -25,10 +26,23 @@ import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.StrokePayload
 import com.majkeylab.seliadocs.pdf.PdfImporter
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
+import com.majkeylab.seliadocs.recognition.InkMathCandidate
+import com.majkeylab.seliadocs.recognition.InkMathDecision
+import com.majkeylab.seliadocs.recognition.InkTextRecognizer
+import com.majkeylab.seliadocs.recognition.RecognitionFingerprint
+import com.majkeylab.seliadocs.recognition.RecognitionLanguage
+import com.majkeylab.seliadocs.recognition.RecognitionPoint
+import com.majkeylab.seliadocs.recognition.RecognitionRequest
+import com.majkeylab.seliadocs.recognition.RecognitionStroke
+import com.majkeylab.seliadocs.recognition.boundedRecognitionRequest
+import com.majkeylab.seliadocs.recognition.decideInkMath
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,6 +73,8 @@ internal data class EditorUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
+    val recognitionMessage: String? = null,
+    val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
 ) {
     val selectedPage: PageEntity?
         get() = pages.firstOrNull { it.id == selectedPageId } ?: pages.firstOrNull()
@@ -162,6 +178,52 @@ private data class EditorControls(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
+    val recognitionMessage: String? = null,
+    val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
+)
+
+private data class RecognitionSource(
+    val id: String,
+    val brushKind: String,
+    val colorArgb: Int,
+    val size: Float,
+    val epsilon: Float,
+    val inputs: ByteArray,
+) {
+    fun matches(stroke: StrokeEntity): Boolean =
+        id == stroke.id &&
+            brushKind == stroke.brushKind &&
+            colorArgb == stroke.colorArgb &&
+            size == stroke.size &&
+            epsilon == stroke.epsilon &&
+            inputs.contentEquals(stroke.inputs)
+}
+
+private data class RecognitionBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+private data class CapturedRecognition(
+    val generation: Long,
+    val language: RecognitionLanguage,
+    val request: RecognitionRequest,
+    val sources: List<RecognitionSource>,
+    val bounds: RecognitionBounds,
+)
+
+private data class PendingMathAmbiguity(
+    val capture: CapturedRecognition,
+    val candidates: List<InkMathCandidate>,
+)
+
+private data class RecognitionBurstSession(
+    val pageId: String,
+    val language: RecognitionLanguage,
+    val tool: EditorTool,
+    val epoch: Long,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -170,6 +232,12 @@ internal class EditorViewModel(
     private val notebookId: String,
     initialTool: EditorTool = EditorTool.PEN,
     private val mutationAllowed: () -> Boolean = { true },
+    private val recognizerProvider: suspend (RecognitionLanguage) -> InkTextRecognizer = {
+        error("Handwriting recognizer is not configured.")
+    },
+    private val recognitionDelay: suspend () -> Unit = { delay(RECOGNITION_DEBOUNCE_MS) },
+    private val recognitionWriteBoundary: suspend () -> Unit = {},
+    private val recognitionCommitBoundary: suspend () -> Unit = {},
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -180,6 +248,16 @@ internal class EditorViewModel(
     private val pdfImporter = PdfImporter(application.contentResolver, assets, repository, pdfSandbox)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls(tool = initialTool))
+    private val pendingRecognitionStrokeIds = mutableListOf<String>()
+    private var pendingRecognitionPageId: String? = null
+    private var pendingRecognitionLanguage: RecognitionLanguage? = null
+    private var recognitionJob: Job? = null
+    private var candidateChoiceJob: Job? = null
+    private var recognitionGeneration = 0L
+    private var recognitionInvalidationEpoch = 0L
+    private var appliedRecognitionGeneration: Long? = null
+    private var pendingMathAmbiguity: PendingMathAmbiguity? = null
+    private var recognitionBurstSession: RecognitionBurstSession? = null
     private val pageHistories =
         PageHistoryStore<PageSnapshot>(
             maxPages = PAGE_HISTORY_MAX_PAGES,
@@ -249,12 +327,15 @@ internal class EditorViewModel(
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
+                    recognitionMessage = editorControls.recognitionMessage,
+                    ambiguousMathCandidates = editorControls.ambiguousMathCandidates,
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
     fun selectPage(id: String) {
         if (state.value.selectedPage?.id == id) return
+        clearRecognition()
         selectedPageId.value = id
         showHistoryControls(id)
     }
@@ -274,6 +355,7 @@ internal class EditorViewModel(
     }
 
     fun selectTool(tool: EditorTool) {
+        if (controls.value.tool != tool) clearRecognition()
         controls.value =
             controls.value.copy(
                 tool = tool,
@@ -289,6 +371,7 @@ internal class EditorViewModel(
     }
 
     fun setEraserMode(mode: EraserMode) {
+        if (controls.value.eraserMode != mode) clearRecognition()
         controls.value = controls.value.copy(eraserMode = mode)
     }
 
@@ -340,9 +423,25 @@ internal class EditorViewModel(
         repository.movePage(notebookId, fromIndex, toIndex)
     }
 
-    fun addStroke(pageId: String, stroke: Stroke, shapeAssist: Boolean = true) {
+    fun addStroke(
+        pageId: String,
+        stroke: Stroke,
+        shapeAssist: Boolean = true,
+        handwritingRecognition: Boolean = false,
+        recognitionLanguage: RecognitionLanguage = RecognitionLanguage.CZECH,
+    ) {
         val toolAtFinish = controls.value.tool
-        mutate {
+        val recognitionEligible =
+            handwritingRecognition &&
+                (toolAtFinish == EditorTool.PEN || toolAtFinish == EditorTool.PENCIL)
+        val callbackEpoch =
+            if (recognitionEligible) {
+                invalidateRecognitionForNewInk(pageId, recognitionLanguage, toolAtFinish)
+            } else {
+                clearRecognition()
+                recognitionInvalidationEpoch
+            }
+        mutate(cancelRecognition = false) {
             val history = history(pageId)
             val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
             val recognition =
@@ -373,10 +472,8 @@ internal class EditorViewModel(
                     epsilon = encoded.epsilon,
                     inputs = encoded.inputs,
                 )
-            if (recognition == null) {
-                repository.addStroke(pageId, payload)
-            } else {
-                val rawStrokeId = repository.addStroke(pageId, payload)
+            val rawStrokeId = repository.addStroke(pageId, payload)
+            if (recognition != null) {
                 history.push(snapshot(pageId))
                 val id =
                     repository.replaceStrokesWithElement(
@@ -384,18 +481,34 @@ internal class EditorViewModel(
                         setOf(rawStrokeId),
                         ElementDraft(
                             kind = ElementKind.SHAPE,
-                        x = recognition.transform.x,
-                        y = recognition.transform.y,
-                        width = recognition.transform.width,
-                        height = recognition.transform.height,
-                        rotation = recognition.transform.rotation,
-                        shapeKind = recognition.kind.name,
-                    ),
-                )
+                            x = recognition.transform.x,
+                            y = recognition.transform.y,
+                            width = recognition.transform.width,
+                            height = recognition.transform.height,
+                            rotation = recognition.transform.rotation,
+                            shapeKind = recognition.kind.name,
+                        ),
+                    )
                 showSmartShapePreview(id)
             }
             history.push(snapshot(pageId))
             updateHistoryControls(history)
+            if (
+                recognition == null &&
+                    recognitionEligible &&
+                    callbackEpoch == recognitionInvalidationEpoch &&
+                    controls.value.tool == toolAtFinish
+            ) {
+                scheduleRecognition(
+                    pageId,
+                    rawStrokeId,
+                    recognitionLanguage,
+                    callbackEpoch,
+                    toolAtFinish,
+                )
+            } else if (recognition != null) {
+                clearRecognition()
+            }
         }
     }
 
@@ -576,6 +689,7 @@ internal class EditorViewModel(
         text: String?,
         onComplete: (Boolean) -> Unit,
     ) {
+        clearRecognition()
         viewModelScope.launch {
             val didFail =
                 LibraryMutationGate.withLock {
@@ -749,6 +863,44 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
+    fun chooseMathCandidate(candidate: InkMathCandidate) {
+        val ambiguity = pendingMathAmbiguity ?: return
+        if (candidate !in ambiguity.candidates) return
+        pendingMathAmbiguity = null
+        controls.value =
+            controls.value.copy(
+                recognitionMessage = null,
+                ambiguousMathCandidates = emptyList(),
+            )
+        if (!mutationAllowed()) return
+        candidateChoiceJob?.cancel()
+        candidateChoiceJob =
+            viewModelScope.launch {
+                try {
+                    LibraryMutationGate.withLock {
+                        if (
+                            mutationAllowed() &&
+                                revalidateRecognition(ambiguity.capture)
+                        ) {
+                            insertRecognizedMath(ambiguity.capture, candidate)
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    publishRecognitionMessage(
+                        ambiguity.capture.generation,
+                        getApplication<Application>().getString(R.string.recognition_unavailable),
+                    )
+                }
+            }
+    }
+
+    fun dismissMathCandidates() {
+        pendingMathAmbiguity = null
+        controls.value = controls.value.copy(ambiguousMathCandidates = emptyList())
+    }
+
     fun exportPdf(uri: Uri) = mutate {
         val content = repository.loadNotebook(notebookId)
         val application = getApplication<Application>()
@@ -781,7 +933,8 @@ internal class EditorViewModel(
 
     fun undo() {
         val pageId = state.value.selectedPage?.id ?: return
-        mutate {
+        mutate(cancelRecognition = false) {
+            clearRecognition()
             val history = history(pageId)
             val snapshot =
                 history.undo { previous ->
@@ -801,7 +954,8 @@ internal class EditorViewModel(
 
     fun redo() {
         val pageId = state.value.selectedPage?.id ?: return
-        mutate {
+        mutate(cancelRecognition = false) {
+            clearRecognition()
             val history = history(pageId)
             val snapshot =
                 history.redo { next ->
@@ -844,7 +998,11 @@ internal class EditorViewModel(
             repository.getBlocks(pageId),
         )
 
-    private fun mutate(block: suspend () -> Unit) {
+    private fun mutate(
+        cancelRecognition: Boolean = true,
+        block: suspend () -> Unit,
+    ) {
+        if (cancelRecognition) clearRecognition()
         if (!mutationAllowed()) return
         viewModelScope.launch {
             LibraryMutationGate.withLock {
@@ -853,6 +1011,410 @@ internal class EditorViewModel(
                 controls.value = controls.value.copy(failed = didFail)
             }
         }
+    }
+
+    private fun scheduleRecognition(
+        pageId: String,
+        strokeId: String,
+        language: RecognitionLanguage,
+        callbackEpoch: Long,
+        toolAtFinish: EditorTool,
+    ) {
+        if (
+            callbackEpoch != recognitionInvalidationEpoch ||
+                controls.value.tool != toolAtFinish
+        ) {
+            return
+        }
+        recognitionJob?.cancel()
+        if (pendingRecognitionPageId != pageId || pendingRecognitionLanguage != language) {
+            pendingRecognitionStrokeIds.clear()
+        }
+        pendingRecognitionPageId = pageId
+        pendingRecognitionLanguage = language
+        pendingRecognitionStrokeIds += strokeId
+        while (pendingRecognitionStrokeIds.size > MAX_RECOGNITION_STROKES) {
+            pendingRecognitionStrokeIds.removeAt(0)
+        }
+        pendingMathAmbiguity = null
+        recognitionGeneration++
+        val generation = recognitionGeneration
+        controls.value =
+            controls.value.copy(
+                recognitionMessage = null,
+                ambiguousMathCandidates = emptyList(),
+            )
+        recognitionJob =
+            viewModelScope.launch {
+                recognitionDelay()
+                recognizePendingBurst(generation)
+            }
+    }
+
+    private suspend fun recognizePendingBurst(generation: Long) {
+        val capture =
+            try {
+                LibraryMutationGate.withLock {
+                    captureRecognition(generation)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                publishRecognitionMessage(
+                    generation,
+                    getApplication<Application>().getString(R.string.recognition_unavailable),
+                )
+                return
+            } ?: return
+        val candidates =
+            try {
+                val recognizer = recognizerProvider(capture.language)
+                try {
+                    recognizer.recognize(capture.request)
+                } finally {
+                    recognizer.close()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: IllegalStateException) {
+                val message =
+                    if (error.message?.contains("not downloaded", ignoreCase = true) == true) {
+                        getApplication<Application>().getString(R.string.recognition_model_required)
+                    } else {
+                        getApplication<Application>().getString(R.string.recognition_unavailable)
+                    }
+                publishRecognitionMessage(generation, message)
+                return
+            } catch (_: Exception) {
+                publishRecognitionMessage(
+                    generation,
+                    getApplication<Application>().getString(R.string.recognition_unavailable),
+                )
+                return
+            }
+        val decision = decideInkMath(candidates)
+        try {
+            LibraryMutationGate.withLock {
+                if (!revalidateRecognition(capture)) return@withLock
+                when (decision) {
+                    is InkMathDecision.Unique -> insertRecognizedMath(capture, decision.candidate)
+                    is InkMathDecision.Ambiguous -> {
+                        pendingMathAmbiguity = PendingMathAmbiguity(capture, decision.candidates)
+                        controls.value =
+                            controls.value.copy(
+                                recognitionMessage = null,
+                                ambiguousMathCandidates = decision.candidates,
+                            )
+                    }
+                    InkMathDecision.None -> {
+                        pendingMathAmbiguity = null
+                        controls.value =
+                            controls.value.copy(
+                                recognitionMessage = null,
+                                ambiguousMathCandidates = emptyList(),
+                            )
+                    }
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            publishRecognitionMessage(
+                generation,
+                getApplication<Application>().getString(R.string.recognition_unavailable),
+            )
+        }
+    }
+
+    private suspend fun captureRecognition(generation: Long): CapturedRecognition? {
+        if (generation != recognitionGeneration) return null
+        val pageId = pendingRecognitionPageId ?: return null
+        val language = pendingRecognitionLanguage ?: return null
+        val strokeIds = pendingRecognitionStrokeIds.toList()
+        pendingRecognitionStrokeIds.clear()
+        pendingRecognitionPageId = null
+        pendingRecognitionLanguage = null
+        if (strokeIds.isEmpty() || state.value.selectedPage?.id != pageId) return null
+        val page = repository.getPages(notebookId).firstOrNull { it.id == pageId } ?: return null
+        val strokesById = repository.getStrokes(pageId).associateBy(StrokeEntity::id)
+        val sourceStrokes = strokeIds.map { strokesById[it] ?: return null }
+        val sources = sourceStrokes.map { it.recognitionSource() }
+        var pointCount = 0
+        val recognitionStrokes =
+            sourceStrokes.map { stroke ->
+                val inputs = stroke.toInkStroke().inputs
+                if (inputs.size > MAX_RECOGNITION_POINTS - pointCount) return null
+                pointCount += inputs.size
+                RecognitionStroke(
+                    (0 until inputs.size).map { index ->
+                        val input = inputs[index]
+                        RecognitionPoint(input.x, input.y, input.elapsedTimeMillis)
+                    },
+                )
+            }
+        val points = recognitionStrokes.flatMap(RecognitionStroke::points)
+        val burstDuration = recognitionBurstDurationMillis(recognitionStrokes)
+        if (points.isEmpty() || burstDuration == null || burstDuration > MAX_RECOGNITION_DURATION_MS) {
+            return null
+        }
+        val request =
+            boundedRecognitionRequest(
+                pageId = pageId,
+                pageWidth = page.widthPoints.toFloat(),
+                pageHeight = page.heightPoints.toFloat(),
+                fingerprints = sourceStrokes.map { it.recognitionFingerprint() },
+                strokes = recognitionStrokes,
+            ) ?: return null
+        return CapturedRecognition(
+            generation = generation,
+            language = language,
+            request = request,
+            sources = sources,
+            bounds =
+                RecognitionBounds(
+                    left = points.minOf(RecognitionPoint::x),
+                    top = points.minOf(RecognitionPoint::y),
+                    right = points.maxOf(RecognitionPoint::x),
+                    bottom = points.maxOf(RecognitionPoint::y),
+                ),
+        )
+    }
+
+    private suspend fun revalidateRecognition(capture: CapturedRecognition): Boolean {
+        if (
+            capture.generation != recognitionGeneration ||
+                appliedRecognitionGeneration == capture.generation ||
+                state.value.selectedPage?.id != capture.request.pageId ||
+                repository.getPages(notebookId).none { it.id == capture.request.pageId }
+        ) {
+            return false
+        }
+        val strokesById = repository.getStrokes(capture.request.pageId).associateBy(StrokeEntity::id)
+        return capture.sources.all { source ->
+            strokesById[source.id]?.let(source::matches) == true
+        } &&
+            capture.generation == recognitionGeneration &&
+            state.value.selectedPage?.id == capture.request.pageId
+    }
+
+    private suspend fun insertRecognizedMath(
+        capture: CapturedRecognition,
+        candidate: InkMathCandidate,
+    ) =
+        withContext(NonCancellable) {
+            if (appliedRecognitionGeneration == capture.generation) return@withContext
+            val page =
+                repository.getPages(notebookId).firstOrNull { it.id == capture.request.pageId }
+                    ?: return@withContext
+            val pageWidth = page.widthPoints.toFloat()
+            val pageHeight = page.heightPoints.toFloat()
+            val width =
+                maxOf(MATH_ELEMENT_MIN_WIDTH, capture.bounds.right - capture.bounds.left)
+                    .coerceAtMost(pageWidth)
+            val height = MATH_ELEMENT_HEIGHT.coerceAtMost(pageHeight)
+            val rightX = capture.bounds.right + MATH_ELEMENT_GAP
+            val fitsRight = rightX + width <= pageWidth
+            val transform =
+                clampElementTransform(
+                    ElementTransform(
+                        x = if (fitsRight) rightX else capture.bounds.left,
+                        y = if (fitsRight) capture.bounds.top else capture.bounds.bottom + MATH_ELEMENT_GAP,
+                        width = width,
+                        height = height,
+                        rotation = 0f,
+                    ),
+                    pageWidth,
+                    pageHeight,
+                ) ?: return@withContext
+            val history = history(page.id)
+            if (!mutationAllowed()) return@withContext
+            val preInsert = snapshot(page.id)
+            recognitionWriteBoundary()
+            if (!revalidateRecognition(capture) || !mutationAllowed()) return@withContext
+            var inserted = false
+            var rollbackAttempted = false
+            try {
+                val insertedElement =
+                    repository.addElementEntity(
+                        page.id,
+                        ElementDraft(
+                            kind = ElementKind.MATH,
+                            x = transform.x,
+                            y = transform.y,
+                            width = transform.width,
+                            height = transform.height,
+                            rotation = transform.rotation,
+                            expression = candidate.expression,
+                            resultText = "${candidate.expression.dropLast(1).trim()} = ${candidate.result}",
+                        ),
+                    )
+                inserted = true
+                recognitionCommitBoundary()
+                if (
+                    capture.generation != recognitionGeneration ||
+                        state.value.selectedPage?.id != capture.request.pageId ||
+                        !mutationAllowed()
+                ) {
+                    rollbackAttempted = true
+                    try {
+                        restoreRecognitionSnapshot(page.id, preInsert)
+                    } catch (rollbackFailure: Exception) {
+                        invalidateHistoryAfterRollbackFailure(page.id)
+                        throw rollbackFailure
+                    }
+                    return@withContext
+                }
+                history.push(preInsert.copy(elements = preInsert.elements + insertedElement))
+            } catch (failure: Exception) {
+                if (inserted && !rollbackAttempted) {
+                    try {
+                        restoreRecognitionSnapshot(page.id, preInsert)
+                    } catch (rollbackFailure: Exception) {
+                        failure.addSuppressed(rollbackFailure)
+                        invalidateHistoryAfterRollbackFailure(page.id)
+                    }
+                }
+                throw failure
+            }
+            appliedRecognitionGeneration = capture.generation
+            pendingMathAmbiguity = null
+            updateHistoryControls(history)
+            controls.value =
+                controls.value.copy(
+                    recognitionMessage = null,
+                    ambiguousMathCandidates = emptyList(),
+                )
+        }
+
+    private suspend fun restoreRecognitionSnapshot(pageId: String, snapshot: PageSnapshot) {
+        repository.replacePageContent(
+            pageId,
+            snapshot.strokes,
+            snapshot.elements,
+            snapshot.blocks,
+        )
+    }
+
+    private suspend fun invalidateHistoryAfterRollbackFailure(pageId: String) {
+        pageHistories.remove(pageId)
+        try {
+            if (repository.getPages(notebookId).any { it.id == pageId }) {
+                pageHistories.history(pageId, snapshot(pageId))
+            }
+        } catch (_: Exception) {
+            pageHistories.remove(pageId)
+        }
+        controls.value =
+            controls.value.copy(
+                selectedStrokeIds = emptySet(),
+                selectedElementId = null,
+                canUndo = false,
+                canRedo = false,
+                failed = true,
+            )
+    }
+
+    private fun recognitionBurstDurationMillis(strokes: List<RecognitionStroke>): Long? {
+        var total = 0L
+        strokes.forEachIndexed { index, stroke ->
+            val first = stroke.points.firstOrNull()?.timeMillis ?: return null
+            if (first < 0L) return null
+            var previous = first
+            stroke.points.drop(1).forEach { point ->
+                if (point.timeMillis < previous) return null
+                previous = point.timeMillis
+            }
+            if (index > 0) {
+                total = safeDurationSum(total, RECOGNITION_STROKE_SEPARATOR_MS) ?: return null
+            }
+            total = safeDurationSum(total, previous - first) ?: return null
+        }
+        return total
+    }
+
+    private fun safeDurationSum(current: Long, value: Long): Long? {
+        if (value < 0L || current > Long.MAX_VALUE - value) return null
+        return current + value
+    }
+
+    private fun publishRecognitionMessage(generation: Long, message: String) {
+        if (generation != recognitionGeneration) return
+        pendingMathAmbiguity = null
+        controls.value =
+            controls.value.copy(
+                recognitionMessage = message,
+                ambiguousMathCandidates = emptyList(),
+            )
+    }
+
+    private fun clearRecognition() {
+        recognitionInvalidationEpoch++
+        recognitionGeneration++
+        recognitionJob?.cancel()
+        recognitionJob = null
+        candidateChoiceJob?.cancel()
+        candidateChoiceJob = null
+        pendingRecognitionStrokeIds.clear()
+        pendingRecognitionPageId = null
+        pendingRecognitionLanguage = null
+        pendingMathAmbiguity = null
+        recognitionBurstSession = null
+        controls.value =
+            controls.value.copy(
+                recognitionMessage = null,
+                ambiguousMathCandidates = emptyList(),
+            )
+    }
+
+    private fun invalidateRecognitionForNewInk(
+        pageId: String,
+        language: RecognitionLanguage,
+        tool: EditorTool,
+    ): Long {
+        val session = recognitionBurstSession
+        if (
+            session == null ||
+                session.pageId != pageId ||
+                session.language != language ||
+                session.tool != tool
+        ) {
+            recognitionInvalidationEpoch++
+            pendingRecognitionStrokeIds.clear()
+            pendingRecognitionPageId = null
+            pendingRecognitionLanguage = null
+            recognitionBurstSession =
+                RecognitionBurstSession(
+                    pageId = pageId,
+                    language = language,
+                    tool = tool,
+                    epoch = recognitionInvalidationEpoch,
+                )
+        }
+        recognitionGeneration++
+        recognitionJob?.cancel()
+        recognitionJob = null
+        candidateChoiceJob?.cancel()
+        candidateChoiceJob = null
+        pendingMathAmbiguity = null
+        controls.value =
+            controls.value.copy(
+                recognitionMessage = null,
+                ambiguousMathCandidates = emptyList(),
+            )
+        return requireNotNull(recognitionBurstSession).epoch
+    }
+
+    private fun StrokeEntity.recognitionSource(): RecognitionSource =
+        RecognitionSource(id, brushKind, colorArgb, size, epsilon, inputs.copyOf())
+
+    private fun StrokeEntity.recognitionFingerprint(): RecognitionFingerprint {
+        var hash = id.hashCode()
+        hash = 31 * hash + brushKind.hashCode()
+        hash = 31 * hash + colorArgb
+        hash = 31 * hash + size.toBits()
+        hash = 31 * hash + epsilon.toBits()
+        hash = 31 * hash + inputs.contentHashCode()
+        return RecognitionFingerprint(id, hash)
     }
 
     private fun showSmartShapePreview(id: String) {
@@ -865,11 +1427,24 @@ internal class EditorViewModel(
         }
     }
 
+    override fun onCleared() {
+        recognitionJob?.cancel()
+        candidateChoiceJob?.cancel()
+    }
+
     private companion object {
         const val DEFAULT_CHAPTER_COLOR = 0xFF3156D9.toInt()
         const val ERASER_RADIUS = 16f
         const val PAGE_HISTORY_MAX_BYTES = 8 * 1024 * 1024
         const val PAGE_HISTORY_MAX_PAGES = 4
         const val SMART_SHAPE_PREVIEW_MS = 900L
+        const val RECOGNITION_DEBOUNCE_MS = 1_000L
+        const val MAX_RECOGNITION_STROKES = 32
+        const val MAX_RECOGNITION_POINTS = 4_096
+        const val MAX_RECOGNITION_DURATION_MS = 10_000L
+        const val RECOGNITION_STROKE_SEPARATOR_MS = 1L
+        const val MATH_ELEMENT_MIN_WIDTH = 160f
+        const val MATH_ELEMENT_HEIGHT = 64f
+        const val MATH_ELEMENT_GAP = 12f
     }
 }

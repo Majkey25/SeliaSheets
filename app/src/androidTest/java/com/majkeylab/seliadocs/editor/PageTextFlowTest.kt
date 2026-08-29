@@ -223,6 +223,44 @@ class PageTextFlowTest {
     }
 
     @Test
+    fun typedEquationCompletesInsideNormalPageText() {
+        val saved = AtomicReference<Pair<String, String>>()
+        compose.setContent {
+            PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = emptyList(),
+                elements = emptyList(),
+                blocks = emptyList(),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = null,
+                fingerDrawing = false,
+                tool = EditorTool.TYPE,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, _ -> },
+                onEraseFinished = { _, _ -> },
+                onSelectContent = { _, _ -> },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { pageId, text -> saved.set(pageId to text) },
+                onCommitElementTransform = {},
+                assetFile = { File(it) },
+            )
+        }
+
+        compose.onNodeWithTag("page-text").performTextInput("2+3=")
+        compose.waitUntil(3_000) {
+            compose.onNodeWithTag("page-text")
+                .fetchSemanticsNode().config[SemanticsProperties.EditableText].text == "2+3=5"
+        }
+        compose.waitUntil(3_000) { saved.get()?.second == "2+3=5" }
+    }
+
+    @Test
     fun typeToolKeepsOverflowOffThePage() {
         val saved = AtomicReference<Pair<String, String>>()
         compose.setContent {

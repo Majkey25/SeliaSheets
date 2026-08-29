@@ -26,7 +26,8 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - PDF export containing every page, paper pattern, ink, text, image, shape, math result, and imported PDF background.
 - Portable `.seliasheets` backups with validation, merge, replace, and rollback protection.
 - Working settings for default tools, widths, finger drawing, paper, orientation, theme, and motion.
-- No account, analytics, ads, telemetry, cloud sync, or app network permission.
+- No first-party account, ads, analytics, telemetry, or cloud sync.
+- Optional on-device handwriting recognition for simple single-line arithmetic after an explicit Google model download.
 
 ## Screenshots
 
@@ -48,7 +49,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 ## Privacy
 
-Notebook content and imported media stay in private app storage. SeliaSheets has no `INTERNET` permission. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
+Notebook content, raw ink, and recognition results stay in private app storage. Handwriting recognition is opt-in: its Google ML Kit language model downloads only after an explicit user action, then recognition runs on-device. Google documents separate SDK data disclosure for device/app information and diagnostics. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
 
 ## Build
 
@@ -62,11 +63,11 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-The beta passed 59 JVM tests and 163 QA-package instrumentation tests on an authorized Android 10 physical device. The signed release identity, APK, and AAB were verified separately. See the [current acceptance report](docs/qa/2026-08-26-seliasheets-release-hardening.md).
+`0.3.0-beta.1` passed the exact-source local build gate (149/149 tasks), a focused 42-test Huawei Android 10 gate, and the full isolated 230-test physical suite without a retry. Real ML Kit recognition was verified with Czech and English models online and after an offline restart. See the [current acceptance report](docs/qa/2026-08-28-seliasheets-handwriting-recognition.md). The generated release bundle remains unsigned until the external upload keystore is supplied.
 
 ## Scope
 
-This beta deliberately omits accounts, cloud sync, collaboration, and handwriting-to-text recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific hover and stylus-button behavior requires later physical-device QA with explicit authorization.
+This beta deliberately omits accounts, cloud sync, and collaboration. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific hover and side-button behavior still requires QA on a compatible active-stylus device.
 
 ## Support
 

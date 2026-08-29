@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,19 +11,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
@@ -35,10 +43,21 @@ internal fun ElementSelectionOverlay(
     scaleY: Float,
     onPreview: (ElementTransform?) -> Unit,
     onCommit: (ElementTransform) -> Unit,
+    onGestureOwnershipChange: (Boolean) -> Unit = {},
 ) {
     val moveDescription = stringResource(R.string.move_element)
     val resizeDescription = stringResource(R.string.resize_element)
     val rotateDescription = stringResource(R.string.rotate_element)
+    val moveLeft = stringResource(R.string.move_left)
+    val moveRight = stringResource(R.string.move_right)
+    val moveUp = stringResource(R.string.move_up)
+    val moveDown = stringResource(R.string.move_down)
+    val growElement = stringResource(R.string.grow_element)
+    val shrinkElement = stringResource(R.string.shrink_element)
+    val rotateClockwise = stringResource(R.string.rotate_clockwise)
+    val rotateCounterclockwise = stringResource(R.string.rotate_counterclockwise)
+    val latestGestureOwnership = rememberUpdatedState(onGestureOwnershipChange)
+    val density = LocalDensity.current
     var current by
         remember(element.id, element.x, element.y, element.width, element.height, element.rotation) {
             mutableStateOf(element.transform())
@@ -46,6 +65,22 @@ internal fun ElementSelectionOverlay(
     val cancelGesture = {
         current = element.transform()
         onPreview(null)
+    }
+    fun commitAccessibilityTransform(proposed: ElementTransform): Boolean {
+        val clamped =
+            clampElementTransform(
+                proposed,
+                page.widthPoints.toFloat(),
+                page.heightPoints.toFloat(),
+            ) ?: return false
+        if (clamped == current) return false
+        current = clamped
+        onPreview(null)
+        onCommit(clamped)
+        return true
+    }
+    DisposableEffect(Unit) {
+        onDispose { latestGestureOwnership.value(false) }
     }
     val width = current.width * scaleX
     val height = current.height * scaleY
@@ -58,6 +93,22 @@ internal fun ElementSelectionOverlay(
                 )
                 .size((width + HANDLE_REGION * 2f).dp, (height + HANDLE_REGION * 2f).dp)
                 .rotate(current.rotation)
+                .zIndex(4f)
+                .pointerInput(element.id) {
+                    awaitEachGesture {
+                        do {
+                            val down = awaitPointerEvent(PointerEventPass.Initial)
+                        } while (down.changes.none { it.pressed && !it.previousPressed })
+                        latestGestureOwnership.value(true)
+                        try {
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Final)
+                            } while (event.changes.any { it.pressed })
+                        } finally {
+                            latestGestureOwnership.value(false)
+                        }
+                    }
+                }
                 .testTag("element-selection"),
     ) {
         Box(
@@ -76,15 +127,32 @@ internal fun ElementSelectionOverlay(
                             change.consume()
                             update(
                                 current.copy(
-                                    x = current.x + amount.x / scaleX,
-                                    y = current.y + amount.y / scaleY,
+                                    x = current.x + pointerDeltaToPage(amount.x, density.density, scaleX),
+                                    y = current.y + pointerDeltaToPage(amount.y, density.density, scaleY),
                                 ),
                                 page,
                                 onPreview,
                             ) { current = it }
                         }
                     }
-                    .semantics { contentDescription = moveDescription }
+                    .semantics {
+                        contentDescription = moveDescription
+                        customActions =
+                            listOf(
+                                CustomAccessibilityAction(moveLeft) {
+                                    commitAccessibilityTransform(current.copy(x = current.x - MOVE_STEP))
+                                },
+                                CustomAccessibilityAction(moveRight) {
+                                    commitAccessibilityTransform(current.copy(x = current.x + MOVE_STEP))
+                                },
+                                CustomAccessibilityAction(moveUp) {
+                                    commitAccessibilityTransform(current.copy(y = current.y - MOVE_STEP))
+                                },
+                                CustomAccessibilityAction(moveDown) {
+                                    commitAccessibilityTransform(current.copy(y = current.y + MOVE_STEP))
+                                },
+                            )
+                    }
                     .testTag("element-move-handle"),
         )
         Box(
@@ -113,13 +181,34 @@ internal fun ElementSelectionOverlay(
                             change.consume()
                             update(
                                 current.copy(
-                                    width = current.width + amount.x / scaleX,
-                                    height = current.height + amount.y / scaleY,
+                                    width = current.width + pointerDeltaToPage(amount.x, density.density, scaleX),
+                                    height = current.height + pointerDeltaToPage(amount.y, density.density, scaleY),
                                 ),
                                 page,
                                 onPreview,
                             ) { current = it }
                         }
+                    }
+                    .semantics {
+                        customActions =
+                            listOf(
+                                CustomAccessibilityAction(growElement) {
+                                    commitAccessibilityTransform(
+                                        current.copy(
+                                            width = current.width + RESIZE_STEP,
+                                            height = current.height + RESIZE_STEP,
+                                        ),
+                                    )
+                                },
+                                CustomAccessibilityAction(shrinkElement) {
+                                    commitAccessibilityTransform(
+                                        current.copy(
+                                            width = current.width - RESIZE_STEP,
+                                            height = current.height - RESIZE_STEP,
+                                        ),
+                                    )
+                                },
+                            )
                     }
                     .testTag("element-resize-handle"),
         )
@@ -140,7 +229,12 @@ internal fun ElementSelectionOverlay(
                             },
                         ) { change, amount ->
                             change.consume()
-                            val proposed = current.copy(rotation = current.rotation + amount.x * 0.5f)
+                            val proposed =
+                                current.copy(
+                                    rotation =
+                                        current.rotation +
+                                            pointerDeltaToPage(amount.x, density.density, 1f) * 0.5f,
+                                )
                             val clamped =
                                 clampElementTransform(
                                     proposed,
@@ -150,6 +244,21 @@ internal fun ElementSelectionOverlay(
                             current = clamped
                             onPreview(clamped)
                         }
+                    }
+                    .semantics {
+                        customActions =
+                            listOf(
+                                CustomAccessibilityAction(rotateClockwise) {
+                                    commitAccessibilityTransform(
+                                        current.copy(rotation = current.rotation + ROTATION_STEP),
+                                    )
+                                },
+                                CustomAccessibilityAction(rotateCounterclockwise) {
+                                    commitAccessibilityTransform(
+                                        current.copy(rotation = current.rotation - ROTATION_STEP),
+                                    )
+                                },
+                            )
                     }
                     .testTag("element-rotate-handle"),
         )
@@ -190,6 +299,14 @@ private inline fun update(
     onPreview(clamped)
 }
 
+internal fun pointerDeltaToPage(pointerPixels: Float, density: Float, scale: Float): Float {
+    require(pointerPixels.isFinite() && density > 0f && density.isFinite() && scale > 0f && scale.isFinite())
+    return pointerPixels / density / scale
+}
+
 private const val TOUCH_TARGET = 48f
 private const val VISUAL_HANDLE = 16f
 private const val HANDLE_REGION = 52f
+private const val MOVE_STEP = 12f
+private const val RESIZE_STEP = 12f
+private const val ROTATION_STEP = 15f

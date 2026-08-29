@@ -37,4 +37,18 @@ class MathEvaluatorTest {
         assertEquals("2.5", formatMathResult(2.5))
         assertEquals("0", formatMathResult(-0.0))
     }
+
+    @Test
+    fun trailingEquationCompletesInNormalPageText() {
+        assertEquals("Lecture notes\n2+3*4=14", completeTrailingMath("Lecture notes\n2+3*4="))
+        assertEquals("2×3=6", completeTrailingMath("2×3="))
+        assertEquals("2+2=4\n", completeTrailingMath("2+2=\n"))
+    }
+
+    @Test
+    fun invalidOrAlreadyCompletedTextStaysUnchanged() {
+        assertEquals("Lecture notes", completeTrailingMath("Lecture notes"))
+        assertEquals("2+=", completeTrailingMath("2+="))
+        assertEquals("2+2=4", completeTrailingMath("2+2=4"))
+    }
 }

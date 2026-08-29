@@ -106,6 +106,62 @@ class SeliaDocsRepositoryTest {
     }
 
     @Test
+    fun pagePreviewRevisionsAdvanceOnlyForChangedContent() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val first = repository.getPages(notebookId).single()
+        val secondId = repository.addPage(notebookId)
+        val initial = repository.getPages(notebookId).associateBy(PageEntity::id)
+        now = 2_000L
+
+        repository.addStroke(
+            first.id,
+            StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1)),
+        )
+        val afterStroke = repository.getPages(notebookId).associateBy(PageEntity::id)
+        assertTrue(afterStroke.getValue(first.id).updatedAt > initial.getValue(first.id).updatedAt)
+        assertEquals(initial.getValue(secondId).updatedAt, afterStroke.getValue(secondId).updatedAt)
+
+        repository.addElement(
+            secondId,
+            ElementDraft(ElementKind.TEXT, 10f, 20f, 100f, 60f, text = "Preview"),
+        )
+        val afterElement = repository.getPages(notebookId).associateBy(PageEntity::id)
+        assertEquals(afterStroke.getValue(first.id).updatedAt, afterElement.getValue(first.id).updatedAt)
+        assertTrue(afterElement.getValue(secondId).updatedAt > afterStroke.getValue(secondId).updatedAt)
+
+        repository.updatePageText(first.id, "Preview text")
+        val afterBlock = repository.getPages(notebookId).associateBy(PageEntity::id)
+        assertTrue(afterBlock.getValue(first.id).updatedAt > afterStroke.getValue(first.id).updatedAt)
+        assertEquals(afterElement.getValue(secondId).updatedAt, afterBlock.getValue(secondId).updatedAt)
+        assertEquals(now, repository.getNotebook(notebookId).updatedAt)
+    }
+
+    @Test
+    fun pagePreviewRevisionWrapsWithoutOverflowing() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        val siblingId = repository.addPage(notebookId)
+        val siblingRevision = repository.getPages(notebookId).single { it.id == siblingId }.updatedAt
+        database.notebookDao().updatePage(page.copy(updatedAt = Long.MAX_VALUE))
+        now = 0L
+
+        repository.addStroke(
+            page.id,
+            StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1)),
+        )
+        assertEquals(0L, repository.getPages(notebookId).single { it.id == page.id }.updatedAt)
+
+        repository.addStroke(
+            page.id,
+            StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(2)),
+        )
+
+        assertEquals(1L, repository.getPages(notebookId).single { it.id == page.id }.updatedAt)
+        assertEquals(siblingRevision, repository.getPages(notebookId).single { it.id == siblingId }.updatedAt)
+        assertEquals(now, repository.getNotebook(notebookId).updatedAt)
+    }
+
+    @Test
     fun strokeBatchCanBeDeletedAndRestored() = runTest {
         val notebookId = repository.createNotebook(request())
         val page = repository.getPages(notebookId).single()

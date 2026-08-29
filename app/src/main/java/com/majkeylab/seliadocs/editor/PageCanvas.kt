@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.ink.strokes.Stroke
 import androidx.lifecycle.Lifecycle
@@ -121,6 +123,8 @@ internal fun PageCanvas(
     tool: EditorTool,
     penWidth: Float,
     highlighterWidth: Float,
+    penColorArgb: Int = 0xFF202124.toInt(),
+    highlighterColorArgb: Int = 0x66FFD54F,
     pageTransitionEnabled: Boolean,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
@@ -130,11 +134,13 @@ internal fun PageCanvas(
     onMoveSelection: (String, CanvasPoint) -> Unit,
     onPageTextChanged: (String, String) -> Unit,
     onCommitElementTransform: (ElementTransform) -> Unit,
+    onSelectElement: (String) -> Unit = {},
     assetFile: (String) -> File,
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean = { _, _ -> true },
     initialPageTextDraft: TextFieldValue? = null,
     pageTextInputEnabled: Boolean = true,
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _, _ -> null },
+    initialViewport: PageViewport = PageViewport(),
     modifier: Modifier = Modifier,
 ) {
     val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks)
@@ -142,7 +148,12 @@ internal fun PageCanvas(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
             targetState = frame,
-            transitionSpec = { pageTransition(pageTransitionEnabled) },
+            transitionSpec = {
+                pageTransition(
+                    pageTransitionEnabled,
+                    pageTransitionDirection(initialState.pageNumber, targetState.pageNumber),
+                )
+            },
             contentKey = { it.page?.id },
             label = "page",
         ) { target ->
@@ -162,6 +173,8 @@ internal fun PageCanvas(
                     tool,
                     penWidth,
                     highlighterWidth,
+                    penColorArgb,
+                    highlighterColorArgb,
                     onPreviousPage,
                     onNextPage,
                     onStrokeFinished,
@@ -170,21 +183,25 @@ internal fun PageCanvas(
                     onMoveSelection,
                     onPageTextChanged,
                     onCommitElementTransform,
+                    onSelectElement,
                     assetFile,
                     onPageTextDraftChanged,
                     initialPageTextDraft,
                     pageTextInputEnabled,
                     loadPdfPage,
+                    initialViewport,
                 )
             }
         }
     }
 }
 
-private fun pageTransition(enabled: Boolean): ContentTransform =
+internal fun pageTransitionDirection(fromPage: Int, toPage: Int): Int = toPage.compareTo(fromPage)
+
+private fun pageTransition(enabled: Boolean, direction: Int): ContentTransform =
     if (enabled) {
-        (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
-            (slideOutHorizontally(tween(220)) { -it / 5 } + fadeOut(tween(140)))
+        (slideInHorizontally(tween(220)) { direction * it / 5 } + fadeIn(tween(180))) togetherWith
+            (slideOutHorizontally(tween(220)) { -direction * it / 5 } + fadeOut(tween(140)))
     } else {
         EnterTransition.None togetherWith ExitTransition.None
     }
@@ -205,6 +222,8 @@ private fun Paper(
     tool: EditorTool,
     penWidth: Float,
     highlighterWidth: Float,
+    penColorArgb: Int,
+    highlighterColorArgb: Int,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onStrokeFinished: (String, Stroke) -> Unit,
@@ -213,11 +232,13 @@ private fun Paper(
     onMoveSelection: (String, CanvasPoint) -> Unit,
     onPageTextChanged: (String, String) -> Unit,
     onCommitElementTransform: (ElementTransform) -> Unit,
+    onSelectElement: (String) -> Unit,
     assetFile: (String) -> File,
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean,
     initialPageTextDraft: TextFieldValue?,
     pageTextInputEnabled: Boolean,
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap?,
+    initialViewport: PageViewport,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
     val decodedStrokes = remember(strokes) { strokes.map(StrokeEntity::toInkStroke) }
@@ -225,11 +246,14 @@ private fun Paper(
         remember(strokes, selectedStrokeIds) {
             strokes.mapIndexedNotNull { index, stroke -> index.takeIf { stroke.id in selectedStrokeIds } }.toSet()
         }
-    val activeBrush = remember(tool, penWidth, highlighterWidth) { brushFor(tool, penWidth, highlighterWidth) }
+    val activeBrush =
+        remember(tool, penWidth, highlighterWidth, penColorArgb, highlighterColorArgb) {
+            brushFor(tool, penWidth, highlighterWidth, penColorArgb, highlighterColorArgb)
+        }
     val selectedElement = elements.firstOrNull { it.id == selectedElementId }
-    var viewportZoom by remember(page.id) { mutableStateOf(1f) }
-    var viewportPanX by remember(page.id) { mutableStateOf(0f) }
-    var viewportPanY by remember(page.id) { mutableStateOf(0f) }
+    var viewportZoom by remember(page.id) { mutableStateOf(initialViewport.zoom) }
+    var viewportPanX by remember(page.id) { mutableStateOf(initialViewport.panX) }
+    var viewportPanY by remember(page.id) { mutableStateOf(initialViewport.panY) }
     var previewTransform by
         remember(
             selectedElement?.id,
@@ -241,6 +265,8 @@ private fun Paper(
         ) {
             mutableStateOf<ElementTransform?>(null)
         }
+    var overlayGestureOwned by remember(page.id, selectedElement?.id) { mutableStateOf(false) }
+    val overlayGestureOwnedState = rememberUpdatedState(overlayGestureOwned)
     BoxWithConstraints(
         Modifier.fillMaxSize().padding(24.dp).clipToBounds(),
         contentAlignment = Alignment.Center,
@@ -320,13 +346,14 @@ private fun Paper(
                                 }
                             }
                             val gestureOwned =
-                                !fingerDrawing &&
-                                    touches.isNotEmpty() &&
-                                    (tool == EditorTool.ERASER || tool == EditorTool.LASSO)
+                                overlayGestureOwnedState.value || (tool == EditorTool.TYPE && touches.isNotEmpty())
                             if (
-                                !hasStylus &&
-                                    !gestureOwned &&
-                                    (touches.size >= 2 || (!fingerDrawing && touches.isNotEmpty()))
+                                canUpdatePageViewport(
+                                    hasStylus = hasStylus,
+                                    overlayOwned = overlayGestureOwnedState.value,
+                                    touchCount = touches.size,
+                                    fingerDrawing = fingerDrawing,
+                                )
                             ) {
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
@@ -395,11 +422,12 @@ private fun Paper(
         Box(viewportModifier, contentAlignment = Alignment.Center) {
             Surface(
             color = Color(0xFFFFFEFA),
-            shape = RoundedCornerShape(2.dp),
-            shadowElevation = 4.dp,
-            modifier =
-                Modifier
-                    .width(paperWidth)
+                    shape = RoundedCornerShape(2.dp),
+                    shadowElevation = 4.dp,
+                    modifier =
+                        Modifier
+                            .testTag("page-paper")
+                            .width(paperWidth)
                     .height(paperHeight)
                     .graphicsLayer {
                         scaleX = viewportZoom
@@ -431,40 +459,39 @@ private fun Paper(
                     smartShapePreviewId,
                     previewTransform,
                     assetFile,
+                    onSelectElement,
                 )
-                if (tool != EditorTool.TYPE) {
-                    AndroidView(
-                        factory = { context -> InkCanvasView(context) },
-                        update = { view ->
-                            view.setPageSize(page.widthPoints, page.heightPoints)
-                            view.fingerDrawing = fingerDrawing
-                            view.tool = tool
-                            view.brush = activeBrush
-                            view.listener =
-                                object : InkCanvasView.Listener {
-                                    override fun onStrokeFinished(stroke: Stroke) {
-                                        onStrokeFinished(page.id, stroke)
-                                    }
-
-                                    override fun onStrokeCanceled(pointerId: Int) = Unit
-
-                                    override fun onEraseFinished(points: List<CanvasPoint>) {
-                                        onEraseFinished(page.id, points)
-                                    }
-
-                                    override fun onLassoFinished(points: List<CanvasPoint>) {
-                                        onSelectContent(page.id, points)
-                                    }
-
-                                    override fun onMoveSelection(delta: CanvasPoint) {
-                                        onMoveSelection(page.id, delta)
-                                    }
+                AndroidView(
+                    factory = { context -> InkCanvasView(context) },
+                    update = { view ->
+                        view.setPageSize(page.widthPoints, page.heightPoints)
+                        view.fingerDrawing = fingerDrawing
+                        view.tool = tool
+                        view.brush = activeBrush
+                        view.listener =
+                            object : InkCanvasView.Listener {
+                                override fun onStrokeFinished(stroke: Stroke) {
+                                    onStrokeFinished(page.id, stroke)
                                 }
-                            view.setStrokes(decodedStrokes, selected)
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+
+                                override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                                override fun onEraseFinished(points: List<CanvasPoint>) {
+                                    onEraseFinished(page.id, points)
+                                }
+
+                                override fun onLassoFinished(points: List<CanvasPoint>) {
+                                    onSelectContent(page.id, points)
+                                }
+
+                                override fun onMoveSelection(delta: CanvasPoint) {
+                                    onMoveSelection(page.id, delta)
+                                }
+                            }
+                        view.setStrokes(decodedStrokes, selected)
+                    },
+                    modifier = Modifier.fillMaxSize().zIndex(2f),
+                )
                 if (tool == EditorTool.LASSO && selectedElement != null) {
                     ElementSelectionOverlay(
                         page = page,
@@ -473,13 +500,14 @@ private fun Paper(
                         scaleY = scaleY,
                         onPreview = { previewTransform = it },
                         onCommit = onCommitElementTransform,
+                        onGestureOwnershipChange = { overlayGestureOwned = it },
                     )
                 }
                 Text(
                     text = stringResource(R.string.page_number, pageNumber),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF7A7770),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).zIndex(5f),
                 )
             }
         }
@@ -540,6 +568,7 @@ private fun PageTextLayer(
     val modifier =
         Modifier
             .fillMaxSize()
+            .zIndex(if (active) 3f else 0f)
             .padding(
                 start = (PAGE_TEXT_MARGIN * scaleX).dp,
                 top = (PAGE_TEXT_TOP * scaleY).dp,
@@ -575,6 +604,17 @@ private fun PageTextLayer(
     LaunchedEffect(draft.text) {
         if (draft.text == storedText) return@LaunchedEffect
         delay(450)
+        val completed =
+            if (draft.composition == null && draft.selection.collapsed && draft.selection.end == draft.text.length) {
+                completeTrailingMath(draft.text)
+            } else {
+                draft.text
+            }
+        if (completed != draft.text) {
+            val updated = TextFieldValue(completed, selection = TextRange(completed.length))
+            if (onDraftChanged(page.id, updated)) draft = updated
+            return@LaunchedEffect
+        }
         onTextChanged(page.id, draft.text)
     }
     LaunchedEffect(active, page.id) {
@@ -654,8 +694,10 @@ private fun ElementLayer(
     smartShapePreviewId: String?,
     previewTransform: ElementTransform?,
     assetFile: (String) -> File,
+    onSelectElement: (String) -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val selectElement = stringResource(R.string.select_element)
+    BoxWithConstraints(Modifier.fillMaxSize().zIndex(1f)) {
         val scaleX = maxWidth.value / page.widthPoints
         val scaleY = maxHeight.value / page.heightPoints
         elements.forEach { element ->
@@ -668,6 +710,18 @@ private fun ElementLayer(
                         .offset((transform.x * scaleX).dp, (transform.y * scaleY).dp)
                         .width((transform.width * scaleX).dp)
                         .height((transform.height * scaleY).dp)
+                        .testTag("element-${element.id}")
+                        .semantics {
+                            customActions =
+                                listOf(
+                                    androidx.compose.ui.semantics.CustomAccessibilityAction(
+                                        selectElement,
+                                    ) {
+                                        onSelectElement(element.id)
+                                        true
+                                    },
+                                )
+                        }
                         .then(
                             if (element.id == smartShapePreviewId) {
                                 Modifier.border(
@@ -782,17 +836,23 @@ private fun decodePreview(file: File): android.graphics.Bitmap? {
     return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
 }
 
-private fun brushFor(tool: EditorTool, penWidth: Float, highlighterWidth: Float) =
+private fun brushFor(
+    tool: EditorTool,
+    penWidth: Float,
+    highlighterWidth: Float,
+    penColorArgb: Int,
+    highlighterColorArgb: Int,
+) =
     when (tool) {
         EditorTool.TYPE,
-        EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), penWidth)
+        EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, penColorArgb, penWidth)
         EditorTool.PENCIL ->
-            InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF4A4A4A.toInt(), penWidth * 0.55f)
+            InkCodec.createBrush(BrushKind.PRESSURE_PEN, penColorArgb, penWidth * 0.55f)
         EditorTool.HIGHLIGHTER ->
-            InkCodec.createBrush(BrushKind.HIGHLIGHTER, 0x66FFD54F, highlighterWidth)
+            InkCodec.createBrush(BrushKind.HIGHLIGHTER, highlighterColorArgb, highlighterWidth)
         EditorTool.ERASER,
         EditorTool.LASSO,
-        -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), penWidth)
+        -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, penColorArgb, penWidth)
     }
 
 @Composable

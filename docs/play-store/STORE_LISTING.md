@@ -21,15 +21,15 @@ Import images through Android Photo Picker. Import a PDF, annotate its pages, an
 Privacy is the default:
 
 - no account;
-- no ads or analytics;
-- no cloud sync or telemetry;
-- no app network permission;
+- no first-party ads, analytics, cloud sync, or telemetry;
 - private on-device notebook storage;
 - user-controlled PDF export.
 
+Optional handwriting recognition is enabled by the user and downloads a Google language model. After download, it runs on-device and offers only simple single-line arithmetic candidates. It does not provide general two-dimensional math or LaTeX recognition. See the privacy policy for Google ML Kit SDK data disclosure.
+
 SeliaSheets supports Android 10 and newer and adapts to phones and large tablet canvases.
 
-This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud sync are not included.
+This is a beta release. Accounts, collaboration, and cloud sync are not included.
 
 ## Classification
 
@@ -51,4 +51,4 @@ This is a beta release. Handwriting-to-text, accounts, collaboration, and cloud 
 
 ## Release notes
 
-Closed beta: chapters, full-page typing, precision erasing, smart shapes, isolated PDF import, editable backups, and Android 10–17 support.
+Closed beta: opt-in on-device handwriting recognition for simple single-line arithmetic, chapters, full-page typing, precision erasing, smart shapes, isolated PDF import, editable backups, and Android 10–17 support.

@@ -1,8 +1,15 @@
 package com.majkeylab.seliadocs.settings
 
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasText
@@ -14,6 +21,8 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.MainActivity
+import com.majkeylab.seliadocs.ui.SeliaDocsTheme
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -72,4 +81,32 @@ class SettingsFlowTest {
             rule.onNode(group).performClick()
         }
     }
+
+    @Test
+    fun switchSettingMergesLabelAndTogglesOnce() {
+        var changes = 0
+        rule.activity.setContent {
+            var checked by remember { mutableStateOf(false) }
+            SeliaDocsTheme(darkTheme = false) {
+                SwitchSetting(
+                    label = "Finger drawing",
+                    checked = checked,
+                    tag = "switch-setting",
+                    onChange = {
+                        changes++
+                        checked = it
+                    },
+                )
+            }
+        }
+
+        val toggle =
+            hasText("Finger drawing") and
+                SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch)
+        rule.onNodeWithTag("switch-setting").assertIsOff()
+        rule.onNode(toggle).assertIsOff().performClick()
+        rule.onNodeWithTag("switch-setting").assertIsOn()
+        rule.runOnIdle { assertEquals(1, changes) }
+    }
+
 }

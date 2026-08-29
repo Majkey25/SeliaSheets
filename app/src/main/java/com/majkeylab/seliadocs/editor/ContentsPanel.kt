@@ -376,7 +376,7 @@ private fun ContentsPageRow(
         ) {
             PageMiniature(
                 page = page,
-                revision = state.notebook?.updatedAt ?: 0L,
+                revision = page.updatedAt,
                 loadPreview = loadPagePreview,
             )
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {

@@ -120,10 +120,11 @@ class EditorCompactUiTest {
         pressBack()
 
         rule.onNodeWithTag("compact-insert").performClick()
-        listOf("text", "image", "pdf", "math").forEach {
+        listOf("text", "image", "pdf").forEach {
             rule.onNodeWithTag("compact-insert-$it").assertIsDisplayed()
         }
         rule.onNodeWithTag("compact-insert-shape").assertDoesNotExist()
+        rule.onNodeWithTag("compact-insert-math").assertDoesNotExist()
     }
 
     @Test
@@ -294,7 +295,6 @@ class EditorCompactUiTest {
                             onAddImage = {},
                             onImportPdf = {},
                             onCleanShape = {},
-                            onAddMath = {},
                             contentInsets = WindowInsets(16.dp, 0.dp, 20.dp, 24.dp),
                         )
                     }
@@ -317,14 +317,29 @@ class EditorCompactUiTest {
     }
 
     @Test
-    fun compactToolLabelsAreNotEllipsized() {
+    fun compactToolsExposeMaterialIconDescriptions() {
         openCompactEditor()
-        val layouts = mutableListOf<TextLayoutResult>()
 
-        rule.onNodeWithText("Highlighter")
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        listOf("Back", "Undo", "Redo", "More options", "Type", "Pen", "Highlighter", "Eraser", "Lasso", "Insert")
+            .forEach { description ->
+                rule.onNodeWithContentDescription(description).assertIsDisplayed()
+            }
+    }
 
-        assertFalse("Highlighter label must remain readable", layouts.single().isLineEllipsized(0))
+    @Test
+    fun compactPenExposesWidthsAndColorsWithoutLeavingEditor() {
+        openCompactEditor()
+
+        listOf(
+            "brush-width-2",
+            "brush-width-4",
+            "brush-width-8",
+            "brush-color-black",
+            "brush-color-blue",
+            "brush-color-red",
+        )
+            .forEach { tag -> rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction() }
+        rule.onNodeWithTag("brush-shape-assist").assertExists().assertHasClickAction()
     }
 
     @Test

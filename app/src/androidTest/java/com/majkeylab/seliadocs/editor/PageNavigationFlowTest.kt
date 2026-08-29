@@ -2,6 +2,8 @@ package com.majkeylab.seliadocs.editor
 
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +36,7 @@ import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 
@@ -128,10 +131,10 @@ class PageNavigationFlowTest {
         assertTwoFingerSwipeTurnsFromFingerTool(EditorTool.LASSO)
 
     @Test
-    fun fingerEraserOwnsItsGesture() = assertFingerToolOwnsGesture(EditorTool.ERASER)
+    fun fingerEraserTurnsPageWhenFingerDrawingIsOff() = assertFingerToolTurnsPage(EditorTool.ERASER)
 
     @Test
-    fun fingerLassoOwnsItsGesture() = assertFingerToolOwnsGesture(EditorTool.LASSO)
+    fun fingerLassoTurnsPageWhenFingerDrawingIsOff() = assertFingerToolTurnsPage(EditorTool.LASSO)
 
     @Test
     fun toolChangeRestartsGestureOwnership() {
@@ -164,23 +167,13 @@ class PageNavigationFlowTest {
         assertEquals(0, erased.get())
         assertEquals(0, selected.get())
 
-        dispatchHorizontalFingerGesture()
-        assertEquals(0, next.get())
-        assertEquals(1, erased.get())
-        assertEquals(0, selected.get())
-
-        rule.runOnUiThread { tool = EditorTool.LASSO }
-        rule.waitForIdle()
-        dispatchHorizontalFingerGesture()
-        assertEquals(0, next.get())
-        assertEquals(1, erased.get())
-        assertEquals(1, selected.get())
     }
 
     @Test
     fun reusedPointerIdReplacementAfterOwnershipDoesNotTurnPage() {
         val next = AtomicInteger()
-        renderPage(AtomicInteger(), next, fingerDrawing = true)
+        val committed = AtomicInteger()
+        renderPage(AtomicInteger(), next, fingerDrawing = true, committed = committed)
         val bounds = rule.onNodeWithTag("page-viewport").fetchSemanticsNode().boundsInRoot
         val startX = bounds.left + bounds.width * 0.85f
         val endX = bounds.left + bounds.width * 0.15f
@@ -213,6 +206,7 @@ class PageNavigationFlowTest {
         rule.waitForIdle()
 
         assertEquals(0, next.get())
+        assertEquals(0, committed.get())
     }
 
     @Test
@@ -303,6 +297,33 @@ class PageNavigationFlowTest {
         viewport.performTouchInput {
             swipe(Offset(width * 0.85f, centerY), Offset(width * 0.15f, centerY), 300)
         }
+
+        assertEquals(0, next.get())
+    }
+
+    @Test
+    fun typeToolKeepsFinishedInkLayerMounted() {
+        var tool by mutableStateOf(EditorTool.PEN)
+        renderPage(
+            previous = AtomicInteger(),
+            next = AtomicInteger(),
+            fingerDrawing = false,
+            toolProvider = { tool },
+        )
+        assertNotNull(rule.activity.window.decorView.findInkCanvas())
+
+        rule.runOnUiThread { tool = EditorTool.TYPE }
+        rule.waitForIdle()
+
+        assertNotNull(rule.activity.window.decorView.findInkCanvas())
+    }
+
+    @Test
+    fun textSelectionDragDoesNotTurnPage() {
+        val next = AtomicInteger()
+        renderPage(AtomicInteger(), next, fingerDrawing = false, tool = EditorTool.TYPE)
+
+        dispatchHorizontalFingerGesture()
 
         assertEquals(0, next.get())
     }
@@ -431,7 +452,7 @@ class PageNavigationFlowTest {
         rule.waitForIdle()
     }
 
-    private fun assertFingerToolOwnsGesture(tool: EditorTool) {
+    private fun assertFingerToolTurnsPage(tool: EditorTool) {
         val next = AtomicInteger()
         val erased = AtomicInteger()
         val selected = AtomicInteger()
@@ -445,9 +466,9 @@ class PageNavigationFlowTest {
         )
         dispatchHorizontalFingerGesture()
 
-        assertEquals("$tool must not turn a page", 0, next.get())
-        assertEquals("$tool eraser callback", if (tool == EditorTool.ERASER) 1 else 0, erased.get())
-        assertEquals("$tool lasso callback", if (tool == EditorTool.LASSO) 1 else 0, selected.get())
+        assertEquals("$tool must allow page navigation", 1, next.get())
+        assertEquals("$tool must ignore palm erasing", 0, erased.get())
+        assertEquals("$tool must ignore palm selection", 0, selected.get())
     }
 
     private fun assertTwoFingerSwipeTurnsFromFingerTool(tool: EditorTool) {
@@ -525,6 +546,13 @@ class PageNavigationFlowTest {
         rule.onNodeWithContentDescription("Open $title").performClick()
         rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
         return title
+    }
+
+    private fun View.findInkCanvas(): InkCanvasView? {
+        if (this is InkCanvasView) return this
+        if (this !is ViewGroup) return null
+        repeat(childCount) { index -> getChildAt(index).findInkCanvas()?.let { return it } }
+        return null
     }
 
     private fun stylusEvent(

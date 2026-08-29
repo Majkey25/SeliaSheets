@@ -23,12 +23,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -52,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
@@ -63,6 +66,8 @@ import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.library.NotebookTemplate
+import com.majkeylab.seliadocs.recognition.RecognitionLanguage
+import com.majkeylab.seliadocs.recognition.RecognitionModelStatus
 import com.majkeylab.seliadocs.ui.CoverPatternPreview
 import com.majkeylab.seliadocs.ui.NotebookPreview
 import com.majkeylab.seliadocs.ui.OrientationPreview
@@ -77,9 +82,12 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun SettingsScreen(
     settings: AppSettings,
-    onUpdate: (AppSettings) -> Unit,
+    onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onBackup: () -> Unit,
     onClose: () -> Unit,
+    recognitionModelStatus: RecognitionModelStatus = RecognitionModelStatus.NotDownloaded,
+    onDownloadRecognitionModel: (RecognitionLanguage) -> Unit = {},
+    onDeleteRecognitionModel: (RecognitionLanguage) -> Unit = {},
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -119,27 +127,43 @@ internal fun SettingsScreen(
                         values = DefaultTool.entries,
                         selected = settings.defaultTool,
                         valueLabel = { defaultToolLabel(it) },
-                        onSelect = { onUpdate(settings.copy(defaultTool = it)) },
+                        onSelect = { tool -> onUpdate { it.copy(defaultTool = tool) } },
                     )
                     StrokeSliderSetting(
                         label = stringResource(R.string.pen_width),
                         sampleLabel = stringResource(R.string.pen_sample),
                         value = settings.penWidth,
                         range = 2f..12f,
-                        color = Color(0xFF202124),
-                    ) { onUpdate(settings.copy(penWidth = it)) }
+                        color = Color(settings.penColorArgb),
+                    ) { width -> onUpdate { it.copy(penWidth = width) } }
                     StrokeSliderSetting(
                         label = stringResource(R.string.highlighter_width),
                         sampleLabel = stringResource(R.string.highlighter_sample),
                         value = settings.highlighterWidth,
                         range = 8f..40f,
-                        color = Color(0x66FFD54F),
-                    ) { onUpdate(settings.copy(highlighterWidth = it)) }
+                        color = Color(settings.highlighterColorArgb),
+                    ) { width -> onUpdate { it.copy(highlighterWidth = width) } }
                     SwitchSetting(
                         stringResource(R.string.shape_assist),
                         settings.shapeAssist,
-                    ) { onUpdate(settings.copy(shapeAssist = it)) }
+                    ) { enabled -> onUpdate { it.copy(shapeAssist = enabled) } }
                     InfoText(stringResource(R.string.shape_assist_hint))
+                    SwitchSetting(
+                        label = stringResource(R.string.handwriting_recognition),
+                        checked = settings.handwritingRecognition,
+                        tag = "settings-handwriting-recognition",
+                    ) { enabled -> onUpdate { it.copy(handwritingRecognition = enabled) } }
+                    RecognitionLanguageSetting(
+                        selected = settings.recognitionLanguage,
+                        onSelect = { language -> onUpdate { it.copy(recognitionLanguage = language) } },
+                    )
+                    RecognitionModelSetting(
+                        language = settings.recognitionLanguage,
+                        status = recognitionModelStatus,
+                        onDownload = onDownloadRecognitionModel,
+                        onDelete = onDeleteRecognitionModel,
+                    )
+                    InfoText(stringResource(R.string.recognition_disclosure))
                 }
             }
             item {
@@ -160,7 +184,7 @@ internal fun SettingsScreen(
                             ThemePreviewChoice(
                                 theme = theme,
                                 selected = theme == settings.theme,
-                                onClick = { onUpdate(settings.copy(theme = theme)) },
+                                onClick = { onUpdate { it.copy(theme = theme) } },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -168,7 +192,7 @@ internal fun SettingsScreen(
                     SwitchSetting(
                         stringResource(R.string.page_transition),
                         settings.pageTransition,
-                    ) { onUpdate(settings.copy(pageTransition = it)) }
+                    ) { enabled -> onUpdate { it.copy(pageTransition = enabled) } }
                     InfoText(stringResource(R.string.export_details))
                 }
             }
@@ -222,7 +246,7 @@ private fun NavigationSetting(title: String, summary: String, onClick: () -> Uni
 }
 
 @Composable
-private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> Unit) {
+private fun NotebookDefaults(settings: AppSettings, onUpdate: ((AppSettings) -> AppSettings) -> Unit) {
     val selectedTemplate =
         NotebookTemplate.entries.firstOrNull { template ->
             template.matches(
@@ -259,14 +283,14 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
                     template = template,
                     selected = selectedTemplate == template,
                     onClick = {
-                        onUpdate(
-                            settings.copy(
+                        onUpdate {
+                            it.copy(
                                 defaultCoverColor = template.coverColor,
                                 defaultCoverPattern = template.coverPattern,
                                 defaultPaper = template.paper,
                                 defaultOrientation = template.orientation,
-                            ),
-                        )
+                            )
+                        }
                     },
                     modifier = Modifier.width(166.dp),
                 )
@@ -286,7 +310,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
                 CoverColorSetting(
                     color = color,
                     selected = color == settings.defaultCoverColor,
-                    onClick = { onUpdate(settings.copy(defaultCoverColor = color)) },
+                    onClick = { onUpdate { it.copy(defaultCoverColor = color) } },
                 )
             }
         }
@@ -305,7 +329,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
                     pattern = pattern,
                     coverColor = settings.defaultCoverColor,
                     selected = pattern == settings.defaultCoverPattern,
-                    onClick = { onUpdate(settings.copy(defaultCoverPattern = pattern)) },
+                    onClick = { onUpdate { it.copy(defaultCoverPattern = pattern) } },
                     modifier = Modifier.width(112.dp),
                 )
             }
@@ -324,7 +348,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
                 PaperPreview(
                     paper = paper,
                     selected = paper == settings.defaultPaper,
-                    onClick = { onUpdate(settings.copy(defaultPaper = paper)) },
+                    onClick = { onUpdate { it.copy(defaultPaper = paper) } },
                     modifier = Modifier.width(112.dp),
                 )
             }
@@ -343,7 +367,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
                     orientation = orientation,
                     paper = settings.defaultPaper,
                     selected = orientation == settings.defaultOrientation,
-                    onClick = { onUpdate(settings.copy(defaultOrientation = orientation)) },
+                    onClick = { onUpdate { it.copy(defaultOrientation = orientation) } },
                     modifier = Modifier.width(136.dp),
                 )
             }
@@ -351,7 +375,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: (AppSettings) -> U
         SwitchSetting(
             stringResource(R.string.default_finger_drawing),
             settings.fingerDrawing,
-        ) { onUpdate(settings.copy(fingerDrawing = it)) }
+        ) { enabled -> onUpdate { it.copy(fingerDrawing = enabled) } }
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -538,13 +562,91 @@ private fun CoverColorSetting(color: CoverColor, selected: Boolean, onClick: () 
 }
 
 @Composable
-private fun SwitchSetting(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchSetting(
+    label: String,
+    checked: Boolean,
+    tag: String? = null,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 20.dp),
+        modifier =
+            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                .then(if (tag == null) Modifier else Modifier.testTag(tag))
+                .toggleable(
+                    value = checked,
+                    role = Role.Switch,
+                    onValueChange = onChange,
+                ).semantics(mergeDescendants = true) {}
+                .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun RecognitionLanguageSetting(
+    selected: RecognitionLanguage,
+    onSelect: (RecognitionLanguage) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text(stringResource(R.string.recognition_language), style = MaterialTheme.typography.bodyLarge)
+        RecognitionLanguage.entries.forEach { language ->
+            val label = stringResource(if (language == RecognitionLanguage.CZECH) R.string.czech else R.string.english)
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(
+                            selected = language == selected,
+                            onClick = { onSelect(language) },
+                            role = Role.RadioButton,
+                        ).testTag("settings-recognition-${language.name.lowercase()}")
+                        .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = language == selected, onClick = null)
+                Spacer(Modifier.width(8.dp))
+                Text(label)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecognitionModelSetting(
+    language: RecognitionLanguage,
+    status: RecognitionModelStatus,
+    onDownload: (RecognitionLanguage) -> Unit,
+    onDelete: (RecognitionLanguage) -> Unit,
+) {
+    when (status) {
+        RecognitionModelStatus.NotDownloaded ->
+            TextButton(
+                onClick = { onDownload(language) },
+                modifier = Modifier.testTag("settings-recognition-download"),
+            ) { Text(stringResource(R.string.download_recognition_model)) }
+        RecognitionModelStatus.Downloading ->
+            Text(
+                stringResource(R.string.downloading_recognition_model),
+                modifier = Modifier.testTag("settings-recognition-downloading").semantics { disabled() },
+            )
+        RecognitionModelStatus.Deleting ->
+            Text(
+                stringResource(R.string.deleting_recognition_model),
+                modifier = Modifier.testTag("settings-recognition-deleting").semantics { disabled() },
+            )
+        RecognitionModelStatus.Ready -> {
+            Text(stringResource(R.string.recognition_model_ready))
+            TextButton(
+                onClick = { onDelete(language) },
+                modifier = Modifier.testTag("settings-recognition-delete"),
+            ) { Text(stringResource(R.string.delete_recognition_model)) }
+        }
+        is RecognitionModelStatus.Failed -> {
+            Text(status.message)
+            TextButton(onClick = { onDownload(language) }) { Text(stringResource(R.string.retry_download)) }
+        }
     }
 }
 
