@@ -2,6 +2,13 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.3.1-beta.1] - 2026-08-29
+
+### Fixed
+
+- Enlarged the installed launcher icon while keeping its visible artwork inside the adaptive safe zone.
+- Added native themed-icon support for Android 13 and later launchers.
+
 ## [0.3.0-beta.1] - 2026-08-28
 
 ### Added
