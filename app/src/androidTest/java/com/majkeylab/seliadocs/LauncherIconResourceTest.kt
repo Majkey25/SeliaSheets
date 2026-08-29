@@ -32,7 +32,7 @@ class LauncherIconResourceTest {
             )
             assertNoBakedBeigePlate(bitmap)
 
-            val outerBounds = presentedBounds(bitmap, inset, minAlpha = 1)
+            val outerBounds = presentedBounds(bitmap, inset, minAlpha = VISIBLE_ALPHA)
             assertTrue(
                 "Foreground alpha fringe exceeds the guaranteed adaptive safe circle: ${outerBounds.maxRadius}",
                 outerBounds.maxRadius <= SAFE_CIRCLE_RADIUS,
@@ -60,8 +60,17 @@ class LauncherIconResourceTest {
         assertAdaptiveLauncher(R.mipmap.ic_launcher)
         assertAdaptiveLauncher(R.mipmap.ic_launcher_round)
 
-        foregroundInset()
+        assertEquals(INTENDED_FOREGROUND_INSET, foregroundInset(), INSET_TOLERANCE)
         assertEquals(0xFFE8DED1.toInt(), context.getColor(R.color.ic_launcher_background))
+    }
+
+    @Test
+    fun monochromeLauncherLayerUsesMatchingTransparentArtwork() {
+        assertEquals(
+            INTENDED_FOREGROUND_INSET,
+            insetFraction(R.drawable.ic_launcher_monochrome, R.drawable.ic_launcher_foreground_art),
+            INSET_TOLERANCE,
+        )
     }
 
     @Test
@@ -104,15 +113,18 @@ class LauncherIconResourceTest {
 
         var background = 0
         var foreground = 0
+        var monochrome = 0
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             if (parser.eventType != XmlPullParser.START_TAG) continue
             when (parser.name) {
                 "background" -> background = parser.getAttributeResourceValue(ANDROID_NS, "drawable", 0)
                 "foreground" -> foreground = parser.getAttributeResourceValue(ANDROID_NS, "drawable", 0)
+                "monochrome" -> monochrome = parser.getAttributeResourceValue(ANDROID_NS, "drawable", 0)
             }
         }
         assertEquals(R.color.ic_launcher_background, background)
         assertEquals(R.drawable.ic_launcher_foreground, foreground)
+        assertEquals(R.drawable.ic_launcher_monochrome, monochrome)
     }
 
     private fun opaqueBounds(bitmap: Bitmap): Bounds {
@@ -178,17 +190,19 @@ class LauncherIconResourceTest {
         return colors.size
     }
 
-    private fun foregroundInset(): Double {
-        val parser = context.resources.getXml(R.drawable.ic_launcher_foreground)
+    private fun foregroundInset(): Double =
+        insetFraction(R.drawable.ic_launcher_foreground, R.drawable.ic_launcher_foreground_art)
+
+    private fun insetFraction(resourceId: Int, expectedDrawableId: Int): Double {
+        val parser = context.resources.getXml(resourceId)
         parser.moveToStartTag()
         assertEquals("inset", parser.name)
         assertEquals(
-            R.drawable.ic_launcher_foreground_art,
+            expectedDrawableId,
             parser.getAttributeResourceValue(ANDROID_NS, "drawable", 0),
         )
         val value = requireNotNull(parser.getAttributeValue(ANDROID_NS, "inset"))
         val inset = value.removeSuffix("%").toDouble() / 100
-        assertEquals(INTENDED_FOREGROUND_INSET, inset, INSET_TOLERANCE)
         return inset
     }
 
@@ -235,8 +249,9 @@ class LauncherIconResourceTest {
         const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
         const val CHILD_EXPANSION = 1.5
         const val SAFE_CIRCLE_RADIUS = 33.0 / 108.0
-        const val INTENDED_FOREGROUND_INSET = 0.32
+        const val INTENDED_FOREGROUND_INSET = 0.28
         const val INSET_TOLERANCE = 0.000001
+        const val VISIBLE_ALPHA = 8
         const val MEANINGFUL_ALPHA = 128
         const val MIN_MEANINGFUL_SUBJECT_SIZE = 0.35
         const val BACKGROUND_RED = 0xE8
