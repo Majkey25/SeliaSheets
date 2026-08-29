@@ -297,9 +297,13 @@ class SeliaDocsRepositoryTest {
     fun notebookSearchMatchesCzechTextIgnoringCase() = runTest {
         val notebookId = repository.createNotebook(request())
         val page = repository.getPages(notebookId).single()
+        val titlecasePageId = repository.addPage(notebookId)
         repository.renamePage(page.id, "Žluťoučký kůň")
+        repository.renamePage(titlecasePageId, "ǅungla")
 
         assertEquals(page.id, repository.searchPageText(notebookId, "žLUŤOUČKÝ").single().pageId)
+        assertEquals(titlecasePageId, repository.searchPageText(notebookId, "ǄUNGLA").single().pageId)
+        assertEquals(titlecasePageId, repository.searchPageText(notebookId, "ǅungla").single().pageId)
     }
 
     @Test

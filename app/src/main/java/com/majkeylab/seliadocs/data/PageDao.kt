@@ -108,27 +108,28 @@ internal interface PageDao {
     @Query(
         """
         WITH matches AS (
-            SELECT pages.id AS pageId, pages.pageIndex AS pageIndex, pages.title AS text, 0 AS sourceOrder
+            SELECT pages.id AS pageId, pages.pageIndex AS pageIndex,
+                SUBSTR(pages.title, 1, :snippetLength) AS text, 0 AS sourceOrder
             FROM pages
             WHERE pages.notebookId = :notebookId
               AND pages.title IS NOT NULL
               AND pages.title GLOB :globPattern
             UNION ALL
-            SELECT pages.id, pages.pageIndex, chapters.title, 1
+            SELECT pages.id, pages.pageIndex, SUBSTR(chapters.title, 1, :snippetLength), 1
             FROM pages
             INNER JOIN chapters ON chapters.id = pages.chapterId
             WHERE pages.notebookId = :notebookId
               AND chapters.notebookId = pages.notebookId
               AND chapters.title GLOB :globPattern
             UNION ALL
-            SELECT pages.id, pages.pageIndex, blocks.text, 2
+            SELECT pages.id, pages.pageIndex, SUBSTR(blocks.text, 1, :snippetLength), 2
             FROM pages
             INNER JOIN blocks ON blocks.pageId = pages.id
             WHERE pages.notebookId = :notebookId
               AND blocks.text IS NOT NULL
               AND blocks.text GLOB :globPattern
             UNION ALL
-            SELECT pages.id, pages.pageIndex, elements.text, 3
+            SELECT pages.id, pages.pageIndex, SUBSTR(elements.text, 1, :snippetLength), 3
             FROM pages
             INNER JOIN elements ON elements.pageId = pages.id
             WHERE pages.notebookId = :notebookId
@@ -136,7 +137,7 @@ internal interface PageDao {
               AND elements.text IS NOT NULL
               AND elements.text GLOB :globPattern
             UNION ALL
-            SELECT pages.id, pages.pageIndex, elements.expression, 4
+            SELECT pages.id, pages.pageIndex, SUBSTR(elements.expression, 1, :snippetLength), 4
             FROM pages
             INNER JOIN elements ON elements.pageId = pages.id
             WHERE pages.notebookId = :notebookId
@@ -144,7 +145,7 @@ internal interface PageDao {
               AND elements.expression IS NOT NULL
               AND elements.expression GLOB :globPattern
             UNION ALL
-            SELECT pages.id, pages.pageIndex, elements.resultText, 5
+            SELECT pages.id, pages.pageIndex, SUBSTR(elements.resultText, 1, :snippetLength), 5
             FROM pages
             INNER JOIN elements ON elements.pageId = pages.id
             WHERE pages.notebookId = :notebookId
@@ -156,8 +157,7 @@ internal interface PageDao {
             FROM matches
             GROUP BY pageId, pageIndex
         )
-        SELECT matches.pageId, matches.pageIndex,
-            SUBSTR(MIN(matches.text), 1, :snippetLength) AS text
+        SELECT matches.pageId, matches.pageIndex, MIN(matches.text) AS text
         FROM matches
         INNER JOIN priorities
             ON priorities.pageId = matches.pageId

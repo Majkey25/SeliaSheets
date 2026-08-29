@@ -66,6 +66,7 @@
     <string name="search_page_text">Page titles, chapters, text, and math</string>
     <string name="search_page_result">Page %1$d</string>
     <string name="no_search_results">No matching pages.</string>
+    <string name="search_failed">Search failed. Try again.</string>
     <string name="close">Close</string>
     <string name="contents">Contents</string>
     <string name="insert">Insert</string>

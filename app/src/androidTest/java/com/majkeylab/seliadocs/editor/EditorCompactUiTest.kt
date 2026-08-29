@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.test.DeviceConfigurationOverride
@@ -125,6 +126,48 @@ class EditorCompactUiTest {
         }
         rule.onNodeWithTag("compact-insert-shape").assertDoesNotExist()
         rule.onNodeWithTag("compact-insert-math").assertDoesNotExist()
+    }
+
+    @Test
+    fun dismissingSearchBeforeDebounceDoesNotRestoreQuery() {
+        openCompactEditor()
+        rule.onNodeWithTag("compact-more").performClick()
+        rule.onNodeWithTag("compact-more-search").performClick()
+        rule.onNodeWithTag("search-query").assertIsDisplayed()
+
+        rule.mainClock.autoAdvance = false
+        try {
+            rule.onNodeWithTag("search-query").performTextInput("stale-query")
+            rule.onNodeWithText("Close").performClick()
+            rule.mainClock.advanceTimeBy(300)
+        } finally {
+            rule.mainClock.autoAdvance = true
+        }
+        rule.waitForIdle()
+
+        rule.onNodeWithTag("compact-more").performClick()
+        rule.onNodeWithTag("compact-more-search").performClick()
+        rule.onNodeWithTag("search-query")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+    }
+
+    @Test
+    fun searchFlushesPendingFullPageText() {
+        val text = "PendingSearch${System.nanoTime()}"
+        openCompactEditor()
+        rule.onNodeWithTag("compact-tool-type").performClick()
+        rule.onNodeWithTag("page-text").assertIsDisplayed().performTextInput(text)
+
+        rule.onNodeWithTag("compact-more").performClick()
+        rule.onNodeWithTag("compact-more-search").performClick()
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithTag("search-query").fetchSemanticsNode() }.isSuccess
+        }
+        rule.onNodeWithTag("search-query").performTextInput(text)
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithTag("search-result-0").fetchSemanticsNode() }.isSuccess
+        }
+        rule.onNodeWithTag("search-result-0").assertIsDisplayed()
     }
 
     @Test

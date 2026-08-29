@@ -673,15 +673,25 @@ private fun String.toUnicodeCaseInsensitiveGlob(): String =
     buildString(length * 3 + 2) {
         append('*')
         this@toUnicodeCaseInsensitiveGlob.forEach { character ->
-            val lower = character.lowercaseChar()
-            val upper = character.uppercaseChar()
             when {
-                lower != upper -> append('[').append(lower).append(upper).append(']')
                 character == '*' -> append("[*]")
                 character == '?' -> append("[?]")
                 character == '[' -> append("[[]")
                 character == ']' -> append("[]]")
-                else -> append(character)
+                else -> {
+                    val lower = character.lowercaseChar()
+                    val upper = character.uppercaseChar()
+                    val title = character.titlecaseChar()
+                    if (lower == upper && upper == title && title == character) {
+                        append(character)
+                    } else {
+                        append('[').append(lower)
+                        if (upper != lower) append(upper)
+                        if (title != lower && title != upper) append(title)
+                        if (character != lower && character != upper && character != title) append(character)
+                        append(']')
+                    }
+                }
             }
         }
         append('*')
