@@ -106,14 +106,72 @@ internal interface PageDao {
     fun observeBlocks(pageId: String): Flow<List<BlockEntity>>
 
     @Query(
-        """SELECT pages.id AS pageId, pages.pageIndex AS pageIndex, COALESCE(blocks.text, '') AS text
-            FROM blocks
-            INNER JOIN pages ON pages.id = blocks.pageId
+        """
+        WITH matches AS (
+            SELECT pages.id AS pageId, pages.pageIndex AS pageIndex, pages.title AS text, 0 AS sourceOrder
+            FROM pages
             WHERE pages.notebookId = :notebookId
-              AND blocks.text COLLATE NOCASE LIKE '%' || :escapedQuery || '%' ESCAPE '\'
-            ORDER BY pages.pageIndex, blocks.orderIndex
-            LIMIT 100
+              AND pages.title IS NOT NULL
+              AND pages.title GLOB :globPattern
+            UNION ALL
+            SELECT pages.id, pages.pageIndex, chapters.title, 1
+            FROM pages
+            INNER JOIN chapters ON chapters.id = pages.chapterId
+            WHERE pages.notebookId = :notebookId
+              AND chapters.notebookId = pages.notebookId
+              AND chapters.title GLOB :globPattern
+            UNION ALL
+            SELECT pages.id, pages.pageIndex, blocks.text, 2
+            FROM pages
+            INNER JOIN blocks ON blocks.pageId = pages.id
+            WHERE pages.notebookId = :notebookId
+              AND blocks.text IS NOT NULL
+              AND blocks.text GLOB :globPattern
+            UNION ALL
+            SELECT pages.id, pages.pageIndex, elements.text, 3
+            FROM pages
+            INNER JOIN elements ON elements.pageId = pages.id
+            WHERE pages.notebookId = :notebookId
+              AND elements.kind = 'TEXT'
+              AND elements.text IS NOT NULL
+              AND elements.text GLOB :globPattern
+            UNION ALL
+            SELECT pages.id, pages.pageIndex, elements.expression, 4
+            FROM pages
+            INNER JOIN elements ON elements.pageId = pages.id
+            WHERE pages.notebookId = :notebookId
+              AND elements.kind = 'MATH'
+              AND elements.expression IS NOT NULL
+              AND elements.expression GLOB :globPattern
+            UNION ALL
+            SELECT pages.id, pages.pageIndex, elements.resultText, 5
+            FROM pages
+            INNER JOIN elements ON elements.pageId = pages.id
+            WHERE pages.notebookId = :notebookId
+              AND elements.kind = 'MATH'
+              AND elements.resultText IS NOT NULL
+              AND elements.resultText GLOB :globPattern
+        ), priorities AS (
+            SELECT pageId, pageIndex, MIN(sourceOrder) AS sourceOrder
+            FROM matches
+            GROUP BY pageId, pageIndex
+        )
+        SELECT matches.pageId, matches.pageIndex,
+            SUBSTR(MIN(matches.text), 1, :snippetLength) AS text
+        FROM matches
+        INNER JOIN priorities
+            ON priorities.pageId = matches.pageId
+            AND priorities.pageIndex = matches.pageIndex
+            AND priorities.sourceOrder = matches.sourceOrder
+        GROUP BY matches.pageId, matches.pageIndex
+        ORDER BY matches.pageIndex
+        LIMIT :limit
         """,
     )
-    suspend fun searchPageText(notebookId: String, escapedQuery: String): List<PageTextMatch>
+    suspend fun searchPageText(
+        notebookId: String,
+        globPattern: String,
+        snippetLength: Int,
+        limit: Int,
+    ): List<PageTextMatch>
 }

@@ -2,6 +2,13 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.4.0-beta.1] - 2026-08-29
+
+### Added
+
+- Expanded notebook search to page titles, chapter titles, movable text, math expressions, and math results.
+- Kept one search result per matching page when several content types contain the same query.
+
 ## [0.3.1-beta.1] - 2026-08-29
 
 ### Fixed

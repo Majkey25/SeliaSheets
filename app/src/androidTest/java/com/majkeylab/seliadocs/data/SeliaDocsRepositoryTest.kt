@@ -276,11 +276,195 @@ class SeliaDocsRepositoryTest {
         val notebookId = repository.createNotebook(request())
         val first = repository.getPages(notebookId).single()
         val secondId = repository.addPage(notebookId)
+        val wildcardDecoyId = repository.addPage(notebookId)
+        val backslashId = repository.addPage(notebookId)
+        val globId = repository.addPage(notebookId)
+        val globDecoyId = repository.addPage(notebookId)
         repository.updatePageText(first.id, "Ordinary lecture")
         repository.updatePageText(secondId, "Efficiency is 95%_measured")
+        repository.updatePageText(wildcardDecoyId, "Efficiency is 95Xameasured")
+        repository.updatePageText(backslashId, "Path C:\\Notes")
+        repository.updatePageText(globId, "Symbols *?[]")
+        repository.updatePageText(globDecoyId, "Symbols ABCD")
 
         assertEquals(secondId, repository.searchPageText(notebookId, "95%_").single().pageId)
+        assertEquals(backslashId, repository.searchPageText(notebookId, "C:\\Notes").single().pageId)
+        assertEquals(globId, repository.searchPageText(notebookId, "*?[]").single().pageId)
         assertTrue(repository.searchPageText(notebookId, "missing").isEmpty())
+    }
+
+    @Test
+    fun notebookSearchMatchesCzechTextIgnoringCase() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        repository.renamePage(page.id, "Žluťoučký kůň")
+
+        assertEquals(page.id, repository.searchPageText(notebookId, "žLUŤOUČKÝ").single().pageId)
+    }
+
+    @Test
+    fun notebookSearchReturnsFirstHundredMatchingPagesInOrder() = runTest {
+        val notebookId = repository.createNotebook(request())
+        repeat(100) { repository.addPage(notebookId) }
+        repository.getPages(notebookId).forEach { page ->
+            repository.renamePage(page.id, "Match ${page.pageIndex}")
+        }
+
+        val results = repository.searchPageText(notebookId, "match")
+
+        assertEquals(100, results.size)
+        assertEquals((0 until 100).toList(), results.map(PageTextMatch::pageIndex))
+    }
+
+    @Test
+    fun notebookSearchFindsPageAndChapterTitles() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val first = repository.getPages(notebookId).single()
+        val secondId = repository.addPage(notebookId)
+        val chapterId = repository.createChapter(notebookId, "Linear algebra", 0)
+        repository.renamePage(first.id, "Thermodynamics")
+        repository.assignPageToChapter(secondId, chapterId)
+
+        assertEquals(first.id, repository.searchPageText(notebookId, "thermo").single().pageId)
+        assertEquals(secondId, repository.searchPageText(notebookId, "algebra").single().pageId)
+    }
+
+    @Test
+    fun notebookSearchFindsMovableTextElements() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        repository.addElement(
+            page.id,
+            ElementDraft(ElementKind.TEXT, 10f, 20f, 200f, 80f, text = "Feynman technique"),
+        )
+
+        val match = repository.searchPageText(notebookId, "feynman").single()
+
+        assertEquals(page.id, match.pageId)
+        assertEquals("Feynman technique", match.text)
+    }
+
+    @Test
+    fun notebookSearchFindsMathExpressionsAndResults() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        repository.addElement(
+            page.id,
+            ElementDraft(
+                kind = ElementKind.MATH,
+                x = 10f,
+                y = 20f,
+                width = 200f,
+                height = 80f,
+                expression = "sqrt(81)",
+                resultText = "9",
+            ),
+        )
+
+        assertEquals("sqrt(81)", repository.searchPageText(notebookId, "sqrt").single().text)
+        assertEquals("9", repository.searchPageText(notebookId, "9").single().text)
+    }
+
+    @Test
+    fun notebookSearchReturnsEachMatchingPageOnce() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        repository.renamePage(page.id, "Momentum")
+        repository.updatePageText(page.id, "Momentum notes")
+        repository.addElement(
+            page.id,
+            ElementDraft(ElementKind.TEXT, 10f, 20f, 200f, 80f, text = "Momentum diagram"),
+        )
+
+        val results = repository.searchPageText(notebookId, "momentum")
+
+        assertEquals(1, results.size)
+        assertEquals(page.id, results.single().pageId)
+    }
+
+    @Test
+    fun notebookSearchIgnoresStaleFieldsFromOtherElementKinds() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val page = repository.getPages(notebookId).single()
+        database.pageDao().insertElement(
+            ElementEntity(
+                id = "stale-image",
+                pageId = page.id,
+                zIndex = 0,
+                kind = ElementKind.IMAGE.name,
+                x = 0f,
+                y = 0f,
+                width = 100f,
+                height = 100f,
+                rotation = 0f,
+                text = "Invisible stale text",
+                assetId = "image-id",
+                shapeKind = null,
+                expression = null,
+                resultText = null,
+            ),
+        )
+        database.pageDao().insertElement(
+            ElementEntity(
+                id = "stale-text",
+                pageId = page.id,
+                zIndex = 1,
+                kind = ElementKind.TEXT.name,
+                x = 0f,
+                y = 0f,
+                width = 100f,
+                height = 100f,
+                rotation = 0f,
+                text = "Visible text",
+                assetId = null,
+                shapeKind = null,
+                expression = "Invisible stale equation",
+                resultText = "12345",
+            ),
+        )
+
+        assertTrue(repository.searchPageText(notebookId, "Invisible stale").isEmpty())
+        assertTrue(repository.searchPageText(notebookId, "12345").isEmpty())
+        assertEquals(page.id, repository.searchPageText(notebookId, "Visible text").single().pageId)
+    }
+
+    @Test
+    fun notebookSearchIgnoresForeignChapterLinkedByStaleData() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val foreignNotebookId = repository.createNotebook(request())
+        val foreignChapterId = repository.createChapter(foreignNotebookId, "Foreign secret", 0)
+        val page = repository.getPages(notebookId).single()
+        database.notebookDao().updatePage(page.copy(chapterId = foreignChapterId))
+
+        assertTrue(repository.searchPageText(notebookId, "Foreign secret").isEmpty())
+    }
+
+    @Test
+    fun notebookSearchFindsLateMatchInLargeNotebook() = runTest {
+        val notebookId = repository.createNotebook(request())
+        val firstPage = repository.getPages(notebookId).single()
+        database.withTransaction {
+            repeat(1_199) { offset ->
+                val pageIndex = offset + 1
+                database.notebookDao().insertPage(
+                    firstPage.copy(
+                        id = "large-page-$pageIndex",
+                        pageIndex = pageIndex,
+                        title = "Lecture $pageIndex".takeUnless { pageIndex == 1_199 },
+                    ),
+                )
+            }
+            database.notebookDao().updatePage(
+                requireNotNull(database.notebookDao().getPage("large-page-1199"))
+                    .copy(title = "Late quantum match"),
+            )
+        }
+
+        assertEquals(
+            "large-page-1199",
+            repository.searchPageText(notebookId, "late QUANTUM").single().pageId,
+        )
+        assertTrue(repository.searchPageText(notebookId, "missing term").isEmpty())
     }
 
     @Test

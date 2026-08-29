@@ -63,7 +63,7 @@
     <string name="redo">Redo</string>
     <string name="search">Search</string>
     <string name="search_notebook">Search this notebook</string>
-    <string name="search_page_text">Typed page text</string>
+    <string name="search_page_text">Page titles, chapters, text, and math</string>
     <string name="search_page_result">Page %1$d</string>
     <string name="no_search_results">No matching pages.</string>
     <string name="close">Close</string>

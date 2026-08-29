@@ -7,6 +7,10 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
 
+private const val SEARCH_QUERY_MAX_LENGTH = 256
+private const val SEARCH_RESULT_LIMIT = 100
+private const val SEARCH_SNIPPET_LENGTH = 240
+
 internal class SeliaDocsRepository(
     private val database: SeliaDocsDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -100,9 +104,13 @@ internal class SeliaDocsRepository(
 
     suspend fun searchPageText(notebookId: String, query: String): List<PageTextMatch> {
         val normalized = query.trim()
-        if (normalized.isEmpty()) return emptyList()
-        val escaped = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        return pageContent.searchPageText(notebookId, escaped)
+        if (normalized.isEmpty() || normalized.length > SEARCH_QUERY_MAX_LENGTH) return emptyList()
+        return pageContent.searchPageText(
+            notebookId = notebookId,
+            globPattern = normalized.toUnicodeCaseInsensitiveGlob(),
+            snippetLength = SEARCH_SNIPPET_LENGTH,
+            limit = SEARCH_RESULT_LIMIT,
+        )
     }
 
     suspend fun getAssetReferenceCount(assetId: String): Int =
@@ -660,3 +668,21 @@ internal class SeliaDocsRepository(
         )
 
 }
+
+private fun String.toUnicodeCaseInsensitiveGlob(): String =
+    buildString(length * 3 + 2) {
+        append('*')
+        this@toUnicodeCaseInsensitiveGlob.forEach { character ->
+            val lower = character.lowercaseChar()
+            val upper = character.uppercaseChar()
+            when {
+                lower != upper -> append('[').append(lower).append(upper).append(']')
+                character == '*' -> append("[*]")
+                character == '?' -> append("[?]")
+                character == '[' -> append("[[]")
+                character == ']' -> append("[]]")
+                else -> append(character)
+            }
+        }
+        append('*')
+    }

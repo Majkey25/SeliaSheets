@@ -16,7 +16,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - Android 10 through Android 17 (`minSdk 29`, `targetSdk 37`).
 - AndroidX Ink with pressure, stylus eraser, palm cancellation, and motion prediction.
 - Pen, pencil, highlighter, segment and whole-stroke erasers, polygon lasso selection, and up to 100-step undo/redo.
-- Multiple notebooks with covers, chapters, page titles, bookmarks, typed-text search, favorites, and trash.
+- Multiple notebooks with covers, chapters, page titles, bookmarks, search across stored titles, text, and math, favorites, and trash.
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
 - Private image import through Android Photo Picker with MIME, dimension, allocation, and corruption checks.
@@ -63,7 +63,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.3.1-beta.1` keeps the accepted `0.3.0-beta.1` notebook code and adds the launcher-icon resource fix. The patch passed the signed 151-task local gate and the four-test Huawei icon contract. The prior release passed a focused 42-test Huawei gate and the full isolated 230-test physical suite without a retry. See the [current acceptance report](docs/qa/2026-08-28-seliasheets-handwriting-recognition.md). Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.4.0-beta.1` keeps the accepted `0.3.1-beta.1` notebook code and expands notebook search across stored titles, text, and math. The final source passed a signed 151-task gate, a 27-test Huawei repository suite, and a physical UI search check. Hardware hover and stylus side-button behavior remain device-dependent follow-up QA. See the [0.4.0 search acceptance report](docs/qa/2026-08-29-seliasheets-search.md). Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 

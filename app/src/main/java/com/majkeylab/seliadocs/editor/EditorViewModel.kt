@@ -253,6 +253,8 @@ internal class EditorViewModel(
     private var pendingRecognitionLanguage: RecognitionLanguage? = null
     private var recognitionJob: Job? = null
     private var candidateChoiceJob: Job? = null
+    private var searchJob: Job? = null
+    private var latestSearchQuery = ""
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
@@ -725,15 +727,42 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
-    fun searchPageText(query: String) = mutate {
-        controls.value =
-            controls.value.copy(
-                searchQuery = query,
-                searchResults = repository.searchPageText(notebookId, query),
-            )
+    fun searchPageText(query: String) {
+        latestSearchQuery = query
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            clearSearch()
+            return
+        }
+        if (!mutationAllowed()) return
+        searchJob =
+            viewModelScope.launch {
+                val result = runCatching { repository.searchPageText(notebookId, query) }
+                if (latestSearchQuery != query) return@launch
+                result
+                    .onSuccess { matches ->
+                        controls.value =
+                            controls.value.copy(
+                                searchQuery = query,
+                                searchResults = matches,
+                                failed = false,
+                            )
+                    }.onFailure { failure ->
+                        if (failure is CancellationException) throw failure
+                        controls.value =
+                            controls.value.copy(
+                                searchQuery = query,
+                                searchResults = emptyList(),
+                                failed = true,
+                            )
+                    }
+            }
     }
 
     fun clearSearch() {
+        latestSearchQuery = ""
+        searchJob?.cancel()
+        searchJob = null
         controls.value = controls.value.copy(searchQuery = "", searchResults = emptyList())
     }
 
@@ -1442,6 +1471,7 @@ internal class EditorViewModel(
     override fun onCleared() {
         recognitionJob?.cancel()
         candidateChoiceJob?.cancel()
+        searchJob?.cancel()
     }
 
     private companion object {
