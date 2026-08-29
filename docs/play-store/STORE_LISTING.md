@@ -12,7 +12,7 @@
 
 SeliaSheets turns an Android tablet or phone into a private backpack of paper notebooks.
 
-Start with an illustrated ruled, grid, dotted, or blank template. A live preview shows the cover, paper, and orientation before creation. Organize ordered pages into chapters, add page titles and bookmarks, and search typed page text.
+Start with an illustrated ruled, grid, dotted, or blank template. A live preview shows the cover, paper, and orientation before creation. Organize ordered pages into chapters, add page titles and bookmarks, and search page titles, chapter titles, typed text, and math.
 
 Type directly on a page or write with a stylus using pressure. Switch between pen, pencil, and highlighter. Erase stroke segments or complete strokes, select with a lasso, and use up to 100 Undo and Redo steps. Draw and hold to clean a line, arrow, ellipse, rectangle, or triangle. Undo restores the original ink.
 
@@ -51,4 +51,4 @@ This is a beta release. Accounts, collaboration, and cloud sync are not included
 
 ## Release notes
 
-Closed beta: opt-in on-device handwriting recognition for simple single-line arithmetic, chapters, full-page typing, precision erasing, smart shapes, isolated PDF import, editable backups, and Android 10–17 support.
+Closed beta: notebook search now includes page titles, chapter titles, movable text, math expressions, and math results.

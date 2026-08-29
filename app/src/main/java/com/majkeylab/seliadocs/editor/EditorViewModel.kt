@@ -70,6 +70,7 @@ internal data class EditorUiState(
     val smartShapePreviewId: String? = null,
     val searchQuery: String = "",
     val searchResults: List<PageTextMatch> = emptyList(),
+    val searchFailed: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -175,6 +176,7 @@ private data class EditorControls(
     val smartShapePreviewId: String? = null,
     val searchQuery: String = "",
     val searchResults: List<PageTextMatch> = emptyList(),
+    val searchFailed: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -253,6 +255,8 @@ internal class EditorViewModel(
     private var pendingRecognitionLanguage: RecognitionLanguage? = null
     private var recognitionJob: Job? = null
     private var candidateChoiceJob: Job? = null
+    private var searchJob: Job? = null
+    private var latestSearchQuery = ""
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
@@ -325,6 +329,7 @@ internal class EditorViewModel(
                     smartShapePreviewId = editorControls.smartShapePreviewId,
                     searchQuery = editorControls.searchQuery,
                     searchResults = editorControls.searchResults,
+                    searchFailed = editorControls.searchFailed,
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
@@ -698,23 +703,36 @@ internal class EditorViewModel(
     ) {
         clearRecognition()
         viewModelScope.launch {
-            val didFail =
-                LibraryMutationGate.withLock {
-                    runCatching {
-                        if (
-                            pageId != null &&
-                                text != null &&
-                                repository.getPages(notebookId).any { it.id == pageId }
-                        ) {
-                            savePageText(pageId, text)
-                        }
-                    }.isFailure.also { failed ->
-                        controls.value = controls.value.copy(failed = failed)
-                    }
-                }
+            val didFail = flushPageText(pageId, text)
+            controls.value = controls.value.copy(failed = didFail)
             onComplete(!didFail)
         }
     }
+
+    fun flushPageTextBeforeSearch(pageId: String?, text: String?, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            if (!mutationAllowed()) {
+                onComplete(false)
+                return@launch
+            }
+            val didFail = flushPageText(pageId, text)
+            if (didFail) controls.value = controls.value.copy(failed = true)
+            onComplete(!didFail)
+        }
+    }
+
+    private suspend fun flushPageText(pageId: String?, text: String?): Boolean =
+        LibraryMutationGate.withLock {
+            runCatching {
+                if (
+                    pageId != null &&
+                        text != null &&
+                        repository.getPages(notebookId).any { it.id == pageId }
+                ) {
+                    savePageText(pageId, text)
+                }
+            }.isFailure
+        }
 
     private suspend fun savePageText(pageId: String, text: String) {
         val history = history(pageId)
@@ -725,16 +743,48 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
-    fun searchPageText(query: String) = mutate {
-        controls.value =
-            controls.value.copy(
-                searchQuery = query,
-                searchResults = repository.searchPageText(notebookId, query),
-            )
+    fun searchPageText(query: String) {
+        latestSearchQuery = query
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            clearSearch()
+            return
+        }
+        if (!mutationAllowed()) return
+        searchJob =
+            viewModelScope.launch {
+                val result = runCatching { repository.searchPageText(notebookId, query) }
+                if (latestSearchQuery != query) return@launch
+                result
+                    .onSuccess { matches ->
+                        controls.value =
+                            controls.value.copy(
+                                searchQuery = query,
+                                searchResults = matches,
+                                searchFailed = false,
+                            )
+                    }.onFailure { failure ->
+                        if (failure is CancellationException) throw failure
+                        controls.value =
+                            controls.value.copy(
+                                searchQuery = query,
+                                searchResults = emptyList(),
+                                searchFailed = true,
+                            )
+                    }
+            }
     }
 
     fun clearSearch() {
-        controls.value = controls.value.copy(searchQuery = "", searchResults = emptyList())
+        latestSearchQuery = ""
+        searchJob?.cancel()
+        searchJob = null
+        controls.value =
+            controls.value.copy(
+                searchQuery = "",
+                searchResults = emptyList(),
+                searchFailed = false,
+            )
     }
 
     fun importImage(pageId: String, uri: Uri) = mutate {
@@ -1442,6 +1492,7 @@ internal class EditorViewModel(
     override fun onCleared() {
         recognitionJob?.cancel()
         candidateChoiceJob?.cancel()
+        searchJob?.cancel()
     }
 
     private companion object {

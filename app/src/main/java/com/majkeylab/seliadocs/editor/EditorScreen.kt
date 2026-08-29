@@ -268,6 +268,12 @@ private fun EditorScreen(
     var shapeDialogOpen by remember { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var contentsOpen by rememberSaveable { mutableStateOf(false) }
+    val requestSearch: () -> Unit = {
+        val draft = sessionHolder.latestDraft(state.pages.mapTo(mutableSetOf()) { it.id })
+        viewModel.flushPageTextBeforeSearch(draft?.pageId, draft?.value?.text) { saved ->
+            if (saved && sessionHolder.mutationsAllowed()) searchOpen = true
+        }
+    }
     val requestClose: (EditorCloseIntent) -> Unit = { intent ->
         if (sessionHolder.beginClose(intent)) {
             val draft = sessionHolder.latestDraft(state.pages.mapTo(mutableSetOf()) { it.id })
@@ -415,7 +421,7 @@ private fun EditorScreen(
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
                             onAddPage = viewModel::addPage,
-                            onSearch = { searchOpen = true },
+                            onSearch = requestSearch,
                             onSelectPencil = { viewModel.selectTool(EditorTool.PENCIL) },
                             onFingerDrawing = viewModel::setFingerDrawing,
                             onExport = onExport,
@@ -437,7 +443,7 @@ private fun EditorScreen(
                             onEraserMode = viewModel::setEraserMode,
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
-                            onSearch = { searchOpen = true },
+                            onSearch = requestSearch,
                             onAddText = { textPageId = state.selectedPage?.id },
                             onAddImage = onAddImage,
                             onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
@@ -1215,13 +1221,17 @@ private fun SearchDialog(
     onDismiss: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf(state.searchQuery) }
+    var closing by remember { mutableStateOf(false) }
     val visibleResults = if (state.searchQuery == query) state.searchResults else emptyList()
     LaunchedEffect(query) {
         delay(250)
-        onQuery(query)
+        if (!closing) onQuery(query)
     }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            closing = true
+            onDismiss()
+        },
         title = { Text(stringResource(R.string.search_notebook)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1230,13 +1240,16 @@ private fun SearchDialog(
                     onValueChange = { query = it.take(256) },
                     label = { Text(stringResource(R.string.search_page_text)) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("search-query"),
                 )
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                     itemsIndexed(visibleResults, key = { _, result -> result.pageId }) { _, result ->
                         TextButton(
-                            onClick = { onSelect(result.pageId) },
-                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                closing = true
+                                onSelect(result.pageId)
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("search-result-${result.pageIndex}"),
                         ) {
                             Column(Modifier.fillMaxWidth()) {
                                 Text(
@@ -1252,13 +1265,26 @@ private fun SearchDialog(
                         }
                     }
                 }
-                if (query.isNotBlank() && state.searchQuery == query && visibleResults.isEmpty()) {
-                    Text(stringResource(R.string.no_search_results), style = MaterialTheme.typography.bodyMedium)
+                if (query.isNotBlank() && state.searchQuery == query) {
+                    when {
+                        state.searchFailed ->
+                            Text(stringResource(R.string.search_failed), style = MaterialTheme.typography.bodyMedium)
+                        visibleResults.isEmpty() ->
+                            Text(
+                                stringResource(R.string.no_search_results),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                    }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+            TextButton(
+                onClick = {
+                    closing = true
+                    onDismiss()
+                },
+            ) { Text(stringResource(R.string.close)) }
         },
     )
 }
