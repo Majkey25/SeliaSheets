@@ -1,6 +1,8 @@
 package com.majkeylab.seliadocs.editor
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,6 +29,53 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ElementFlowTest {
+    @Test
+    fun importedImageIsSelectedAndTransformable() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Image import"))
+        val source = File(application.cacheDir, "image-${System.nanoTime()}.png")
+        var importedAssetId: String? = null
+        val bitmap = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888)
+        try {
+            source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally {
+            bitmap.recycle()
+        }
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val page = viewModel.awaitState("image page") { it.selectedPage != null }.selectedPage!!
+
+            onMain { viewModel.importImage(page.id, Uri.fromFile(source)) }
+            val imported =
+                viewModel.awaitState("image import") {
+                    it.elements.singleOrNull()?.let { image ->
+                        image.kind == ElementKind.IMAGE.name &&
+                            it.tool == EditorTool.LASSO &&
+                            it.selectedElementId == image.id
+                    } == true
+                }
+            val image = imported.elements.single()
+            importedAssetId = image.assetId
+            assertEquals(EditorTool.LASSO, imported.tool)
+            assertEquals(image.id, imported.selectedElementId)
+
+            val transformed = image.transform().copy(x = 40f, y = 60f, width = 240f, height = 120f, rotation = 15f)
+            onMain { viewModel.updateSelectedElement(transformed) }
+            viewModel.awaitState("image transform") { it.selectedElement?.rotation == 15f }
+            onMain(viewModel::undo)
+            viewModel.awaitState("image transform undo") { it.selectedElement?.rotation == image.rotation }
+            onMain(viewModel::redo)
+            viewModel.awaitState("image transform redo") { it.selectedElement?.rotation == 15f }
+            Unit
+        } finally {
+            repository.deleteNotebook(notebookId)
+            importedAssetId?.let { AssetStore(File(application.filesDir, "assets")).file(it).delete() }
+            source.delete()
+        }
+    }
+
     @Test
     fun textElementSupportsUndoAndRedo() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()

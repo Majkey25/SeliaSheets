@@ -10,6 +10,9 @@ internal enum class DefaultTool { PEN, PENCIL, HIGHLIGHTER }
 
 internal enum class AppTheme { SYSTEM, LIGHT, DARK }
 
+internal val PEN_WIDTH_RANGE = 1f..32f
+internal val HIGHLIGHTER_WIDTH_RANGE = 4f..64f
+
 internal data class AppSettings(
     val defaultTool: DefaultTool = DefaultTool.PEN,
     val penWidth: Float = 4f,
@@ -29,8 +32,8 @@ internal data class AppSettings(
 ) {
     fun validated(): AppSettings =
         copy(
-            penWidth = penWidth.coerceIn(2f, 12f),
-            highlighterWidth = highlighterWidth.coerceIn(8f, 40f),
+            penWidth = penWidth.coerceIn(PEN_WIDTH_RANGE),
+            highlighterWidth = highlighterWidth.coerceIn(HIGHLIGHTER_WIDTH_RANGE),
         )
 }
 

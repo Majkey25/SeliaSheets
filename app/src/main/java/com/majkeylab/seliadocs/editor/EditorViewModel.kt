@@ -791,7 +791,8 @@ internal class EditorViewModel(
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val asset = imageImporter.importImage(uri).getOrThrow()
         val history = history(pageId)
-        runCatching {
+        val elementId =
+            runCatching {
                 val scale =
                     minOf(
                         page.widthPoints * 0.7f / asset.width,
@@ -811,11 +812,17 @@ internal class EditorViewModel(
                     ),
                 )
             }
-            .onFailure {
+            .getOrElse {
                 asset.file.delete()
                 throw it
             }
         history.push(snapshot(pageId))
+        controls.value =
+            controls.value.copy(
+                tool = EditorTool.LASSO,
+                selectedStrokeIds = emptySet(),
+                selectedElementId = elementId,
+            )
         updateHistoryControls(history)
     }
 

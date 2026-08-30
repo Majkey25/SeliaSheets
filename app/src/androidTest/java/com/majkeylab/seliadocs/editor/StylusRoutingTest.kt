@@ -3,6 +3,7 @@ package com.majkeylab.seliadocs.editor
 import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.Stroke
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +17,51 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class StylusRoutingTest {
+    @Test
+    fun completedStylusStrokePreservesPressureChanges() {
+        val committed = CountDownLatch(1)
+        val finished = AtomicReference<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished.set(stroke)
+                            committed.countDown()
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                view.post {
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f, pressure = 0.15f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 80f, 90f, pressure = 0.9f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 100f, 120f, pressure = 0.9f),
+                    )
+                }
+            }
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
+        }
+
+        val stroke = requireNotNull(finished.get())
+        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        assertTrue(pressures.min() <= 0.2f)
+        assertTrue(pressures.max() >= 0.85f)
+        assertEquals(
+            StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1),
+            stroke.brush.family,
+        )
+    }
+
     @Test
     fun completedStylusStrokeIsCommitted() {
         val committed = CountDownLatch(1)
@@ -564,6 +610,7 @@ class StylusRoutingTest {
         y: Float,
         flags: Int = 0,
         toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        pressure: Float = 0.7f,
     ): MotionEvent {
         val properties =
             MotionEvent.PointerProperties().apply {
@@ -574,7 +621,7 @@ class StylusRoutingTest {
             MotionEvent.PointerCoords().apply {
                 this.x = x
                 this.y = y
-                pressure = 0.7f
+                this.pressure = pressure
                 size = 0.1f
                 orientation = 0.3f
                 setAxisValue(MotionEvent.AXIS_TILT, 0.4f)

@@ -2,6 +2,17 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.4.2-beta.1] - 2026-08-30
+
+### Added
+
+- Added continuous pen and highlighter width sliders with live previews and wider ranges.
+
+### Fixed
+
+- Kept stylus, lasso, and eraser input aligned and reachable after live page zoom.
+- Selected imported images immediately so move, resize, rotate, Undo, and Redo are available without another selection step.
+
 ## [0.4.1-beta.1] - 2026-08-30
 
 ### Fixed
@@ -76,3 +87,4 @@ All notable changes to SeliaSheets are documented here.
 [0.2.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.0-beta.1
 [0.1.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.1.0-beta.1
 [0.2.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.1-beta.1
+[0.4.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.2-beta.1

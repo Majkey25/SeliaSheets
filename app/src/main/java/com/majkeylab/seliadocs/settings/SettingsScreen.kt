@@ -133,14 +133,14 @@ internal fun SettingsScreen(
                         label = stringResource(R.string.pen_width),
                         sampleLabel = stringResource(R.string.pen_sample),
                         value = settings.penWidth,
-                        range = 2f..12f,
+                        range = PEN_WIDTH_RANGE,
                         color = Color(settings.penColorArgb),
                     ) { width -> onUpdate { it.copy(penWidth = width) } }
                     StrokeSliderSetting(
                         label = stringResource(R.string.highlighter_width),
                         sampleLabel = stringResource(R.string.highlighter_sample),
                         value = settings.highlighterWidth,
-                        range = 8f..40f,
+                        range = HIGHLIGHTER_WIDTH_RANGE,
                         color = Color(settings.highlighterColorArgb),
                     ) { width -> onUpdate { it.copy(highlighterWidth = width) } }
                     SwitchSetting(
@@ -459,7 +459,7 @@ private fun StrokeSliderSetting(
             color = Color(0xFFFFFEFA),
             shape = RoundedCornerShape(8.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.fillMaxWidth().height(54.dp).semantics { contentDescription = sampleLabel },
+            modifier = Modifier.fillMaxWidth().height(72.dp).semantics { contentDescription = sampleLabel },
         ) {
             Canvas(Modifier.fillMaxSize()) {
                 drawLine(
