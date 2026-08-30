@@ -63,7 +63,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.4.1-beta.1` keeps the accepted `0.4.0-beta.1` notebook code and enlarges the installed adaptive and themed launcher artwork. The final source passed a signed 151-task gate and the four-test Huawei icon contract. See the [0.4.1 icon acceptance report](docs/qa/2026-08-30-seliasheets-icon-scale.md). Hardware hover and stylus side-button behavior remain device-dependent follow-up QA. Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.4.2-beta.1` keeps stylus, lasso, and eraser input aligned after live zoom, selects imported images for immediate transforms, and replaces fixed brush widths with continuous sliders. The final source passed the 149-task local build gate and the 60-test affected Huawei suite. See the [0.4.2 ink and media acceptance report](docs/qa/2026-08-30-seliasheets-ink-media-controls.md). Hardware pressure, hover, and stylus side-button behavior remain device-dependent follow-up QA. Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 

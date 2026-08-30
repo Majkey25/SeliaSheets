@@ -91,10 +91,14 @@ class SettingsRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val file = File(context.cacheDir, "settings-${System.nanoTime()}.preferences_pb")
         val store = PreferenceDataStoreFactory.create { file }
-        store.edit { preferences -> preferences[floatPreferencesKey("pen_width")] = 99f }
+        store.edit { preferences ->
+            preferences[floatPreferencesKey("pen_width")] = 99f
+            preferences[floatPreferencesKey("highlighter_width")] = -1f
+        }
         val repository = SettingsRepository(store)
 
-        assertEquals(12f, repository.settings.first().penWidth)
+        assertEquals(32f, repository.settings.first().penWidth)
+        assertEquals(4f, repository.settings.first().highlighterWidth)
         repository.update {
             it.copy(
                 theme = AppTheme.DARK,

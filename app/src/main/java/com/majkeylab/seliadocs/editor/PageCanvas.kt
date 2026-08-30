@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +39,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -48,7 +51,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke as DrawStroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.clip
@@ -73,6 +75,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -251,9 +254,9 @@ private fun Paper(
             brushFor(tool, penWidth, highlighterWidth, penColorArgb, highlighterColorArgb)
         }
     val selectedElement = elements.firstOrNull { it.id == selectedElementId }
-    var viewportZoom by remember(page.id) { mutableStateOf(initialViewport.zoom) }
-    var viewportPanX by remember(page.id) { mutableStateOf(initialViewport.panX) }
-    var viewportPanY by remember(page.id) { mutableStateOf(initialViewport.panY) }
+    var viewportZoom by remember(page.id) { mutableFloatStateOf(initialViewport.zoom) }
+    var viewportPanX by remember(page.id) { mutableFloatStateOf(initialViewport.panX) }
+    var viewportPanY by remember(page.id) { mutableFloatStateOf(initialViewport.panY) }
     var previewTransform by
         remember(
             selectedElement?.id,
@@ -421,22 +424,19 @@ private fun Paper(
                 }
         Box(viewportModifier, contentAlignment = Alignment.Center) {
             Surface(
-            color = Color(0xFFFFFEFA),
-                    shape = RoundedCornerShape(2.dp),
-                    shadowElevation = 4.dp,
-                    modifier =
-                        Modifier
-                            .testTag("page-paper")
-                            .width(paperWidth)
-                    .height(paperHeight)
-                    .graphicsLayer {
-                        scaleX = viewportZoom
-                        scaleY = viewportZoom
-                        translationX = viewportPanX
-                        translationY = viewportPanY
-                    },
-        ) {
-            BoxWithConstraints {
+                color = Color(0xFFFFFEFA),
+                shape = RoundedCornerShape(2.dp),
+                shadowElevation = 4.dp,
+                modifier =
+                    Modifier
+                        .testTag("page-paper")
+                        .requiredWidth(paperWidth * viewportZoom)
+                        .requiredHeight(paperHeight * viewportZoom)
+                        .offset {
+                            IntOffset(viewportPanX.roundToInt(), viewportPanY.roundToInt())
+                        },
+            ) {
+                BoxWithConstraints {
                 val scaleX = maxWidth.value / page.widthPoints
                 val scaleY = maxHeight.value / page.heightPoints
                 PaperPattern(page.paper, Modifier.fillMaxSize())

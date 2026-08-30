@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
@@ -45,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -56,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -105,6 +108,9 @@ import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 import com.majkeylab.seliadocs.recognition.RecognitionModelManager
 import com.majkeylab.seliadocs.settings.AppSettings
 import com.majkeylab.seliadocs.settings.DefaultTool
+import com.majkeylab.seliadocs.settings.HIGHLIGHTER_WIDTH_RANGE
+import com.majkeylab.seliadocs.settings.PEN_WIDTH_RANGE
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -984,7 +990,8 @@ private fun BrushOptions(
     val highlighter = tool == EditorTool.HIGHLIGHTER
     val currentWidth = if (highlighter) settings.highlighterWidth else settings.penWidth
     val currentColor = if (highlighter) settings.highlighterColorArgb else settings.penColorArgb
-    val widths = if (highlighter) listOf(12f, 22f, 36f) else listOf(2f, 4f, 8f)
+    val widthRange = if (highlighter) HIGHLIGHTER_WIDTH_RANGE else PEN_WIDTH_RANGE
+    val widthLabel = stringResource(if (highlighter) R.string.highlighter_width else R.string.pen_width)
     val colors =
         if (highlighter) {
             listOf(
@@ -1006,29 +1013,17 @@ private fun BrushOptions(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        widths.forEach { width ->
-            val selectedWidth = currentWidth == width
-            val widthDescription = stringResource(R.string.brush_width_value, width.toInt())
-            Surface(
-                onClick = {
-                    onUpdate { current ->
-                        if (highlighter) current.copy(highlighterWidth = width) else current.copy(penWidth = width)
-                    }
-                },
-                color = if (selectedWidth) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                border = BorderStroke(1.dp, if (selectedWidth) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                shape = RoundedCornerShape(12.dp),
-                modifier =
-                    Modifier
-                        .size(48.dp)
-                        .testTag("brush-width-${width.toInt()}")
-                        .semantics {
-                            selected = selectedWidth
-                            contentDescription = widthDescription
-                        },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(width.toInt().toString(), style = MaterialTheme.typography.labelLarge)
+        BrushWidthControl(
+            label = widthLabel,
+            value = currentWidth,
+            range = widthRange,
+            color = Color(currentColor),
+        ) { width ->
+            onUpdate { current ->
+                if (highlighter) {
+                    current.copy(highlighterWidth = width)
+                } else {
+                    current.copy(penWidth = width)
                 }
             }
         }
@@ -1082,6 +1077,48 @@ private fun BrushOptions(
                 Text(smartShapesLabel, style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
+}
+
+@Composable
+private fun BrushWidthControl(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    color: Color,
+    onChange: (Float) -> Unit,
+) {
+    var sliderValue by remember(value) { mutableFloatStateOf(value) }
+    val description = stringResource(R.string.setting_value, label, sliderValue.roundToInt())
+    Column(
+        Modifier.width(196.dp).padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(description, style = MaterialTheme.typography.labelMedium)
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .testTag("brush-width-preview")
+                .semantics { contentDescription = description },
+        ) {
+            val progress = (sliderValue - range.start) / (range.endInclusive - range.start)
+            val strokeWidth = 2.dp.toPx() + progress * (size.height - 4.dp.toPx())
+            drawLine(
+                color = color,
+                start = androidx.compose.ui.geometry.Offset(8.dp.toPx(), size.height / 2f),
+                end = androidx.compose.ui.geometry.Offset(size.width - 8.dp.toPx(), size.height / 2f),
+                strokeWidth = strokeWidth,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+        }
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = { onChange(sliderValue) },
+            valueRange = range,
+            modifier = Modifier.fillMaxWidth().testTag("brush-width-slider"),
+        )
     }
 }
 

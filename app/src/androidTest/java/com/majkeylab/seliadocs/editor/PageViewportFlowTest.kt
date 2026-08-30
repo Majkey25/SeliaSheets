@@ -100,6 +100,75 @@ class PageViewportFlowTest {
     }
 
     @Test
+    fun rootStylusAfterPinchCommitsAtVisiblePaperPoint() {
+        val finished = AtomicReference<Stroke>()
+        renderPage(EditorTool.PEN, onStrokeFinished = finished::set)
+        pinchToMaximumZoom()
+        val rootPoint = visiblePaperPoint(xFraction = 0.58f, yFraction = 0.46f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            )
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            )
+        }
+        compose.waitUntil(10_000) { finished.get() != null }
+
+        val first = requireNotNull(finished.get()).inputs[0]
+        assertEquals(595f * 0.58f, first.x, 4f)
+        assertEquals(842f * 0.46f, first.y, 4f)
+    }
+
+    @Test
+    fun rootLassoAfterPinchReturnsVisiblePaperPoint() {
+        val selected = AtomicReference<List<CanvasPoint>>()
+        renderPage(EditorTool.LASSO, onLassoFinished = selected::set)
+        pinchToMaximumZoom()
+        val rootPoint = visiblePaperPoint(xFraction = 0.55f, yFraction = 0.52f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            )
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            )
+        }
+        compose.waitUntil(10_000) { selected.get() != null }
+
+        val last = requireNotNull(selected.get()).last()
+        assertEquals(595f * 0.55f, last.x, 4f)
+        assertEquals(842f * 0.52f, last.y, 4f)
+    }
+
+    @Test
+    fun rootEraserAfterPinchReturnsVisiblePaperPoint() {
+        val erased = AtomicReference<List<CanvasPoint>>()
+        renderPage(EditorTool.ERASER, onEraseFinished = erased::set)
+        pinchToMaximumZoom()
+        val rootPoint = visiblePaperPoint(xFraction = 0.45f, yFraction = 0.48f)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            )
+            decor.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            )
+        }
+        compose.waitUntil(10_000) { erased.get() != null }
+
+        val last = requireNotNull(erased.get()).last()
+        assertEquals(595f * 0.45f, last.x, 4f)
+        assertEquals(842f * 0.48f, last.y, 4f)
+    }
+
+    @Test
     fun rootLassoWithKnownZoomAndPanReturnsVisiblePaperPoint() {
         val selected = AtomicReference<List<CanvasPoint>>()
         renderPage(
@@ -213,6 +282,22 @@ class PageViewportFlowTest {
         return requireNotNull(result.get())
     }
 
+    private fun pinchToMaximumZoom() {
+        val viewport = compose.onNodeWithTag("page-viewport")
+        viewport.performTouchInput {
+            pinch(
+                start0 = center + Offset(-40f, 0f),
+                end0 = center + Offset(-160f, 0f),
+                start1 = center + Offset(40f, 0f),
+                end1 = center + Offset(160f, 0f),
+                durationMillis = 300,
+            )
+        }
+        compose.waitUntil(3_000) {
+            zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() >= 300
+        }
+    }
+
     private fun findInkCanvas(view: View): InkCanvasView? {
         if (view is InkCanvasView) return view
         if (view !is ViewGroup) return null
@@ -227,6 +312,7 @@ class PageViewportFlowTest {
         initialViewport: PageViewport = PageViewport(),
         onStrokeFinished: (Stroke) -> Unit = {},
         onLassoFinished: (List<CanvasPoint>) -> Unit = {},
+        onEraseFinished: (List<CanvasPoint>) -> Unit = {},
     ) {
         compose.setContent {
             PageCanvas(
@@ -246,7 +332,7 @@ class PageViewportFlowTest {
                 onPreviousPage = {},
                 onNextPage = {},
                 onStrokeFinished = { _, stroke -> onStrokeFinished(stroke) },
-                onEraseFinished = { _, _ -> },
+                onEraseFinished = { _, points -> onEraseFinished(points) },
                 onSelectContent = { _, points -> onLassoFinished(points) },
                 onMoveSelection = { _, _ -> },
                 onPageTextChanged = { _, _ -> },

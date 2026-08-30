@@ -1,6 +1,6 @@
 # Google Play data safety
 
-Working answers for version `0.4.1-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
+Working answers for version `0.4.2-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
 
 ## Collection and sharing
 

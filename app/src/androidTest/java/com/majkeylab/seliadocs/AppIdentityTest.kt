@@ -14,7 +14,8 @@ class AppIdentityTest {
     fun installedPackageAndDatabaseUseSeliaDocsIdentity() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
-        assertEquals("com.majkeylab.seliadocs", context.packageName)
+        assertEquals(BuildConfig.APPLICATION_ID, context.packageName)
+        assertEquals("com.majkeylab.seliadocs", BuildConfig.APPLICATION_ID.removeSuffix(".debug"))
         assertEquals("seliadocs.db", SeliaDocsDatabase.FILE_NAME)
     }
 }

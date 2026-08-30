@@ -373,16 +373,40 @@ class EditorCompactUiTest {
     fun compactPenExposesWidthsAndColorsWithoutLeavingEditor() {
         openCompactEditor()
 
+        val penRange =
+            rule.onNodeWithTag("brush-width-slider")
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.ProgressBarRangeInfo]
+        assertEquals(1f, penRange.range.start)
+        assertEquals(32f, penRange.range.endInclusive)
+        rule.onNodeWithTag("brush-width-slider")
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(32f) }
+        rule.waitForIdle()
+        assertEquals(
+            32f,
+            rule.onNodeWithTag("brush-width-slider")
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.ProgressBarRangeInfo]
+                .current,
+        )
+
         listOf(
-            "brush-width-2",
-            "brush-width-4",
-            "brush-width-8",
             "brush-color-black",
             "brush-color-blue",
             "brush-color-red",
         )
             .forEach { tag -> rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction() }
         rule.onNodeWithTag("brush-shape-assist").assertExists().assertHasClickAction()
+
+        rule.onNodeWithTag("compact-tool-highlighter").performClick()
+        val highlighterRange =
+            rule.onNodeWithTag("brush-width-slider")
+                .assertIsDisplayed()
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.ProgressBarRangeInfo]
+        assertEquals(4f, highlighterRange.range.start)
+        assertEquals(64f, highlighterRange.range.endInclusive)
     }
 
     @Test
