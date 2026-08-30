@@ -19,7 +19,7 @@ class LauncherIconResourceTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Test
-    fun foregroundArtIsTransparentAndFitsTheAdaptiveSafePresentation() {
+    fun foregroundArtIsTransparentAndFitsTheAdaptiveMask() {
         val inset = foregroundInset()
         val bitmap = requireNotNull(
             BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_foreground_art),
@@ -32,15 +32,15 @@ class LauncherIconResourceTest {
             )
             assertNoBakedBeigePlate(bitmap)
 
-            val outerBounds = presentedBounds(bitmap, inset, minAlpha = VISIBLE_ALPHA)
-            assertTrue(
-                "Foreground alpha fringe exceeds the guaranteed adaptive safe circle: ${outerBounds.maxRadius}",
-                outerBounds.maxRadius <= SAFE_CIRCLE_RADIUS,
-            )
             val subjectBounds = presentedBounds(bitmap, inset, minAlpha = MEANINGFUL_ALPHA)
             assertTrue(
-                "Meaningful foreground content exceeds the guaranteed adaptive safe circle: ${subjectBounds.maxRadius}",
-                subjectBounds.maxRadius <= SAFE_CIRCLE_RADIUS,
+                "Meaningful foreground content exceeds the adaptive mask circle: ${subjectBounds.maxRadius}",
+                subjectBounds.maxRadius <= MASK_CIRCLE_RADIUS,
+            )
+            val outerBounds = presentedBounds(bitmap, inset, minAlpha = VISIBLE_ALPHA)
+            assertTrue(
+                "Foreground alpha fringe exceeds the adaptive mask circle: ${outerBounds.maxRadius}",
+                outerBounds.maxRadius <= MASK_CIRCLE_RADIUS,
             )
             assertTrue(
                 "Meaningful foreground subject is too narrow",
@@ -248,8 +248,8 @@ class LauncherIconResourceTest {
     private companion object {
         const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
         const val CHILD_EXPANSION = 1.5
-        const val SAFE_CIRCLE_RADIUS = 33.0 / 108.0
-        const val INTENDED_FOREGROUND_INSET = 0.28
+        const val MASK_CIRCLE_RADIUS = 0.5
+        const val INTENDED_FOREGROUND_INSET = 0.24
         const val INSET_TOLERANCE = 0.000001
         const val VISIBLE_ALPHA = 8
         const val MEANINGFUL_ALPHA = 128

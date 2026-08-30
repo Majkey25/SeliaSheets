@@ -2,6 +2,12 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.4.1-beta.1] - 2026-08-30
+
+### Fixed
+
+- Enlarged the installed adaptive and themed launcher artwork while preserving its centered layout, colors, and transparent foreground.
+
 ## [0.4.0-beta.1] - 2026-08-29
 
 ### Added

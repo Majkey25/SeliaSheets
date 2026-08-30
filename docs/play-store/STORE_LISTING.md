@@ -51,4 +51,4 @@ This is a beta release. Accounts, collaboration, and cloud sync are not included
 
 ## Release notes
 
-Closed beta: notebook search now includes page titles, chapter titles, movable text, math expressions, and math results.
+Closed beta: the installed launcher artwork is larger while preserving its centered layout and original colors.
