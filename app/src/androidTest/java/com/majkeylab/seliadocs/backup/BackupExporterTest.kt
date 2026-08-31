@@ -107,7 +107,15 @@ class BackupExporterTest {
         assets.file("asset.png").writeBytes(assetBytes)
         repository.addElement(
             firstPage.id,
-            ElementDraft(ElementKind.IMAGE, 20f, 140f, 80f, 80f, assetId = "asset.png"),
+            ElementDraft(
+                ElementKind.IMAGE,
+                20f,
+                140f,
+                80f,
+                80f,
+                assetId = "asset.png",
+                ocrRegions = "VmVsb2NpdHk,0.1,0.2,0.8,0.4",
+            ),
         )
         val output = ByteArrayOutputStream()
 
@@ -125,6 +133,10 @@ class BackupExporterTest {
         assertEquals(chapterId, records.filterIsInstance<BackupPage>().first().chapterId)
         assertEquals(1, records.filterIsInstance<BackupStroke>().size)
         assertEquals(3, records.filterIsInstance<BackupElement>().size)
+        assertEquals(
+            "VmVsb2NpdHk,0.1,0.2,0.8,0.4",
+            records.filterIsInstance<BackupElement>().single { it.kind == ElementKind.IMAGE.name }.ocrRegions,
+        )
         assertEquals("Typed lecture notes", records.filterIsInstance<BackupBlock>().single().text)
         assertArrayEquals(assetBytes, entries.getValue("assets/asset.png"))
         assertEquals(sha256(assetBytes), readChecksums(entries.getValue("checksums.json")).getValue("assets/asset.png"))

@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TextMarkEntity::class,
         PdfSourceEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 internal abstract class SeliaDocsDatabase : RoomDatabase() {
@@ -127,6 +127,13 @@ internal abstract class SeliaDocsDatabase : RoomDatabase() {
                 }
             }
 
+        val MIGRATION_3_4 =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE elements ADD COLUMN ocrRegions TEXT")
+                }
+            }
+
         fun get(context: Context): SeliaDocsDatabase =
             instance
                 ?: synchronized(this) {
@@ -136,7 +143,7 @@ internal abstract class SeliaDocsDatabase : RoomDatabase() {
                             SeliaDocsDatabase::class.java,
                             FILE_NAME,
                         )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                             .build()
                             .also { instance = it }
                 }

@@ -3,6 +3,7 @@ package com.majkeylab.seliadocs.data
 import androidx.room.withTransaction
 import com.majkeylab.seliadocs.editor.clampElementTransform
 import com.majkeylab.seliadocs.editor.transform
+import com.majkeylab.seliadocs.recognition.MAX_OCR_REGION_DATA_LENGTH
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
@@ -99,6 +100,8 @@ internal class SeliaDocsRepository(
     suspend fun getStrokes(pageId: String): List<StrokeEntity> = pageContent.getStrokes(pageId)
 
     suspend fun getElements(pageId: String): List<ElementEntity> = pageContent.getElements(pageId)
+
+    suspend fun getElement(id: String): ElementEntity? = pageContent.getElement(id)
 
     suspend fun getBlocks(pageId: String): List<BlockEntity> = pageContent.getBlocks(pageId)
 
@@ -625,10 +628,16 @@ internal class SeliaDocsRepository(
         )
         when (draft.kind) {
             ElementKind.TEXT -> require(!draft.text.isNullOrBlank() && draft.text.length <= 10_000)
-            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank() && (draft.text?.length ?: 0) <= 10_000)
+            ElementKind.IMAGE ->
+                require(
+                    !draft.assetId.isNullOrBlank() &&
+                        (draft.text?.length ?: 0) <= 10_000 &&
+                        (draft.ocrRegions?.length ?: 0) <= MAX_OCR_REGION_DATA_LENGTH,
+                )
             ElementKind.SHAPE -> require(!draft.shapeKind.isNullOrBlank())
             ElementKind.MATH -> require(!draft.expression.isNullOrBlank() && !draft.resultText.isNullOrBlank())
         }
+        if (draft.kind != ElementKind.IMAGE) require(draft.ocrRegions == null)
     }
 
     private fun validateElement(element: ElementEntity) {
@@ -645,6 +654,7 @@ internal class SeliaDocsRepository(
                 shapeKind = element.shapeKind,
                 expression = element.expression,
                 resultText = element.resultText,
+                ocrRegions = element.ocrRegions,
             ),
         )
     }
@@ -670,6 +680,7 @@ internal class SeliaDocsRepository(
             shapeKind = draft.shapeKind,
             expression = draft.expression,
             resultText = draft.resultText,
+            ocrRegions = draft.ocrRegions,
         )
 
 }

@@ -34,7 +34,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ElementFlowTest {
     @Test
-    fun importedImageTextIsSearchable() = runBlocking {
+    fun importedImageTextIsSearchable(): Unit = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
         val notebookId = repository.createNotebook(testNotebook("Image OCR"))
@@ -70,6 +70,8 @@ class ElementFlowTest {
 
             val match = repository.searchPageText(notebookId, "organic chemistry").single()
             assertEquals(page.id, match.pageId)
+            assertEquals(imported.elements.single().id, match.elementId)
+            assertFalse(imported.elements.single().ocrRegions.isNullOrBlank())
             assertTrue(
                 repository.searchPageText(
                     notebookId,
@@ -77,6 +79,14 @@ class ElementFlowTest {
                     includeImageOcr = false,
                 ).isEmpty(),
             )
+            repository.updateElement(imported.elements.single().copy(ocrRegions = "broken"))
+            viewModel.awaitState("legacy OCR metadata") { it.elements.single().ocrRegions == "broken" }
+            onMain { viewModel.searchPageText("organic chemistry") }
+            val searchState = viewModel.awaitState("OCR search result") { it.searchResults.isNotEmpty() }
+            onMain { viewModel.openSearchResult(searchState.searchResults.single()) }
+            val highlighted = viewModel.awaitState("OCR search highlight") { it.ocrSearchHighlight != null }
+            assertEquals(imported.elements.single().id, highlighted.ocrSearchHighlight?.elementId)
+            viewModel.awaitState("OCR region regeneration") { !it.elements.single().ocrRegions.isNullOrBlank() }
         } finally {
             repository.deleteNotebook(notebookId)
             importedAssetId?.let { AssetStore(File(application.filesDir, "assets")).file(it).delete() }

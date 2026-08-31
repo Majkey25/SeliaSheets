@@ -13,6 +13,8 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.editor.BrushKind
 import com.majkeylab.seliadocs.editor.ShapeKind
+import com.majkeylab.seliadocs.recognition.MAX_OCR_REGION_DATA_LENGTH
+import com.majkeylab.seliadocs.recognition.decodeImageOcrRegions
 import java.io.BufferedReader
 import java.io.Reader
 import java.io.StringReader
@@ -235,6 +237,7 @@ internal object BackupJson {
         writeNullableString("shapeKind", record.shapeKind)
         writeNullableString("expression", record.expression)
         writeNullableString("resultText", record.resultText)
+        writeNullableString("ocrRegions", record.ocrRegions)
     }
 
     private fun JsonWriter.writeBlock(record: BackupBlock) {
@@ -481,6 +484,7 @@ internal object BackupJson {
         var shapeKind: String? = null
         var expression: String? = null
         var resultText: String? = null
+        var ocrRegions: String? = null
         beginObject()
         while (hasNext()) {
             when (nextName()) {
@@ -501,6 +505,8 @@ internal object BackupJson {
                     shapeKind = nextNullableString("shapeKind", MAX_SHORT_TEXT_CHARS)
                 "expression" -> expression = nextNullableString("expression", MAX_TEXT_CHARS)
                 "resultText" -> resultText = nextNullableString("resultText", MAX_TEXT_CHARS)
+                "ocrRegions" ->
+                    ocrRegions = nextNullableString("ocrRegions", MAX_OCR_REGION_DATA_LENGTH)
                 else -> skipValue()
             }
         }
@@ -520,6 +526,7 @@ internal object BackupJson {
             shapeKind = shapeKind,
             expression = expression,
             resultText = resultText,
+            ocrRegions = ocrRegions,
         ).also(::validate)
     }
 
@@ -759,6 +766,10 @@ internal object BackupJson {
                 record.shapeKind?.let { requireSize(it, "shapeKind", MAX_SHORT_TEXT_CHARS) }
                 record.expression?.let { requireSize(it, "expression", MAX_TEXT_CHARS) }
                 record.resultText?.let { requireSize(it, "resultText", MAX_TEXT_CHARS) }
+                record.ocrRegions?.let {
+                    requireSize(it, "ocrRegions", MAX_OCR_REGION_DATA_LENGTH)
+                    if (decodeImageOcrRegions(it).isEmpty()) throw BackupFailure.Malformed()
+                }
                 when (enumValue<ElementKind>(record.kind)) {
                     ElementKind.TEXT -> if (record.text == null) throw BackupFailure.Malformed()
                     ElementKind.IMAGE -> if (record.assetId == null) throw BackupFailure.Malformed()
@@ -767,6 +778,9 @@ internal object BackupJson {
                         if (record.expression == null || record.resultText == null) {
                             throw BackupFailure.Malformed()
                         }
+                }
+                if (record.kind != ElementKind.IMAGE.name && record.ocrRegions != null) {
+                    throw BackupFailure.Malformed()
                 }
             }
             is BackupBlock -> {

@@ -26,6 +26,7 @@ import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.StrokePayload
 import com.majkeylab.seliadocs.pdf.PdfImporter
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
+import com.majkeylab.seliadocs.recognition.ImageOcrResult
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkMathDecision
 import com.majkeylab.seliadocs.recognition.InkTextRecognizer
@@ -35,8 +36,10 @@ import com.majkeylab.seliadocs.recognition.RecognitionPoint
 import com.majkeylab.seliadocs.recognition.RecognitionRequest
 import com.majkeylab.seliadocs.recognition.RecognitionStroke
 import com.majkeylab.seliadocs.recognition.boundedRecognitionRequest
+import com.majkeylab.seliadocs.recognition.decodeImageOcrRegions
 import com.majkeylab.seliadocs.recognition.decideInkMath
-import com.majkeylab.seliadocs.recognition.recognizeImageText
+import com.majkeylab.seliadocs.recognition.encodeImageOcrRegions
+import com.majkeylab.seliadocs.recognition.recognizeImage
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -72,6 +75,7 @@ internal data class EditorUiState(
     val searchQuery: String = "",
     val searchResults: List<PageTextMatch> = emptyList(),
     val searchFailed: Boolean = false,
+    val ocrSearchHighlight: OcrSearchHighlight? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -97,6 +101,8 @@ internal data class EditorUiState(
     val selectedPdfSource: PdfSourceEntity?
         get() = pdfSources.firstOrNull { it.id == selectedPage?.pdfSourceId }
 }
+
+internal data class OcrSearchHighlight(val elementId: String, val query: String)
 
 private data class EditorContent(
     val pages: List<PageEntity>,
@@ -139,7 +145,8 @@ internal fun estimatePageSnapshotWeight(
                 element.assetId.estimatedBytes() +
                 element.shapeKind.estimatedBytes() +
                 element.expression.estimatedBytes() +
-                element.resultText.estimatedBytes()
+                element.resultText.estimatedBytes() +
+                element.ocrRegions.estimatedBytes()
         }
     val blockBytes =
         blocks.sumOf { block ->
@@ -179,6 +186,7 @@ private data class EditorControls(
     val searchQuery: String = "",
     val searchResults: List<PageTextMatch> = emptyList(),
     val searchFailed: Boolean = false,
+    val ocrSearchHighlight: OcrSearchHighlight? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
@@ -254,7 +262,7 @@ internal class EditorViewModel(
     private val recognitionDelay: suspend () -> Unit = { delay(RECOGNITION_DEBOUNCE_MS) },
     private val recognitionWriteBoundary: suspend () -> Unit = {},
     private val recognitionCommitBoundary: suspend () -> Unit = {},
-    private val imageTextRecognizer: suspend (File) -> String = ::recognizeImageText,
+    private val imageOcrRecognizer: suspend (File) -> ImageOcrResult = ::recognizeImage,
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -348,6 +356,7 @@ internal class EditorViewModel(
                     searchQuery = editorControls.searchQuery,
                     searchResults = editorControls.searchResults,
                     searchFailed = editorControls.searchFailed,
+                    ocrSearchHighlight = editorControls.ocrSearchHighlight,
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
@@ -359,6 +368,7 @@ internal class EditorViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
     fun selectPage(id: String) {
+        controls.value = controls.value.copy(ocrSearchHighlight = null)
         if (state.value.selectedPage?.id == id) return
         clearRecognition()
         selectedPageId.value = id
@@ -386,6 +396,7 @@ internal class EditorViewModel(
                 tool = tool,
                 selectedStrokeIds = if (tool == EditorTool.LASSO) controls.value.selectedStrokeIds else emptySet(),
                 selectedElementId = if (tool == EditorTool.LASSO) controls.value.selectedElementId else null,
+                ocrSearchHighlight = null,
             )
     }
 
@@ -810,17 +821,65 @@ internal class EditorViewModel(
             )
     }
 
+    fun openSearchResult(result: PageTextMatch) {
+        val highlight =
+            result.elementId?.let { elementId ->
+                OcrSearchHighlight(elementId, latestSearchQuery.trim())
+            }
+        selectPage(result.pageId)
+        controls.value =
+            controls.value.copy(
+                selectedStrokeIds = emptySet(),
+                selectedElementId = result.elementId,
+                ocrSearchHighlight = highlight,
+            )
+        result.elementId?.let(::regenerateMissingOcrRegions)
+        clearSearch()
+    }
+
+    private fun regenerateMissingOcrRegions(elementId: String) {
+        if (!mutationAllowed()) return
+        viewModelScope.launch {
+            val element = runCatching { repository.getElement(elementId) }.getOrNull() ?: return@launch
+            if (
+                element.kind != ElementKind.IMAGE.name ||
+                    decodeImageOcrRegions(element.ocrRegions).isNotEmpty()
+            ) {
+                return@launch
+            }
+            val assetId = element.assetId ?: return@launch
+            val recognized = runCatching { imageOcrRecognizer(assets.file(assetId)) }.getOrNull() ?: return@launch
+            val regions = encodeImageOcrRegions(recognized.regions).takeIf(String::isNotEmpty) ?: return@launch
+            LibraryMutationGate.withLock {
+                val current = repository.getElement(elementId) ?: return@withLock
+                if (
+                    current.assetId != assetId ||
+                        decodeImageOcrRegions(current.ocrRegions).isNotEmpty()
+                ) {
+                    return@withLock
+                }
+                repository.updateElement(
+                    current.copy(
+                        text = recognized.text.trim().take(10_000).takeIf(String::isNotEmpty) ?: current.text,
+                        ocrRegions = regions,
+                    ),
+                )
+            }
+        }
+    }
+
     fun importImage(pageId: String, uri: Uri, ocrEnabled: Boolean = true) = mutate {
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val asset = imageImporter.importImage(uri).getOrThrow()
-        val recognizedText =
+        val recognized =
             if (ocrEnabled) {
-                runCatching { imageTextRecognizer(asset.file).trim().take(10_000) }
-                    .getOrNull()
-                    ?.takeIf(String::isNotEmpty)
+                runCatching { imageOcrRecognizer(asset.file) }.getOrNull()
             } else {
                 null
             }
+        val recognizedText = recognized?.text?.trim()?.take(10_000)?.takeIf(String::isNotEmpty)
+        val recognizedRegions =
+            recognized?.regions?.let(::encodeImageOcrRegions)?.takeIf(String::isNotEmpty)
         val history = history(pageId)
         val elementId =
             runCatching {
@@ -841,6 +900,7 @@ internal class EditorViewModel(
                         height = height,
                         text = recognizedText,
                         assetId = asset.id,
+                        ocrRegions = recognizedRegions,
                     ),
                 )
             }

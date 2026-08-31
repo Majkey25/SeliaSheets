@@ -118,6 +118,7 @@ internal data class BackupElement(
     val shapeKind: String?,
     val expression: String?,
     val resultText: String?,
+    val ocrRegions: String? = null,
 ) : BackupRecord
 
 internal data class BackupBlock(

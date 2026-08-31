@@ -81,17 +81,18 @@ class BackupJsonTest {
                 id = "element",
                 pageId = "page",
                 zIndex = 1,
-                kind = "TEXT",
+                kind = "IMAGE",
                 x = 12f,
                 y = 24f,
                 width = 120f,
                 height = 48f,
                 rotation = 5f,
-                text = "Velocity",
-                assetId = null,
+                text = "Organic chemistry",
+                assetId = "asset.png",
                 shapeKind = null,
                 expression = null,
                 resultText = null,
+                ocrRegions = "T3JnYW5pYyBjaGVtaXN0cnk,0.1,0.2,0.8,0.4",
             )
         val block =
             BackupBlock("block", "page", 0, "PARAGRAPH", "Typed notes", false, 0, "START", null)
@@ -146,6 +147,17 @@ class BackupJsonTest {
             BackupJson.readRecords(
                 StringReader(
                     """{"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":1e400,"y":0,"width":1,"height":1,"rotation":0}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun malformedOcrRegionsReturnTypedFailure() {
+        assertThrows(BackupFailure.Malformed::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"IMAGE","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"OCR","assetId":"asset.png","ocrRegions":"broken"}""",
                 ),
             ) {}
         }

@@ -2,6 +2,18 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.5.1-beta.1] - 2026-08-31
+
+### Added
+
+- Added exact on-page highlighting for matching OCR text inside imported images.
+- Persisted bounded OCR line regions across notebook backup and restore.
+
+### Fixed
+
+- Regenerated missing OCR regions lazily for notebooks migrated from older versions.
+- Rejected malformed OCR-region metadata during backup validation.
+
 ## [0.5.0-beta.1] - 2026-08-31
 
 ### Added
@@ -103,3 +115,4 @@ All notable changes to SeliaSheets are documented here.
 [0.2.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.1-beta.1
 [0.4.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.2-beta.1
 [0.5.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.0-beta.1
+[0.5.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.1-beta.1
