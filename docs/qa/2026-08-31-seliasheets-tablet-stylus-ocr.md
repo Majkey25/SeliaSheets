@@ -35,7 +35,7 @@ A fresh 25-test run covered the interrupted tail and passed with `OK (25 tests)`
 
 The system watchdog stack ended in `android.window.ScreenCapture.captureLayers` and `TaskSnapshotController`. It had no SeliaSheets frame. Bounded runs avoid this Android 16 emulator-image defect.
 
-GitHub's API 29 emulator accumulated AndroidX Ink renderer resources when all tests shared one instrumentation process. Android Test Orchestrator 1.6.1 now runs each test in an isolated instrumentation instance and clears package data between tests.
+Android 10's render helper drops immediate first-contact input unless the canvas initializes after attachment. API 29 now warms the attached canvas; newer Android versions retain lazy hover/contact initialization to avoid repeated renderer startup during recreation.
 
 ## Build gate
 

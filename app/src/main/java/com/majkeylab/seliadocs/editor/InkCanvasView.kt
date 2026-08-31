@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -72,6 +73,7 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) inProgressView.eagerInit()
         inProgressView.addFinishedStrokesListener(this)
         setOnTouchListener(touchListener)
     }

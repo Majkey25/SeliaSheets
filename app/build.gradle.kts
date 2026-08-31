@@ -28,7 +28,6 @@ android {
         versionCode = 9
         versionName = "0.5.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArguments["clearPackageData"] = "true"
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
@@ -72,7 +71,6 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
     sourceSets {
@@ -117,7 +115,6 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
-    androidTestUtil("androidx.test:orchestrator:1.6.1")
     androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
