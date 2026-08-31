@@ -134,11 +134,20 @@ class PageViewportFlowTest {
         val rootPoint = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
         val downTime = android.os.SystemClock.uptimeMillis()
         compose.runOnUiThread {
-            compose.activity.window.decorView.dispatchTouchEvent(
-                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            val target: View
+            val point: Offset
+            if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+                target = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+                point = Offset(target.width * 0.5f, target.height * 0.5f)
+            } else {
+                target = compose.activity.window.decorView
+                point = rootPoint
+            }
+            target.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, point.x, point.y),
             )
-            compose.activity.window.decorView.dispatchTouchEvent(
-                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            target.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, point.x, point.y),
             )
         }
         compose.waitUntil(10_000) { finished.get() != null }
