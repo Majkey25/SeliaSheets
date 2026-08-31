@@ -36,13 +36,20 @@ class StylusRoutingTest {
                 parent.addView(view)
                 activity.setContentView(parent)
                 parent.removeView(view)
-                parent.addView(view)
-                val downTime = android.os.SystemClock.uptimeMillis()
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
-                )
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f),
+                parent.postDelayed(
+                    {
+                        parent.addView(view)
+                        view.post {
+                            val downTime = android.os.SystemClock.uptimeMillis()
+                            view.dispatchTouchEvent(
+                                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
+                            )
+                            view.dispatchTouchEvent(
+                                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f),
+                            )
+                        }
+                    },
+                    250L,
                 )
             }
             assertTrue(committed.await(10, TimeUnit.SECONDS))
