@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -51,6 +52,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
     private val gesturePoints = mutableListOf<CanvasPoint>()
     private val identity = Matrix()
+    private val touchListener = OnTouchListener { _, event -> handleMotionEvent(event) }
     private var gesturePointerId: Int? = null
     private var gestureKind: GestureKind? = null
     private var gestureToolType: Int? = null
@@ -67,9 +69,12 @@ internal class InkCanvasView @JvmOverloads constructor(
         addView(finishedView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(inProgressView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(gestureOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
         inProgressView.addFinishedStrokesListener(this)
-        inProgressView.eagerInit()
-        setOnTouchListener { _, event -> handleMotionEvent(event) }
+        setOnTouchListener(touchListener)
     }
 
     fun setStrokes(strokes: List<Stroke>, selected: Set<Int> = emptySet()) {
@@ -103,8 +108,17 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
-        inProgressView.removeFinishedStrokesListener(this)
+        setOnTouchListener(null)
+        inProgressView.cancelUnfinishedStrokes()
+        inProgressView.clearFinishedStrokesListeners()
+        activeStrokes.clear()
+        clearGesture()
         super.onDetachedFromWindow()
+    }
+
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        handleHoverEvent(event)
+        return super.onHoverEvent(event)
     }
 
     private fun handleMotionEvent(event: MotionEvent): Boolean {
@@ -118,6 +132,17 @@ internal class InkCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_POINTER_UP -> finishInteraction(event) || hasActiveInteraction()
             else -> hasActiveInteraction()
         }
+    }
+
+    private fun handleHoverEvent(event: MotionEvent): Boolean {
+        if (
+            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER &&
+            (event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
+                event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER)
+        ) {
+            inProgressView.eagerInit()
+        }
+        return false
     }
 
     private fun startAdditionalInteraction(event: MotionEvent): Boolean {
@@ -312,10 +337,14 @@ internal class InkCanvasView @JvmOverloads constructor(
     private fun updateMotionEventToViewTransform() {
         // Compose offsets the platform event to the transformed layer origin; only scale remains.
         inProgressView.motionEventToViewTransform =
-            inputTransform(
-                width.coerceAtLeast(1).toFloat(),
-                height.coerceAtLeast(1).toFloat(),
-            )
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                Matrix()
+            } else {
+                inputTransform(
+                    width.coerceAtLeast(1).toFloat(),
+                    height.coerceAtLeast(1).toFloat(),
+                )
+            }
     }
 
     private fun inputTransform(targetWidth: Float, targetHeight: Float): Matrix {

@@ -1,6 +1,6 @@
 # SeliaSheets privacy policy
 
-Effective date: August 28, 2026
+Effective date: August 31, 2026
 
 SeliaSheets is an offline-first Android notebook published by Majkey25. This policy explains what the app processes and how users control their content.
 
@@ -10,13 +10,15 @@ SeliaSheets has no first-party ads, accounts, cloud sync, analytics, telemetry, 
 
 Optional handwriting recognition uses Google ML Kit Digital Ink Recognition. After the user enables recognition and explicitly downloads a language model from Google, recognition runs on-device. Google states that the ML Kit SDK may send device and app information, per-installation identifiers, app interactions, diagnostics, configured language, errors, and performance and usage metrics to Google over encrypted transport. This SDK disclosure does not include notebook content, raw ink, or recognition results. See Google's [ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure) and [ML Kit terms](https://developers.google.com/ml-kit/terms).
 
+Image text recognition uses Google ML Kit's bundled Latin model. When enabled, it processes only images the user imports, stores recognized text locally for notebook search, and never blocks image import when recognition fails. Imported images and recognized text are not sent to Google.
+
 ## Data stored on the device
 
 The app stores the following only in private Android app storage:
 
 - notebook titles, covers, pages, paper choices, and settings;
 - stylus and finger stroke coordinates, pressure, tilt, orientation, brush, and color;
-- text, shape, arithmetic, and handwriting-recognition result elements created by the user;
+- text, shape, arithmetic, handwriting-recognition results, and image OCR text;
 - copies of images explicitly selected through Android Photo Picker;
 - PDF files explicitly selected through Android's document picker.
 

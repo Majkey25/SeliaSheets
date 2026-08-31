@@ -2,6 +2,10 @@ package com.majkeylab.seliadocs.editor
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -29,6 +33,79 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ElementFlowTest {
+    @Test
+    fun importedImageTextIsSearchable() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Image OCR"))
+        val source = File(application.cacheDir, "ocr-${System.nanoTime()}.png")
+        var importedAssetId: String? = null
+        val bitmap = Bitmap.createBitmap(1_400, 360, Bitmap.Config.ARGB_8888)
+        try {
+            Canvas(bitmap).apply {
+                drawColor(Color.WHITE)
+                drawText(
+                    "ORGANIC CHEMISTRY 2026",
+                    40f,
+                    220f,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.BLACK
+                        textSize = 112f
+                        typeface = Typeface.DEFAULT_BOLD
+                    },
+                )
+            }
+            source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        } finally {
+            bitmap.recycle()
+        }
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val page = viewModel.awaitState("OCR page") { it.selectedPage != null }.selectedPage!!
+
+            onMain { viewModel.importImage(page.id, Uri.fromFile(source)) }
+            val imported = viewModel.awaitState("OCR image import") { it.elements.size == 1 }
+            importedAssetId = imported.elements.single().assetId
+
+            val match = repository.searchPageText(notebookId, "organic chemistry").single()
+            assertEquals(page.id, match.pageId)
+            assertTrue(
+                repository.searchPageText(
+                    notebookId,
+                    "organic chemistry",
+                    includeImageOcr = false,
+                ).isEmpty(),
+            )
+        } finally {
+            repository.deleteNotebook(notebookId)
+            importedAssetId?.let { AssetStore(File(application.filesDir, "assets")).file(it).delete() }
+            source.delete()
+        }
+    }
+
+    @Test
+    fun manualMathUsesAssignmentsFromPageText() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Math variables"))
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val pageId = viewModel.awaitState("math page") { it.selectedPage != null }.selectedPage!!.id
+            onMain { viewModel.updatePageText(pageId, "width=12\nheight=4") }
+            viewModel.awaitState("math assignments") {
+                it.selectedBlocks.singleOrNull()?.text == "width=12\nheight=4"
+            }
+
+            onMain { viewModel.addMath(pageId, "width*height=") }
+            val math = viewModel.awaitState("manual variable math") { it.elements.size == 1 }.elements.single()
+            assertEquals("width*height = 48", math.resultText)
+        } finally {
+            repository.deleteNotebook(notebookId)
+        }
+    }
+
     @Test
     fun importedImageIsSelectedAndTransformable() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()

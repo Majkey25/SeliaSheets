@@ -50,6 +50,121 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HandwrittenMathFlowTest {
     @Test
+    fun pageSwitchDropsInFlightHandwritingConversion() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, firstPageId ->
+            onMain(viewModel::addPage)
+            val secondPageId =
+                await(viewModel, "second page") { it.pages.size == 2 }.pages.single { it.id != firstPageId }.id
+            onMain { viewModel.selectPage(firstPageId) }
+            await(viewModel, "first page selected") { it.selectedPage?.id == firstPageId }
+            onMain {
+                viewModel.addStroke(
+                    firstPageId,
+                    rawStroke(),
+                    shapeAssist = false,
+                    handwritingRecognition = false,
+                )
+            }
+            await(viewModel, "conversion source") { it.strokes.size == 1 }
+            onMain {
+                viewModel.selectContent(
+                    firstPageId,
+                    listOf(
+                        CanvasPoint(20f, 60f),
+                        CanvasPoint(150f, 60f),
+                        CanvasPoint(150f, 120f),
+                        CanvasPoint(20f, 120f),
+                        CanvasPoint(20f, 60f),
+                    ),
+                )
+                viewModel.recognizeSelectedHandwriting(RecognitionLanguage.ENGLISH)
+            }
+            invocation.awaitStarted()
+            onMain { viewModel.selectPage(secondPageId) }
+            invocation.complete(listOf(RecognitionCandidate("Stale conversion")))
+            invocation.awaitClosed()
+            drainMutationGate()
+
+            val state = viewModel.state.value
+            assertEquals(secondPageId, state.selectedPage?.id)
+            assertTrue(state.handwritingCandidates.isEmpty())
+        }
+    }
+
+    @Test
+    fun selectedHandwritingAddsChosenPageTextAndKeepsInk() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation =
+            provider.enqueue(
+                listOf(
+                    RecognitionCandidate("Lecture notes"),
+                    RecognitionCandidate("Lecture votes"),
+                ),
+            )
+        withEditor(provider::create) { viewModel, pageId ->
+            onMain {
+                viewModel.addStroke(
+                    pageId,
+                    rawStroke(),
+                    shapeAssist = false,
+                    handwritingRecognition = false,
+                )
+            }
+            await(viewModel, "raw handwriting") { it.strokes.size == 1 }
+            onMain {
+                viewModel.selectContent(
+                    pageId,
+                    listOf(
+                        CanvasPoint(20f, 60f),
+                        CanvasPoint(150f, 60f),
+                        CanvasPoint(150f, 120f),
+                        CanvasPoint(20f, 120f),
+                        CanvasPoint(20f, 60f),
+                    ),
+                )
+                viewModel.recognizeSelectedHandwriting(RecognitionLanguage.ENGLISH)
+            }
+
+            invocation.awaitStarted()
+            invocation.awaitClosed()
+            await(viewModel, "handwriting candidates") { it.handwritingCandidates.size == 2 }
+            onMain { viewModel.addHandwritingCandidateToPage("Lecture notes") }
+
+            val converted = await(viewModel, "page text conversion") {
+                it.selectedBlocks.singleOrNull()?.text == "Lecture notes" && it.handwritingCandidates.isEmpty()
+            }
+            assertEquals(1, converted.strokes.size)
+            assertTrue(converted.canUndo)
+            onMain(viewModel::undo)
+            val undone = await(viewModel, "conversion undo") { it.selectedBlocks.isEmpty() }
+            assertEquals(1, undone.strokes.size)
+        }
+    }
+
+    @Test
+    fun recognizedExpressionUsesAssignmentsFromPageText() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue(listOf(RecognitionCandidate("width*height=")))
+        withEditor(provider::create) { viewModel, pageId ->
+            onMain { viewModel.updatePageText(pageId, "width=12\nheight=4") }
+            await(viewModel, "math assignments") {
+                it.selectedBlocks.singleOrNull()?.text == "width=12\nheight=4"
+            }
+
+            addRecognizedStroke(viewModel, pageId, rawStroke())
+            invocation.awaitStarted()
+            invocation.awaitClosed()
+
+            val recognized = await(viewModel, "variable math") { it.elements.size == 1 }
+            val math = recognized.elements.single()
+            assertEquals("width*height=", math.expression)
+            assertEquals("width*height = 48", math.resultText)
+        }
+    }
+
+    @Test
     fun uniqueResultPreservesInkAndHasOneStepUndoRedo() = runBlocking {
         val provider = ControlledProvider()
         val invocation = provider.enqueue(listOf(RecognitionCandidate("2+3=")))

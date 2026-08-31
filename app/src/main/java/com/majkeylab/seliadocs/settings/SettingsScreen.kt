@@ -149,6 +149,12 @@ internal fun SettingsScreen(
                     ) { enabled -> onUpdate { it.copy(shapeAssist = enabled) } }
                     InfoText(stringResource(R.string.shape_assist_hint))
                     SwitchSetting(
+                        label = stringResource(R.string.image_ocr),
+                        checked = settings.imageOcr,
+                        tag = "settings-image-ocr",
+                    ) { enabled -> onUpdate { it.copy(imageOcr = enabled) } }
+                    InfoText(stringResource(R.string.image_ocr_hint))
+                    SwitchSetting(
                         label = stringResource(R.string.handwriting_recognition),
                         checked = settings.handwritingRecognition,
                         tag = "settings-handwriting-recognition",

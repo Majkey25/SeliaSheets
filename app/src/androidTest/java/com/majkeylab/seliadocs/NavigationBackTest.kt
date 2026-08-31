@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -34,6 +35,9 @@ class NavigationBackTest {
 
         pressBack()
 
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodes(hasText("SeliaSheets")).fetchSemanticsNodes().isNotEmpty()
+        }
         rule.onNodeWithText("SeliaSheets").assertIsDisplayed()
     }
 
@@ -58,6 +62,10 @@ class NavigationBackTest {
     }
 
     private fun assertEditorDisplayed() {
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodes(hasTestTag("compact-page-location")).fetchSemanticsNodes().isNotEmpty() ||
+                rule.onAllNodes(hasContentDescription("Add page")).fetchSemanticsNodes().isNotEmpty()
+        }
         if (rule.onAllNodes(hasTestTag("compact-page-location")).fetchSemanticsNodes().isNotEmpty()) {
             rule.onNodeWithTag("compact-page-location").assertIsDisplayed()
         } else {

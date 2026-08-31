@@ -36,6 +36,7 @@ import com.majkeylab.seliadocs.recognition.RecognitionRequest
 import com.majkeylab.seliadocs.recognition.RecognitionStroke
 import com.majkeylab.seliadocs.recognition.boundedRecognitionRequest
 import com.majkeylab.seliadocs.recognition.decideInkMath
+import com.majkeylab.seliadocs.recognition.recognizeImageText
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -76,6 +77,7 @@ internal data class EditorUiState(
     val failed: Boolean = false,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
+    val handwritingCandidates: List<String> = emptyList(),
 ) {
     val selectedPage: PageEntity?
         get() = pages.firstOrNull { it.id == selectedPageId } ?: pages.firstOrNull()
@@ -182,6 +184,7 @@ private data class EditorControls(
     val failed: Boolean = false,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
+    val handwritingCandidates: List<String> = emptyList(),
 )
 
 private data class RecognitionSource(
@@ -216,9 +219,20 @@ private data class CapturedRecognition(
     val bounds: RecognitionBounds,
 )
 
+private data class RecognitionPayload(
+    val request: RecognitionRequest,
+    val bounds: RecognitionBounds,
+)
+
 private data class PendingMathAmbiguity(
     val capture: CapturedRecognition,
     val candidates: List<InkMathCandidate>,
+)
+
+private data class PendingHandwritingConversion(
+    val pageId: String,
+    val sources: List<RecognitionSource>,
+    val candidates: List<String>,
 )
 
 private data class RecognitionBurstSession(
@@ -240,6 +254,7 @@ internal class EditorViewModel(
     private val recognitionDelay: suspend () -> Unit = { delay(RECOGNITION_DEBOUNCE_MS) },
     private val recognitionWriteBoundary: suspend () -> Unit = {},
     private val recognitionCommitBoundary: suspend () -> Unit = {},
+    private val imageTextRecognizer: suspend (File) -> String = ::recognizeImageText,
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -257,11 +272,14 @@ internal class EditorViewModel(
     private var candidateChoiceJob: Job? = null
     private var searchJob: Job? = null
     private var latestSearchQuery = ""
+    private var latestSearchIncludesImageOcr = true
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
     private var recognitionCommitInProgress = false
     private var pendingMathAmbiguity: PendingMathAmbiguity? = null
+    private var pendingHandwritingConversion: PendingHandwritingConversion? = null
+    private var handwritingConversionJob: Job? = null
     private var recognitionBurstSession: RecognitionBurstSession? = null
     private val pageHistories =
         PageHistoryStore<PageSnapshot>(
@@ -335,6 +353,7 @@ internal class EditorViewModel(
                     failed = editorControls.failed,
                     recognitionMessage = editorControls.recognitionMessage,
                     ambiguousMathCandidates = editorControls.ambiguousMathCandidates,
+                    handwritingCandidates = editorControls.handwritingCandidates,
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
@@ -743,8 +762,9 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
-    fun searchPageText(query: String) {
+    fun searchPageText(query: String, includeImageOcr: Boolean = true) {
         latestSearchQuery = query
+        latestSearchIncludesImageOcr = includeImageOcr
         searchJob?.cancel()
         if (query.isBlank()) {
             clearSearch()
@@ -753,8 +773,10 @@ internal class EditorViewModel(
         if (!mutationAllowed()) return
         searchJob =
             viewModelScope.launch {
-                val result = runCatching { repository.searchPageText(notebookId, query) }
-                if (latestSearchQuery != query) return@launch
+                val result = runCatching {
+                    repository.searchPageText(notebookId, query, includeImageOcr)
+                }
+                if (latestSearchQuery != query || latestSearchIncludesImageOcr != includeImageOcr) return@launch
                 result
                     .onSuccess { matches ->
                         controls.value =
@@ -777,6 +799,7 @@ internal class EditorViewModel(
 
     fun clearSearch() {
         latestSearchQuery = ""
+        latestSearchIncludesImageOcr = true
         searchJob?.cancel()
         searchJob = null
         controls.value =
@@ -787,9 +810,17 @@ internal class EditorViewModel(
             )
     }
 
-    fun importImage(pageId: String, uri: Uri) = mutate {
+    fun importImage(pageId: String, uri: Uri, ocrEnabled: Boolean = true) = mutate {
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val asset = imageImporter.importImage(uri).getOrThrow()
+        val recognizedText =
+            if (ocrEnabled) {
+                runCatching { imageTextRecognizer(asset.file).trim().take(10_000) }
+                    .getOrNull()
+                    ?.takeIf(String::isNotEmpty)
+            } else {
+                null
+            }
         val history = history(pageId)
         val elementId =
             runCatching {
@@ -808,6 +839,7 @@ internal class EditorViewModel(
                         y = (page.heightPoints - height) / 2f,
                         width = width,
                         height = height,
+                        text = recognizedText,
                         assetId = asset.id,
                     ),
                 )
@@ -906,9 +938,119 @@ internal class EditorViewModel(
         }
     }
 
+    fun recognizeSelectedHandwriting(language: RecognitionLanguage) {
+        clearRecognition()
+        val page = state.value.selectedPage ?: return
+        val selectedIds = controls.value.selectedStrokeIds
+        if (selectedIds.isEmpty() || !mutationAllowed()) return
+        handwritingConversionJob = viewModelScope.launch {
+            try {
+                LibraryMutationGate.withLock {
+                    if (!mutationAllowed()) return@withLock
+                    val strokesById = repository.getStrokes(page.id).associateBy(StrokeEntity::id)
+                    val selected = selectedIds.map { strokesById[it] ?: return@withLock }
+                    val payload =
+                        recognitionPayload(
+                            page,
+                            selected,
+                            maxStrokes = MAX_CONVERSION_STROKES,
+                            maxPoints = MAX_CONVERSION_POINTS,
+                            maxDurationMillis = MAX_CONVERSION_DURATION_MS,
+                        )
+                    if (payload == null) {
+                        controls.value =
+                            controls.value.copy(
+                                recognitionMessage =
+                                    getApplication<Application>().getString(
+                                        R.string.recognition_selection_too_large,
+                                    ),
+                            )
+                        return@withLock
+                    }
+                    val recognizer = recognizerProvider(language)
+                    val candidates =
+                        try {
+                            recognizer.recognize(payload.request)
+                        } finally {
+                            recognizer.close()
+                        }
+                            .map { it.text.trim().take(10_000) }
+                            .filter(String::isNotEmpty)
+                            .distinct()
+                            .take(5)
+                    if (state.value.selectedPage?.id != page.id) return@withLock
+                    if (candidates.isEmpty()) {
+                        controls.value =
+                            controls.value.copy(
+                                recognitionMessage =
+                                    getApplication<Application>().getString(R.string.recognition_no_text),
+                            )
+                        return@withLock
+                    }
+                    pendingHandwritingConversion =
+                        PendingHandwritingConversion(
+                            pageId = page.id,
+                            sources = selected.map { it.recognitionSource() },
+                            candidates = candidates,
+                        )
+                    controls.value =
+                        controls.value.copy(
+                            recognitionMessage = null,
+                            handwritingCandidates = candidates,
+                        )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val message =
+                    if (error.message?.contains("not downloaded", ignoreCase = true) == true) {
+                        R.string.recognition_model_required
+                    } else {
+                        R.string.recognition_unavailable
+                    }
+                controls.value =
+                    controls.value.copy(
+                        recognitionMessage = getApplication<Application>().getString(message),
+                        handwritingCandidates = emptyList(),
+                    )
+            }
+        }
+    }
+
+    fun addHandwritingCandidateToPage(candidate: String) {
+        val conversion = pendingHandwritingConversion ?: return
+        if (candidate !in conversion.candidates) return
+        pendingHandwritingConversion = null
+        controls.value = controls.value.copy(handwritingCandidates = emptyList())
+        mutate {
+            val strokesById = repository.getStrokes(conversion.pageId).associateBy(StrokeEntity::id)
+            if (conversion.sources.any { source -> strokesById[source.id]?.let(source::matches) != true }) {
+                return@mutate
+            }
+            val existing = repository.getBlocks(conversion.pageId).singleOrNull()?.text.orEmpty().trimEnd()
+            val updated = if (existing.isEmpty()) candidate else "$existing\n$candidate"
+            val history = history(conversion.pageId)
+            repository.updatePageText(conversion.pageId, updated)
+            history.push(snapshot(conversion.pageId))
+            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            updateHistoryControls(history)
+        }
+    }
+
+    fun dismissHandwritingCandidates() {
+        pendingHandwritingConversion = null
+        controls.value = controls.value.copy(handwritingCandidates = emptyList())
+    }
+
     fun addMath(pageId: String, expression: String) = mutate {
         val source = expression.trim().let { value -> if (value.endsWith('=')) value else "$value=" }
-        val result = formatMathResult(evaluateExpression(source).getOrThrow())
+        val variables =
+            mathVariablesFromText(
+                repository.getBlocks(pageId).sortedBy(BlockEntity::orderIndex).joinToString("\n") {
+                    it.text.orEmpty()
+                },
+            )
+        val result = formatMathResult(evaluateExpression(source, variables).getOrThrow())
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val history = history(pageId)
         repository.addElement(
@@ -1156,7 +1298,11 @@ internal class EditorViewModel(
                 )
                 return
             }
-        val decision = decideInkMath(candidates)
+        val variables =
+            mathVariablesFromText(
+                state.value.selectedBlocks.sortedBy(BlockEntity::orderIndex).joinToString("\n") { it.text.orEmpty() },
+            )
+        val decision = decideInkMath(candidates, variables)
         try {
             LibraryMutationGate.withLock {
                 if (!revalidateRecognition(capture)) return@withLock
@@ -1203,11 +1349,29 @@ internal class EditorViewModel(
         val strokesById = repository.getStrokes(pageId).associateBy(StrokeEntity::id)
         val sourceStrokes = strokeIds.map { strokesById[it] ?: return null }
         val sources = sourceStrokes.map { it.recognitionSource() }
+        val payload = recognitionPayload(page, sourceStrokes) ?: return null
+        return CapturedRecognition(
+            generation = generation,
+            language = language,
+            request = payload.request,
+            sources = sources,
+            bounds = payload.bounds,
+        )
+    }
+
+    private fun recognitionPayload(
+        page: PageEntity,
+        sourceStrokes: List<StrokeEntity>,
+        maxStrokes: Int = MAX_RECOGNITION_STROKES,
+        maxPoints: Int = MAX_RECOGNITION_POINTS,
+        maxDurationMillis: Long = MAX_RECOGNITION_DURATION_MS,
+    ): RecognitionPayload? {
+        if (sourceStrokes.size !in 1..maxStrokes) return null
         var pointCount = 0
         val recognitionStrokes =
             sourceStrokes.map { stroke ->
                 val inputs = stroke.toInkStroke().inputs
-                if (inputs.size > MAX_RECOGNITION_POINTS - pointCount) return null
+                if (inputs.size > maxPoints - pointCount) return null
                 pointCount += inputs.size
                 RecognitionStroke(
                     (0 until inputs.size).map { index ->
@@ -1218,22 +1382,21 @@ internal class EditorViewModel(
             }
         val points = recognitionStrokes.flatMap(RecognitionStroke::points)
         val burstDuration = recognitionBurstDurationMillis(recognitionStrokes)
-        if (points.isEmpty() || burstDuration == null || burstDuration > MAX_RECOGNITION_DURATION_MS) {
+        if (points.isEmpty() || burstDuration == null || burstDuration > maxDurationMillis) {
             return null
         }
         val request =
             boundedRecognitionRequest(
-                pageId = pageId,
+                pageId = page.id,
                 pageWidth = page.widthPoints.toFloat(),
                 pageHeight = page.heightPoints.toFloat(),
                 fingerprints = sourceStrokes.map { it.recognitionFingerprint() },
                 strokes = recognitionStrokes,
+                maxStrokes = maxStrokes,
+                maxPoints = maxPoints,
             ) ?: return null
-        return CapturedRecognition(
-            generation = generation,
-            language = language,
+        return RecognitionPayload(
             request = request,
-            sources = sources,
             bounds =
                 RecognitionBounds(
                     left = points.minOf(RecognitionPoint::x),
@@ -1423,15 +1586,19 @@ internal class EditorViewModel(
         recognitionJob = null
         candidateChoiceJob?.cancel()
         candidateChoiceJob = null
+        handwritingConversionJob?.cancel()
+        handwritingConversionJob = null
         pendingRecognitionStrokeIds.clear()
         pendingRecognitionPageId = null
         pendingRecognitionLanguage = null
         pendingMathAmbiguity = null
+        pendingHandwritingConversion = null
         recognitionBurstSession = null
         controls.value =
             controls.value.copy(
                 recognitionMessage = null,
                 ambiguousMathCandidates = emptyList(),
+                handwritingCandidates = emptyList(),
             )
     }
 
@@ -1499,6 +1666,7 @@ internal class EditorViewModel(
     override fun onCleared() {
         recognitionJob?.cancel()
         candidateChoiceJob?.cancel()
+        handwritingConversionJob?.cancel()
         searchJob?.cancel()
     }
 
@@ -1512,6 +1680,9 @@ internal class EditorViewModel(
         const val MAX_RECOGNITION_STROKES = 32
         const val MAX_RECOGNITION_POINTS = 4_096
         const val MAX_RECOGNITION_DURATION_MS = 10_000L
+        const val MAX_CONVERSION_STROKES = 128
+        const val MAX_CONVERSION_POINTS = 16_384
+        const val MAX_CONVERSION_DURATION_MS = 60_000L
         const val RECOGNITION_STROKE_SEPARATOR_MS = 1L
         const val MATH_ELEMENT_MIN_WIDTH = 160f
         const val MATH_ELEMENT_HEIGHT = 64f

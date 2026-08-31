@@ -102,7 +102,11 @@ internal class SeliaDocsRepository(
 
     suspend fun getBlocks(pageId: String): List<BlockEntity> = pageContent.getBlocks(pageId)
 
-    suspend fun searchPageText(notebookId: String, query: String): List<PageTextMatch> {
+    suspend fun searchPageText(
+        notebookId: String,
+        query: String,
+        includeImageOcr: Boolean = true,
+    ): List<PageTextMatch> {
         val normalized = query.trim()
         if (normalized.isEmpty() || normalized.length > SEARCH_QUERY_MAX_LENGTH) return emptyList()
         return pageContent.searchPageText(
@@ -110,6 +114,7 @@ internal class SeliaDocsRepository(
             globPattern = normalized.toUnicodeCaseInsensitiveGlob(),
             snippetLength = SEARCH_SNIPPET_LENGTH,
             limit = SEARCH_RESULT_LIMIT,
+            includeImageOcr = includeImageOcr,
         )
     }
 
@@ -620,7 +625,7 @@ internal class SeliaDocsRepository(
         )
         when (draft.kind) {
             ElementKind.TEXT -> require(!draft.text.isNullOrBlank() && draft.text.length <= 10_000)
-            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank())
+            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank() && (draft.text?.length ?: 0) <= 10_000)
             ElementKind.SHAPE -> require(!draft.shapeKind.isNullOrBlank())
             ElementKind.MATH -> require(!draft.expression.isNullOrBlank() && !draft.resultText.isNullOrBlank())
         }

@@ -123,6 +123,10 @@
     <string name="invalid_expression">Enter a valid arithmetic expression.</string>
     <string name="calculate">Calculate</string>
     <string name="choose_math_result">Choose math result</string>
+    <string name="convert_handwriting">Handwriting to text</string>
+    <string name="convert_handwriting_hint">Choose text to add to the page. Your original ink stays unchanged.</string>
+    <string name="recognition_no_text">No readable text was recognized.</string>
+    <string name="recognition_selection_too_large">Select a smaller handwriting area and try again.</string>
     <string name="dismiss">Dismiss</string>
     <string name="recognition_model_required">Download the handwriting model in Settings.</string>
     <string name="recognition_unavailable">Handwriting recognition unavailable.</string>
@@ -162,7 +166,9 @@
     <string name="recognition_model_ready">Handwriting model ready</string>
     <string name="delete_recognition_model">Delete model</string>
     <string name="retry_download">Retry download</string>
-    <string name="recognition_disclosure">Recognition runs on-device after download. Google ML Kit may send SDK diagnostics and usage metrics.</string>
+    <string name="recognition_disclosure">Handwriting recognition runs on-device after model download. Image OCR uses a bundled on-device model. Google ML Kit may send SDK diagnostics and usage metrics.</string>
+    <string name="image_ocr">Search text in imported images</string>
+    <string name="image_ocr_hint">Uses the bundled on-device Latin OCR model. Failed recognition never blocks image import.</string>
     <string name="export_details">PDF export includes every page, paper, ink, text, images, shapes, and math blocks.</string>
     <string name="theme">Theme</string>
     <string name="theme_system">System</string>

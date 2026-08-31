@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import android.graphics.Matrix
+import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.activity.ComponentActivity
+import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
@@ -21,12 +23,59 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
 class PageViewportFlowTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun externalTabletStylusPreservesPressureAtZoom() {
+        assumeTrue(
+            InstrumentationRegistry.getArguments().getString("externalTabletStylus") == "true",
+        )
+        val finished = AtomicReference<Stroke>()
+        renderPage(
+            EditorTool.PEN,
+            initialViewport = PageViewport(zoom = 2f),
+            onStrokeFinished = finished::set,
+        )
+        Log.i("SeliaSheetsStylusQA", "READY")
+
+        compose.waitUntil(30_000) { finished.get() != null }
+
+        val stroke = requireNotNull(finished.get())
+        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        assertTrue(pressures.min() <= 0.25f)
+        assertTrue(pressures.max() >= 0.75f)
+        val first = stroke.inputs[0]
+        assertEquals(595f * 0.5f, first.x, 12f)
+        assertEquals(842f * 0.5f, first.y, 12f)
+    }
+
+    @Test
+    fun externalTabletStylusDrawsAfterLivePinch() {
+        assumeTrue(
+            InstrumentationRegistry.getArguments().getString("externalTabletStylus") == "true",
+        )
+        val finished = AtomicReference<Stroke>()
+        renderPage(EditorTool.PEN, onStrokeFinished = finished::set)
+        val viewport = compose.onNodeWithTag("page-viewport")
+        Log.i("SeliaSheetsStylusQA", "READY_PINCH")
+
+        compose.waitUntil(30_000) { finished.get() != null }
+
+        assertTrue(zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100)
+        val stroke = requireNotNull(finished.get())
+        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        assertTrue(pressures.min() <= 0.25f)
+        assertTrue(pressures.max() >= 0.75f)
+        val first = stroke.inputs[0]
+        assertEquals(595f * 0.5f, first.x, 12f)
+        assertEquals(842f * 0.5f, first.y, 12f)
+    }
 
     @Test
     fun twoFingerPinchZoomsPage() {
@@ -74,6 +123,7 @@ class PageViewportFlowTest {
 
     @Test
     fun rootStylusWithKnownZoomAndPanCommitsAtVisiblePaperPoint() {
+        assumeTrue(android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.Q)
         val finished = AtomicReference<Stroke>()
         renderPage(
             EditorTool.PEN,
@@ -85,11 +135,20 @@ class PageViewportFlowTest {
         val rootPoint = visiblePaperPoint(xFraction = 0.5f, yFraction = 0.5f)
         val downTime = android.os.SystemClock.uptimeMillis()
         compose.runOnUiThread {
-            compose.activity.window.decorView.dispatchTouchEvent(
-                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, rootPoint.x, rootPoint.y),
+            val target: View
+            val point: Offset
+            if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+                target = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+                point = Offset(target.width * 0.5f, target.height * 0.5f)
+            } else {
+                target = compose.activity.window.decorView
+                point = rootPoint
+            }
+            target.dispatchTouchEvent(
+                stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, point.x, point.y),
             )
-            compose.activity.window.decorView.dispatchTouchEvent(
-                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, rootPoint.x, rootPoint.y),
+            target.dispatchTouchEvent(
+                stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, point.x, point.y),
             )
         }
         compose.waitUntil(10_000) { finished.get() != null }
@@ -342,6 +401,19 @@ class PageViewportFlowTest {
             )
         }
         compose.waitForIdle()
+        val readyAt = android.os.SystemClock.uptimeMillis() + 250L
+        compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
+        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+            compose.runOnUiThread {
+                val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+                val eventTime = android.os.SystemClock.uptimeMillis()
+                canvas.onHoverEvent(
+                    stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
+                )
+            }
+            val initializedAt = android.os.SystemClock.uptimeMillis() + 1_000L
+            compose.waitUntil(2_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
+        }
     }
 
     private fun stylusEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =

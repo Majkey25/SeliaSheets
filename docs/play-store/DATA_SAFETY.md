@@ -1,10 +1,10 @@
 # Google Play data safety
 
-Working answers for version `0.4.2-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
+Working answers for version `0.5.0-beta.1` (`com.majkeylab.seliadocs`). Recheck them whenever dependencies or behavior change.
 
 ## Collection and sharing
 
-- Does the app collect any required user data types? **Yes** — through Google ML Kit Digital Ink Recognition.
+- Does the app collect any required user data types? **Yes** — through Google ML Kit Digital Ink and Text Recognition.
 - Does the app share user data? **No**
 - Is all collected user data encrypted in transit? **Yes**
 - Can users request data deletion? **No publisher-managed deletion request is offered for Google-held ML Kit SDK metrics.** Users can permanently delete local notebook data or uninstall the app.
@@ -24,7 +24,7 @@ Google's ML Kit disclosure also covers device and app information, configured la
 
 - `INTERNET` and `ACCESS_NETWORK_STATE` permissions support the explicit Google ML Kit language-model download and SDK disclosure.
 - No first-party ads, analytics, telemetry, crash reporting, account, cloud sync, or remote database service.
-- Notebook metadata, raw ink, recognition results, text, settings, selected image copies, and selected PDFs remain in private app storage; recognition runs on-device after the model download.
+- Notebook metadata, raw ink, recognition results, image OCR text, text, settings, selected image copies, and selected PDFs remain in private app storage. Digital ink recognition runs on-device after the model download; image OCR uses a bundled on-device model.
 - Google states that ML Kit may send device and app information, per-installation identifiers, app interactions, diagnostics, configured language, errors, and performance and usage metrics to Google over encrypted transport.
 - Android backup is disabled.
 - Photo Picker and document picker actions are initiated by the user.

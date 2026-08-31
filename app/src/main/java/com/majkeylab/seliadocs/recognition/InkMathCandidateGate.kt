@@ -3,7 +3,10 @@ package com.majkeylab.seliadocs.recognition
 import com.majkeylab.seliadocs.editor.evaluateExpression
 import com.majkeylab.seliadocs.editor.formatMathResult
 
-internal fun decideInkMath(candidates: List<RecognitionCandidate>): InkMathDecision {
+internal fun decideInkMath(
+    candidates: List<RecognitionCandidate>,
+    variables: Map<String, Double> = emptyMap(),
+): InkMathDecision {
     val uniqueCandidates = candidates.mapNotNull { candidate ->
         if (candidate.text.any { it == '\r' || it == '\n' }) return@mapNotNull null
         val expression = candidate.text.trim()
@@ -11,7 +14,7 @@ internal fun decideInkMath(candidates: List<RecognitionCandidate>): InkMathDecis
             .replace('×', '*')
             .replace('÷', '/')
         if (!expression.endsWith('=')) return@mapNotNull null
-        val result = evaluateExpression(expression).getOrNull() ?: return@mapNotNull null
+        val result = evaluateExpression(expression, variables).getOrNull() ?: return@mapNotNull null
         InkMathCandidate(expression, formatMathResult(result))
     }.distinctBy { it.expression to it.result }
 
@@ -28,16 +31,19 @@ internal fun boundedRecognitionRequest(
     pageHeight: Float,
     fingerprints: List<RecognitionFingerprint>,
     strokes: List<RecognitionStroke>,
+    maxStrokes: Int = 32,
+    maxPoints: Int = 4_096,
 ): RecognitionRequest? {
     if (pageId.isBlank() || !pageWidth.isFinite() || pageWidth <= 0f ||
         !pageHeight.isFinite() || pageHeight <= 0f ||
-        strokes.size !in 1..32 || fingerprints.size != strokes.size
+        maxStrokes <= 0 || maxPoints <= 0 ||
+        strokes.size !in 1..maxStrokes || fingerprints.size != strokes.size
     ) {
         return null
     }
 
     val totalPoints = strokes.sumOf { it.points.size.toLong() }
-    if (totalPoints !in 1L..4096L || strokes.any { stroke ->
+    if (totalPoints !in 1L..maxPoints.toLong() || strokes.any { stroke ->
             if (stroke.points.isEmpty()) return@any true
             var previousTimeMillis: Long? = null
             stroke.points.any { point ->

@@ -2,6 +2,20 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.5.0-beta.1] - 2026-08-31
+
+### Added
+
+- Added bundled on-device OCR so text in imported images appears in notebook search.
+- Added selected-handwriting conversion into normal full-page text while preserving the original ink.
+- Added percentages, common functions, constants, and earlier page variables to typed and handwritten math.
+
+### Fixed
+
+- Preserved active-stylus pressure and page coordinates after pinch zoom, canvas reattachment, and Activity recreation.
+- Prevented stale handwriting candidates from appearing after a page change.
+- Gave debug installs a distinct launcher label without changing the in-app SeliaSheets title.
+
 ## [0.4.2-beta.1] - 2026-08-30
 
 ### Added
@@ -88,3 +102,4 @@ All notable changes to SeliaSheets are documented here.
 [0.1.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.1.0-beta.1
 [0.2.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.1-beta.1
 [0.4.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.2-beta.1
+[0.5.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.0-beta.1
