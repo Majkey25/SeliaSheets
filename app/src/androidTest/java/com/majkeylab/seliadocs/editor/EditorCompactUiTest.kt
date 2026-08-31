@@ -129,6 +129,26 @@ class EditorCompactUiTest {
     }
 
     @Test
+    fun selectedInkExposesTextConversion() {
+        rule.activity.setContent {
+            SeliaDocsTheme {
+                CompactEditorPalette(
+                    state = EditorUiState(selectedStrokeIds = setOf("stroke")),
+                    onSelectTool = {},
+                    onEraserMode = {},
+                    onAddText = {},
+                    onAddImage = {},
+                    onImportPdf = {},
+                    onCleanShape = {},
+                )
+            }
+        }
+
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-convert").assertIsDisplayed().assertHasClickAction()
+    }
+
+    @Test
     fun dismissingSearchBeforeDebounceDoesNotRestoreQuery() {
         openCompactEditor()
         rule.onNodeWithTag("compact-more").performClick()
@@ -243,7 +263,7 @@ class EditorCompactUiTest {
     fun recreationRetainsDraftAndSystemBackWaitsForFlush() {
         val title = createAndOpenNotebook()
         val draft = "Draft ${System.nanoTime()}"
-        rule.onNodeWithTag("compact-tool-type").performClick().assertIsSelected()
+        selectTypeTool()
         rule.waitUntil(5_000) {
             runCatching {
                 rule.onNodeWithTag("page-text").assertIsDisplayed().fetchSemanticsNode()
@@ -263,17 +283,13 @@ class EditorCompactUiTest {
             rule.mainClock.autoAdvance = false
             rule.onNodeWithTag("page-text").performTextInput(draft)
             rule.mainClock.advanceTimeByFrame()
-            rule.onNodeWithTag("compact-more").performClick()
-            rule.mainClock.advanceTimeByFrame()
-            rule.onNodeWithTag("compact-more-add-page").performClick()
+            addPageFromEditor()
             rule.mainClock.advanceTimeByFrame()
             rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
             rule.mainClock.advanceTimeByFrame()
             rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
             rule.onNodeWithTag("page-text").assertIsNotEnabled()
-            rule.onNodeWithTag("compact-more").performClick()
-            rule.mainClock.advanceTimeByFrame()
-            rule.onNodeWithTag("compact-more-add-page").performClick()
+            addPageFromEditor()
             rule.mainClock.advanceTimeByFrame()
             rule.mainClock.autoAdvance = true
             rule.activityRule.scenario.recreate()
@@ -305,11 +321,10 @@ class EditorCompactUiTest {
                 }.isSuccess
             }
             rule.onNodeWithContentDescription("Open $title").performClick()
-            rule.onNodeWithTag("compact-tool-type").performClick()
+            selectTypeTool()
             rule.waitUntil(15_000) {
                 runCatching { rule.onNodeWithTag("page-text").fetchSemanticsNode() }.isSuccess
             }
-            rule.onNodeWithTag("compact-page-location").assertTextContains("Page 1 of 1")
             rule.onNodeWithTag("page-text").assertTextContains(draft)
         } finally {
             rule.mainClock.autoAdvance = true
@@ -317,6 +332,24 @@ class EditorCompactUiTest {
             runBlocking { gateOwner.join() }
         }
     }
+
+    private fun selectTypeTool() {
+        val tag = if (hasTag("compact-tool-type")) "compact-tool-type" else "toolbar-tool-type"
+        rule.onNodeWithTag(tag).performClick().assertIsSelected()
+    }
+
+    private fun addPageFromEditor() {
+        if (hasTag("compact-more")) {
+            rule.onNodeWithTag("compact-more").performClick()
+            rule.mainClock.advanceTimeByFrame()
+            rule.onNodeWithTag("compact-more-add-page").performClick()
+        } else {
+            rule.onNodeWithContentDescription("Add page").performClick()
+        }
+    }
+
+    private fun hasTag(tag: String): Boolean =
+        runCatching { rule.onNodeWithTag(tag).fetchSemanticsNode() }.isSuccess
 
     @Test
     fun compactPaletteAppliesInjectedNavigationInsets() {

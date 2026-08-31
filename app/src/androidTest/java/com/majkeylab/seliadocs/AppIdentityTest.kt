@@ -18,4 +18,11 @@ class AppIdentityTest {
         assertEquals("com.majkeylab.seliadocs", BuildConfig.APPLICATION_ID.removeSuffix(".debug"))
         assertEquals("seliadocs.db", SeliaDocsDatabase.FILE_NAME)
     }
+
+    @Test
+    fun debugLauncherLabelIsDistinctFromRelease() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        assertEquals("SeliaSheets Debug", context.applicationInfo.loadLabel(context.packageManager).toString())
+    }
 }

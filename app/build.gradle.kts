@@ -25,9 +25,10 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.4.2-beta.1"
+        versionCode = 9
+        versionName = "0.5.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
     buildFeatures {
@@ -56,6 +57,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "SeliaSheets Debug"
         }
         release {
             isMinifyEnabled = false
@@ -98,6 +100,7 @@ dependencies {
     implementation("androidx.ink:ink-strokes:1.0.0")
     implementation("androidx.input:input-motionprediction:1.0.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.room:room-runtime:2.8.4")

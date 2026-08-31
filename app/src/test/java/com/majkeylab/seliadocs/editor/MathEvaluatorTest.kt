@@ -25,6 +25,13 @@ class MathEvaluatorTest {
     }
 
     @Test
+    fun percentagesAndFunctionsEvaluateInline() {
+        assertEquals(20.0, evaluateExpression("200*10%=").getOrThrow(), 0.0)
+        assertEquals(10.0, evaluateExpression("sqrt(81)+cos(0)=").getOrThrow(), 0.000_001)
+        assertEquals(1.0, evaluateExpression("sin(pi/2)=").getOrThrow(), 0.000_001)
+    }
+
+    @Test
     fun invalidInputsFailWithoutResult() {
         listOf("1/0=", "2+=", "two=", "1", "=", "1".repeat(257) + "=").forEach { value ->
             assertTrue(value, evaluateExpression(value).isFailure)
@@ -43,6 +50,19 @@ class MathEvaluatorTest {
         assertEquals("Lecture notes\n2+3*4=14", completeTrailingMath("Lecture notes\n2+3*4="))
         assertEquals("2×3=6", completeTrailingMath("2×3="))
         assertEquals("2+2=4\n", completeTrailingMath("2+2=\n"))
+    }
+
+    @Test
+    fun previousAssignmentsFeedTrailingEquation() {
+        assertEquals(
+            "width=12\nheight=4\nwidth*height=48",
+            completeTrailingMath("width=12\nheight=4\nwidth*height="),
+        )
+    }
+
+    @Test
+    fun undefinedVariablesDoNotInsertGuessedResults() {
+        assertEquals("known=5\nknown+missing=", completeTrailingMath("known=5\nknown+missing="))
     }
 
     @Test

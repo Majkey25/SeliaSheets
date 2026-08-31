@@ -3,7 +3,10 @@ package com.majkeylab.seliadocs.recognition
 import com.majkeylab.seliadocs.editor.evaluateExpression
 import com.majkeylab.seliadocs.editor.formatMathResult
 
-internal fun decideInkMath(candidates: List<RecognitionCandidate>): InkMathDecision {
+internal fun decideInkMath(
+    candidates: List<RecognitionCandidate>,
+    variables: Map<String, Double> = emptyMap(),
+): InkMathDecision {
     val uniqueCandidates = candidates.mapNotNull { candidate ->
         if (candidate.text.any { it == '\r' || it == '\n' }) return@mapNotNull null
         val expression = candidate.text.trim()
@@ -11,7 +14,7 @@ internal fun decideInkMath(candidates: List<RecognitionCandidate>): InkMathDecis
             .replace('×', '*')
             .replace('÷', '/')
         if (!expression.endsWith('=')) return@mapNotNull null
-        val result = evaluateExpression(expression).getOrNull() ?: return@mapNotNull null
+        val result = evaluateExpression(expression, variables).getOrNull() ?: return@mapNotNull null
         InkMathCandidate(expression, formatMathResult(result))
     }.distinctBy { it.expression to it.result }
 

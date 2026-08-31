@@ -304,7 +304,7 @@ private fun EditorScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             val pageId = imagePageId
             imagePageId = null
-            if (uri != null && pageId != null) viewModel.importImage(pageId, uri)
+            if (uri != null && pageId != null) viewModel.importImage(pageId, uri, settings.imageOcr)
         }
     val pdfPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -337,6 +337,13 @@ private fun EditorScreen(
             candidates = state.ambiguousMathCandidates,
             onSelect = viewModel::chooseMathCandidate,
             onDismiss = viewModel::dismissMathCandidates,
+        )
+    }
+    if (state.handwritingCandidates.isNotEmpty()) {
+        HandwritingCandidatesDialog(
+            candidates = state.handwritingCandidates,
+            onSelect = viewModel::addHandwritingCandidateToPage,
+            onDismiss = viewModel::dismissHandwritingCandidates,
         )
     }
     if (searchOpen) {
@@ -454,6 +461,9 @@ private fun EditorScreen(
                             onAddImage = onAddImage,
                             onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                             onCleanShape = { shapeDialogOpen = true },
+                            onConvertHandwriting = {
+                                viewModel.recognizeSelectedHandwriting(settings.recognitionLanguage)
+                            },
                             settings = settings,
                             onUpdateSettings = onUpdateSettings,
                         )
@@ -489,6 +499,9 @@ private fun EditorScreen(
                         onAddImage = onAddImage,
                         onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                         onCleanShape = { shapeDialogOpen = true },
+                        onConvertHandwriting = {
+                            viewModel.recognizeSelectedHandwriting(settings.recognitionLanguage)
+                        },
                         settings = settings,
                         onUpdateSettings = onUpdateSettings,
                     )
@@ -804,6 +817,7 @@ internal fun CompactEditorPalette(
     onAddImage: () -> Unit,
     onImportPdf: () -> Unit,
     onCleanShape: () -> Unit,
+    onConvertHandwriting: () -> Unit = {},
     settings: AppSettings = AppSettings(),
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit = {},
     contentInsets: WindowInsets =
@@ -953,6 +967,13 @@ internal fun CompactEditorPalette(
                             onImportPdf()
                         }
                         if (state.selectedStrokeIds.isNotEmpty()) {
+                            CompactMenuItem(
+                                stringResource(R.string.convert_handwriting),
+                                "compact-insert-convert",
+                            ) {
+                                insertOpen = false
+                                onConvertHandwriting()
+                            }
                             CompactMenuItem(stringResource(R.string.tool_shape), "compact-insert-shape") {
                                 insertOpen = false
                                 onCleanShape()
@@ -1134,6 +1155,7 @@ internal fun EditorToolBar(
     onAddImage: () -> Unit,
     onImportPdf: () -> Unit,
     onCleanShape: () -> Unit,
+    onConvertHandwriting: () -> Unit = {},
     settings: AppSettings,
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
 ) {
@@ -1238,6 +1260,9 @@ internal fun EditorToolBar(
         }
         TextButton(onClick = onCleanShape, enabled = state.selectedStrokeIds.isNotEmpty()) {
             Text(stringResource(R.string.tool_shape))
+        }
+        TextButton(onClick = onConvertHandwriting, enabled = state.selectedStrokeIds.isNotEmpty()) {
+            Text(stringResource(R.string.convert_handwriting))
         }
         if (state.selectedStrokeIds.isNotEmpty()) {
             Text(
@@ -1386,6 +1411,42 @@ internal fun MathCandidatesDialog(
             ) {
                 Text(stringResource(R.string.dismiss))
             }
+        },
+    )
+}
+
+@Composable
+internal fun HandwritingCandidatesDialog(
+    candidates: List<String>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.convert_handwriting)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(stringResource(R.string.convert_handwriting_hint))
+                candidates.forEachIndexed { index, candidate ->
+                    TextButton(
+                        onClick = { onSelect(candidate) },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("handwriting-candidate-$index"),
+                    ) {
+                        Text(candidate, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

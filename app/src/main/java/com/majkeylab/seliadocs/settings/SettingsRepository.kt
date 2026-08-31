@@ -48,6 +48,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
             theme = enumValue(preferences[Keys.theme], AppTheme.SYSTEM),
             pageTransition = preferences[Keys.pageTransition] ?: true,
             shapeAssist = preferences[Keys.shapeAssist] ?: true,
+            imageOcr = preferences[Keys.imageOcr] ?: true,
             handwritingRecognition = preferences[Keys.handwritingRecognition] ?: false,
             recognitionLanguage = enumValue(preferences[Keys.recognitionLanguage], RecognitionLanguage.CZECH),
         ).validated()
@@ -66,6 +67,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.theme] = value.theme.name
         preferences[Keys.pageTransition] = value.pageTransition
         preferences[Keys.shapeAssist] = value.shapeAssist
+        preferences[Keys.imageOcr] = value.imageOcr
         preferences[Keys.handwritingRecognition] = value.handwritingRecognition
         preferences[Keys.recognitionLanguage] = value.recognitionLanguage.name
     }
@@ -87,6 +89,7 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val theme = stringPreferencesKey("theme")
         val pageTransition = booleanPreferencesKey("page_transition")
         val shapeAssist = booleanPreferencesKey("shape_assist")
+        val imageOcr = booleanPreferencesKey("image_ocr")
         val handwritingRecognition = booleanPreferencesKey("handwriting_recognition")
         val recognitionLanguage = stringPreferencesKey("recognition_language")
     }

@@ -20,6 +20,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
 - Private image import through Android Photo Picker with MIME, dimension, allocation, and corruption checks.
+- Bundled on-device Latin OCR makes imported image text searchable and can be disabled in Settings.
 - Direct full-page typing plus movable text boxes and private Photo Picker image import.
 - Isolated-process PDF import and annotation with editable source preservation.
 - Draw-and-hold lines, arrows, ellipses, rectangles, and triangles with raw-ink Undo and shape Redo.
@@ -49,7 +50,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 ## Privacy
 
-Notebook content, raw ink, and recognition results stay in private app storage. Handwriting recognition is opt-in: its Google ML Kit language model downloads only after an explicit user action, then recognition runs on-device. Google documents separate SDK data disclosure for device/app information and diagnostics. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
+Notebook content, raw ink, OCR text, and recognition results stay in private app storage. Handwriting recognition is opt-in: its Google ML Kit language model downloads only after an explicit user action, then recognition runs on-device. Image OCR uses a bundled on-device Latin model for user-imported images. Google documents separate SDK data disclosure for device/app information and diagnostics. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
 
 ## Build
 
@@ -63,7 +64,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.4.2-beta.1` keeps stylus, lasso, and eraser input aligned after live zoom, selects imported images for immediate transforms, and replaces fixed brush widths with continuous sliders. The final source passed the 149-task local build gate and the 60-test affected Huawei suite. See the [0.4.2 ink and media acceptance report](docs/qa/2026-08-30-seliasheets-ink-media-controls.md). Hardware pressure, hover, and stylus side-button behavior remain device-dependent follow-up QA. Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.5.0-beta.1` adds searchable on-device image OCR, handwriting-to-page-text conversion, percentages, functions, and page variables. Pixel Tablet QA verified real active-pen pressure after live pinch and fixed AndroidX Ink renderer teardown across Activity recreation. See the [0.5.0 tablet and stylus acceptance report](docs/qa/2026-08-31-seliasheets-tablet-stylus-ocr.md). Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 

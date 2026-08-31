@@ -27,6 +27,7 @@ internal data class AppSettings(
     val theme: AppTheme = AppTheme.SYSTEM,
     val pageTransition: Boolean = true,
     val shapeAssist: Boolean = true,
+    val imageOcr: Boolean = true,
     val handwritingRecognition: Boolean = false,
     val recognitionLanguage: RecognitionLanguage = RecognitionLanguage.CZECH,
 ) {

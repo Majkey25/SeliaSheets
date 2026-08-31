@@ -620,7 +620,7 @@ internal class SeliaDocsRepository(
         )
         when (draft.kind) {
             ElementKind.TEXT -> require(!draft.text.isNullOrBlank() && draft.text.length <= 10_000)
-            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank())
+            ElementKind.IMAGE -> require(!draft.assetId.isNullOrBlank() && (draft.text?.length ?: 0) <= 10_000)
             ElementKind.SHAPE -> require(!draft.shapeKind.isNullOrBlank())
             ElementKind.MATH -> require(!draft.expression.isNullOrBlank() && !draft.resultText.isNullOrBlank())
         }

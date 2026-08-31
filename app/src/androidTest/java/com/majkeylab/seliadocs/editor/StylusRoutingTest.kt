@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.editor
 
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.Stroke
@@ -17,6 +18,37 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class StylusRoutingTest {
+    @Test
+    fun reattachedCanvasStillCommitsStylusStroke() {
+        val committed = CountDownLatch(1)
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val parent = FrameLayout(activity)
+                val view = InkCanvasView(activity)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            committed.countDown()
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                parent.addView(view)
+                activity.setContentView(parent)
+                parent.removeView(view)
+                parent.addView(view)
+                val downTime = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
+                )
+                view.dispatchTouchEvent(
+                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f),
+                )
+            }
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
+        }
+    }
+
     @Test
     fun completedStylusStrokePreservesPressureChanges() {
         val committed = CountDownLatch(1)

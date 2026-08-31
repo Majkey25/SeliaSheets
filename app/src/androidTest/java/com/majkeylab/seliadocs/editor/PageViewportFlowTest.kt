@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import android.graphics.Matrix
+import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.activity.ComponentActivity
+import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
@@ -21,12 +23,59 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
 class PageViewportFlowTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun externalTabletStylusPreservesPressureAtZoom() {
+        assumeTrue(
+            InstrumentationRegistry.getArguments().getString("externalTabletStylus") == "true",
+        )
+        val finished = AtomicReference<Stroke>()
+        renderPage(
+            EditorTool.PEN,
+            initialViewport = PageViewport(zoom = 2f),
+            onStrokeFinished = finished::set,
+        )
+        Log.i("SeliaSheetsStylusQA", "READY")
+
+        compose.waitUntil(30_000) { finished.get() != null }
+
+        val stroke = requireNotNull(finished.get())
+        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        assertTrue(pressures.min() <= 0.25f)
+        assertTrue(pressures.max() >= 0.75f)
+        val first = stroke.inputs[0]
+        assertEquals(595f * 0.5f, first.x, 12f)
+        assertEquals(842f * 0.5f, first.y, 12f)
+    }
+
+    @Test
+    fun externalTabletStylusDrawsAfterLivePinch() {
+        assumeTrue(
+            InstrumentationRegistry.getArguments().getString("externalTabletStylus") == "true",
+        )
+        val finished = AtomicReference<Stroke>()
+        renderPage(EditorTool.PEN, onStrokeFinished = finished::set)
+        val viewport = compose.onNodeWithTag("page-viewport")
+        Log.i("SeliaSheetsStylusQA", "READY_PINCH")
+
+        compose.waitUntil(30_000) { finished.get() != null }
+
+        assertTrue(zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100)
+        val stroke = requireNotNull(finished.get())
+        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        assertTrue(pressures.min() <= 0.25f)
+        assertTrue(pressures.max() >= 0.75f)
+        val first = stroke.inputs[0]
+        assertEquals(595f * 0.5f, first.x, 12f)
+        assertEquals(842f * 0.5f, first.y, 12f)
+    }
 
     @Test
     fun twoFingerPinchZoomsPage() {

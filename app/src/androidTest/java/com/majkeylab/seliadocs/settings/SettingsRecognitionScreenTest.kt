@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasClickAction
@@ -28,6 +29,26 @@ import org.junit.runner.RunWith
 class SettingsRecognitionScreenTest {
     @get:Rule
     val rule = createComposeRule()
+
+    @Test
+    fun imageOcrCanBeDisabled() {
+        rule.setContent {
+            var settings by remember { mutableStateOf(AppSettings()) }
+            SeliaDocsTheme(darkTheme = false) {
+                SettingsScreen(
+                    settings = settings,
+                    onUpdate = { transform -> settings = transform(settings) },
+                    onBackup = {},
+                    onClose = {},
+                )
+            }
+        }
+
+        expandDrawing()
+        scrollToTag("settings-image-ocr")
+        rule.onNodeWithTag("settings-image-ocr").assertIsOn().performClick()
+        rule.onNodeWithTag("settings-image-ocr").assertIsOff()
+    }
 
     @Test
     fun englishSelectionUpdatesStateThenDownloadsEnglishModel() {

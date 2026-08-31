@@ -49,6 +49,7 @@ class SettingsRepositoryTest {
             it.copy(
                 handwritingRecognition = true,
                 recognitionLanguage = RecognitionLanguage.ENGLISH,
+                imageOcr = false,
             )
         }
         firstJob.cancelAndJoin()
@@ -58,6 +59,7 @@ class SettingsRepositoryTest {
 
         assertEquals(true, settings.handwritingRecognition)
         assertEquals(RecognitionLanguage.ENGLISH, settings.recognitionLanguage)
+        assertEquals(false, settings.imageOcr)
         file.delete()
     }
 

@@ -51,6 +51,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
     private val gesturePoints = mutableListOf<CanvasPoint>()
     private val identity = Matrix()
+    private val touchListener = OnTouchListener { _, event -> handleMotionEvent(event) }
     private var gesturePointerId: Int? = null
     private var gestureKind: GestureKind? = null
     private var gestureToolType: Int? = null
@@ -67,9 +68,12 @@ internal class InkCanvasView @JvmOverloads constructor(
         addView(finishedView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(inProgressView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(gestureOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
         inProgressView.addFinishedStrokesListener(this)
-        inProgressView.eagerInit()
-        setOnTouchListener { _, event -> handleMotionEvent(event) }
+        setOnTouchListener(touchListener)
     }
 
     fun setStrokes(strokes: List<Stroke>, selected: Set<Int> = emptySet()) {
@@ -103,11 +107,23 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
-        inProgressView.removeFinishedStrokesListener(this)
+        setOnTouchListener(null)
+        inProgressView.cancelUnfinishedStrokes()
+        inProgressView.clearFinishedStrokesListeners()
+        activeStrokes.clear()
+        clearGesture()
         super.onDetachedFromWindow()
     }
 
     private fun handleMotionEvent(event: MotionEvent): Boolean {
+        if (
+            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER &&
+            (event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
+                event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER)
+        ) {
+            inProgressView.eagerInit()
+            return false
+        }
         predictor.record(event)
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> startInteraction(event)

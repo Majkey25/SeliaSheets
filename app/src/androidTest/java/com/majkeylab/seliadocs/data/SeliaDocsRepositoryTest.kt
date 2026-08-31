@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.majkeylab.seliadocs.editor.ShapeKind
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -392,18 +393,18 @@ class SeliaDocsRepositoryTest {
         val page = repository.getPages(notebookId).single()
         database.pageDao().insertElement(
             ElementEntity(
-                id = "stale-image",
+                id = "stale-shape",
                 pageId = page.id,
                 zIndex = 0,
-                kind = ElementKind.IMAGE.name,
+                kind = ElementKind.SHAPE.name,
                 x = 0f,
                 y = 0f,
                 width = 100f,
                 height = 100f,
                 rotation = 0f,
                 text = "Invisible stale text",
-                assetId = "image-id",
-                shapeKind = null,
+                assetId = null,
+                shapeKind = ShapeKind.LINE.name,
                 expression = null,
                 resultText = null,
             ),
