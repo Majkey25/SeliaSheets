@@ -46,7 +46,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     private val finishedView = FinishedInkView(context)
-    private val inProgressView = InProgressStrokesView(context)
+    private var inProgressView = InProgressStrokesView(context)
     private val gestureOverlay = GestureOverlayView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
     private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
@@ -115,6 +115,13 @@ internal class InkCanvasView @JvmOverloads constructor(
         activeStrokes.clear()
         clearGesture()
         super.onDetachedFromWindow()
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) replaceInProgressView()
+    }
+
+    private fun replaceInProgressView() {
+        removeView(inProgressView)
+        inProgressView = InProgressStrokesView(context)
+        addView(inProgressView, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     private fun handleMotionEvent(event: MotionEvent): Boolean {
