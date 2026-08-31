@@ -391,6 +391,8 @@ class PageViewportFlowTest {
             )
         }
         compose.waitForIdle()
+        val readyAt = android.os.SystemClock.uptimeMillis() + 250L
+        compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
     }
 
     private fun stylusEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =

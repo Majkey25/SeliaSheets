@@ -7,7 +7,6 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
-import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -46,7 +45,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     private val finishedView = FinishedInkView(context)
-    private var inProgressView = InProgressStrokesView(context)
+    private val inProgressView = InProgressStrokesView(context)
     private val gestureOverlay = GestureOverlayView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
     private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
@@ -73,10 +72,6 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-            val attachedView = inProgressView
-            attachedView.post { if (attachedView.isAttachedToWindow) attachedView.eagerInit() }
-        }
         inProgressView.addFinishedStrokesListener(this)
         setOnTouchListener(touchListener)
     }
@@ -118,13 +113,6 @@ internal class InkCanvasView @JvmOverloads constructor(
         activeStrokes.clear()
         clearGesture()
         super.onDetachedFromWindow()
-        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) replaceInProgressView()
-    }
-
-    private fun replaceInProgressView() {
-        removeView(inProgressView)
-        inProgressView = InProgressStrokesView(context)
-        addView(inProgressView, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
     private fun handleMotionEvent(event: MotionEvent): Boolean {

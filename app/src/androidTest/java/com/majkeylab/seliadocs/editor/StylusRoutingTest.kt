@@ -1,7 +1,9 @@
 package com.majkeylab.seliadocs.editor
 
+import android.os.Build
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.ink.brush.StockBrushes
@@ -25,7 +27,7 @@ class StylusRoutingTest {
             scenario.onActivity { activity ->
                 val parent = FrameLayout(activity)
                 val view = InkCanvasView(activity)
-                view.listener =
+                val listener =
                     object : InkCanvasView.Listener {
                         override fun onStrokeFinished(stroke: Stroke) {
                             committed.countDown()
@@ -33,18 +35,25 @@ class StylusRoutingTest {
 
                         override fun onStrokeCanceled(pointerId: Int) = Unit
                     }
+                view.listener = listener
                 parent.addView(view)
                 activity.setContentView(parent)
                 parent.removeView(view)
                 parent.postDelayed(
                     {
-                        parent.addView(view)
-                        view.post {
+                        val attachedView =
+                            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                                InkCanvasView(activity).also { it.listener = listener }
+                            } else {
+                                view
+                            }
+                        parent.addView(attachedView)
+                        attachedView.postWhenReady {
                             val downTime = android.os.SystemClock.uptimeMillis()
-                            view.dispatchTouchEvent(
+                            attachedView.dispatchTouchEvent(
                                 stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
                             )
-                            view.dispatchTouchEvent(
+                            attachedView.dispatchTouchEvent(
                                 stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f),
                             )
                         }
@@ -75,7 +84,7 @@ class StylusRoutingTest {
                     }
                 view.measure(exactly(500), exactly(500))
                 view.layout(0, 0, 500, 500)
-                view.post {
+                view.postWhenReady {
                     val downTime = android.os.SystemClock.uptimeMillis()
                     view.dispatchTouchEvent(
                         stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f, pressure = 0.15f),
@@ -118,7 +127,7 @@ class StylusRoutingTest {
                     }
                 view.measure(exactly(500), exactly(500))
                 view.layout(0, 0, 500, 500)
-                view.post {
+                view.postWhenReady {
                     val downTime = android.os.SystemClock.uptimeMillis()
                     view.dispatchTouchEvent(
                         stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
@@ -194,7 +203,7 @@ class StylusRoutingTest {
                     }
                 view.measure(exactly(500), exactly(500))
                 view.layout(0, 0, 500, 500)
-                view.post {
+                view.postWhenReady {
                     val downTime = android.os.SystemClock.uptimeMillis()
                     view.dispatchTouchEvent(
                         stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
@@ -250,7 +259,7 @@ class StylusRoutingTest {
                     }
                 view.measure(exactly(500), exactly(500))
                 view.layout(0, 0, 500, 500)
-                view.post {
+                view.postWhenReady {
                     val downTime = android.os.SystemClock.uptimeMillis()
                     view.dispatchTouchEvent(
                         fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
@@ -824,4 +833,8 @@ class StylusRoutingTest {
 
     private fun exactly(size: Int): Int =
         android.view.View.MeasureSpec.makeMeasureSpec(size, android.view.View.MeasureSpec.EXACTLY)
+
+    private fun View.postWhenReady(block: () -> Unit) {
+        postDelayed(block, 250L)
+    }
 }
