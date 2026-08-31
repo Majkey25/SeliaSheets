@@ -126,6 +126,7 @@
     <string name="convert_handwriting">Handwriting to text</string>
     <string name="convert_handwriting_hint">Choose text to add to the page. Your original ink stays unchanged.</string>
     <string name="recognition_no_text">No readable text was recognized.</string>
+    <string name="recognition_selection_too_large">Select a smaller handwriting area and try again.</string>
     <string name="dismiss">Dismiss</string>
     <string name="recognition_model_required">Download the handwriting model in Settings.</string>
     <string name="recognition_unavailable">Handwriting recognition unavailable.</string>

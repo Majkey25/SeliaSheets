@@ -31,16 +31,19 @@ internal fun boundedRecognitionRequest(
     pageHeight: Float,
     fingerprints: List<RecognitionFingerprint>,
     strokes: List<RecognitionStroke>,
+    maxStrokes: Int = 32,
+    maxPoints: Int = 4_096,
 ): RecognitionRequest? {
     if (pageId.isBlank() || !pageWidth.isFinite() || pageWidth <= 0f ||
         !pageHeight.isFinite() || pageHeight <= 0f ||
-        strokes.size !in 1..32 || fingerprints.size != strokes.size
+        maxStrokes <= 0 || maxPoints <= 0 ||
+        strokes.size !in 1..maxStrokes || fingerprints.size != strokes.size
     ) {
         return null
     }
 
     val totalPoints = strokes.sumOf { it.points.size.toLong() }
-    if (totalPoints !in 1L..4096L || strokes.any { stroke ->
+    if (totalPoints !in 1L..maxPoints.toLong() || strokes.any { stroke ->
             if (stroke.points.isEmpty()) return@any true
             var previousTimeMillis: Long? = null
             stroke.points.any { point ->

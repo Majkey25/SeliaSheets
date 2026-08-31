@@ -90,6 +90,23 @@ class InkMathCandidateGateTest {
     }
 
     @Test
+    fun boundedRequestSupportsLargerExplicitConversionLimits() {
+        val point = RecognitionPoint(1f, 2f, 0L)
+        val strokes = List(33) { RecognitionStroke(listOf(point)) }
+        val request = boundedRecognitionRequest(
+            pageId = "page-1",
+            pageWidth = 100f,
+            pageHeight = 200f,
+            fingerprints = strokes.mapIndexed { index, _ -> RecognitionFingerprint("stroke-$index", index) },
+            strokes = strokes,
+            maxStrokes = 128,
+            maxPoints = 16_384,
+        )
+
+        assertEquals(33, request?.strokes?.size)
+    }
+
+    @Test
     fun boundedRequestRejectsNonFinitePoints() {
         val request = boundedRecognitionRequest(
             pageId = "page-1",

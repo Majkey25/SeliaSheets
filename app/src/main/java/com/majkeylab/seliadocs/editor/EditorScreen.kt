@@ -349,7 +349,7 @@ private fun EditorScreen(
     if (searchOpen) {
         SearchDialog(
             state = state,
-            onQuery = viewModel::searchPageText,
+            onQuery = { query -> viewModel.searchPageText(query, settings.imageOcr) },
             onSelect = { pageId ->
                 viewModel.selectPage(pageId)
                 viewModel.clearSearch()

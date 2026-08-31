@@ -272,6 +272,7 @@ internal class EditorViewModel(
     private var candidateChoiceJob: Job? = null
     private var searchJob: Job? = null
     private var latestSearchQuery = ""
+    private var latestSearchIncludesImageOcr = true
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
@@ -761,8 +762,9 @@ internal class EditorViewModel(
         updateHistoryControls(history)
     }
 
-    fun searchPageText(query: String) {
+    fun searchPageText(query: String, includeImageOcr: Boolean = true) {
         latestSearchQuery = query
+        latestSearchIncludesImageOcr = includeImageOcr
         searchJob?.cancel()
         if (query.isBlank()) {
             clearSearch()
@@ -771,8 +773,10 @@ internal class EditorViewModel(
         if (!mutationAllowed()) return
         searchJob =
             viewModelScope.launch {
-                val result = runCatching { repository.searchPageText(notebookId, query) }
-                if (latestSearchQuery != query) return@launch
+                val result = runCatching {
+                    repository.searchPageText(notebookId, query, includeImageOcr)
+                }
+                if (latestSearchQuery != query || latestSearchIncludesImageOcr != includeImageOcr) return@launch
                 result
                     .onSuccess { matches ->
                         controls.value =
@@ -795,6 +799,7 @@ internal class EditorViewModel(
 
     fun clearSearch() {
         latestSearchQuery = ""
+        latestSearchIncludesImageOcr = true
         searchJob?.cancel()
         searchJob = null
         controls.value =
@@ -944,7 +949,24 @@ internal class EditorViewModel(
                     if (!mutationAllowed()) return@withLock
                     val strokesById = repository.getStrokes(page.id).associateBy(StrokeEntity::id)
                     val selected = selectedIds.map { strokesById[it] ?: return@withLock }
-                    val payload = recognitionPayload(page, selected) ?: return@withLock
+                    val payload =
+                        recognitionPayload(
+                            page,
+                            selected,
+                            maxStrokes = MAX_CONVERSION_STROKES,
+                            maxPoints = MAX_CONVERSION_POINTS,
+                            maxDurationMillis = MAX_CONVERSION_DURATION_MS,
+                        )
+                    if (payload == null) {
+                        controls.value =
+                            controls.value.copy(
+                                recognitionMessage =
+                                    getApplication<Application>().getString(
+                                        R.string.recognition_selection_too_large,
+                                    ),
+                            )
+                        return@withLock
+                    }
                     val recognizer = recognizerProvider(language)
                     val candidates =
                         try {
@@ -1022,7 +1044,13 @@ internal class EditorViewModel(
 
     fun addMath(pageId: String, expression: String) = mutate {
         val source = expression.trim().let { value -> if (value.endsWith('=')) value else "$value=" }
-        val result = formatMathResult(evaluateExpression(source).getOrThrow())
+        val variables =
+            mathVariablesFromText(
+                repository.getBlocks(pageId).sortedBy(BlockEntity::orderIndex).joinToString("\n") {
+                    it.text.orEmpty()
+                },
+            )
+        val result = formatMathResult(evaluateExpression(source, variables).getOrThrow())
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val history = history(pageId)
         repository.addElement(
@@ -1334,12 +1362,16 @@ internal class EditorViewModel(
     private fun recognitionPayload(
         page: PageEntity,
         sourceStrokes: List<StrokeEntity>,
+        maxStrokes: Int = MAX_RECOGNITION_STROKES,
+        maxPoints: Int = MAX_RECOGNITION_POINTS,
+        maxDurationMillis: Long = MAX_RECOGNITION_DURATION_MS,
     ): RecognitionPayload? {
+        if (sourceStrokes.size !in 1..maxStrokes) return null
         var pointCount = 0
         val recognitionStrokes =
             sourceStrokes.map { stroke ->
                 val inputs = stroke.toInkStroke().inputs
-                if (inputs.size > MAX_RECOGNITION_POINTS - pointCount) return null
+                if (inputs.size > maxPoints - pointCount) return null
                 pointCount += inputs.size
                 RecognitionStroke(
                     (0 until inputs.size).map { index ->
@@ -1350,7 +1382,7 @@ internal class EditorViewModel(
             }
         val points = recognitionStrokes.flatMap(RecognitionStroke::points)
         val burstDuration = recognitionBurstDurationMillis(recognitionStrokes)
-        if (points.isEmpty() || burstDuration == null || burstDuration > MAX_RECOGNITION_DURATION_MS) {
+        if (points.isEmpty() || burstDuration == null || burstDuration > maxDurationMillis) {
             return null
         }
         val request =
@@ -1360,6 +1392,8 @@ internal class EditorViewModel(
                 pageHeight = page.heightPoints.toFloat(),
                 fingerprints = sourceStrokes.map { it.recognitionFingerprint() },
                 strokes = recognitionStrokes,
+                maxStrokes = maxStrokes,
+                maxPoints = maxPoints,
             ) ?: return null
         return RecognitionPayload(
             request = request,
@@ -1646,6 +1680,9 @@ internal class EditorViewModel(
         const val MAX_RECOGNITION_STROKES = 32
         const val MAX_RECOGNITION_POINTS = 4_096
         const val MAX_RECOGNITION_DURATION_MS = 10_000L
+        const val MAX_CONVERSION_STROKES = 128
+        const val MAX_CONVERSION_POINTS = 16_384
+        const val MAX_CONVERSION_DURATION_MS = 60_000L
         const val RECOGNITION_STROKE_SEPARATOR_MS = 1L
         const val MATH_ELEMENT_MIN_WIDTH = 160f
         const val MATH_ELEMENT_HEIGHT = 64f

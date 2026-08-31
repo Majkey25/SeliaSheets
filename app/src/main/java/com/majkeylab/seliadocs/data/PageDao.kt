@@ -133,7 +133,7 @@ internal interface PageDao {
             FROM pages
             INNER JOIN elements ON elements.pageId = pages.id
             WHERE pages.notebookId = :notebookId
-              AND elements.kind IN ('TEXT', 'IMAGE')
+              AND (elements.kind = 'TEXT' OR (:includeImageOcr AND elements.kind = 'IMAGE'))
               AND elements.text IS NOT NULL
               AND elements.text GLOB :globPattern
             UNION ALL
@@ -173,5 +173,6 @@ internal interface PageDao {
         globPattern: String,
         snippetLength: Int,
         limit: Int,
+        includeImageOcr: Boolean,
     ): List<PageTextMatch>
 }

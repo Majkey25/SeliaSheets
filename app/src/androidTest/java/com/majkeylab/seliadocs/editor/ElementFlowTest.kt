@@ -70,10 +70,39 @@ class ElementFlowTest {
 
             val match = repository.searchPageText(notebookId, "organic chemistry").single()
             assertEquals(page.id, match.pageId)
+            assertTrue(
+                repository.searchPageText(
+                    notebookId,
+                    "organic chemistry",
+                    includeImageOcr = false,
+                ).isEmpty(),
+            )
         } finally {
             repository.deleteNotebook(notebookId)
             importedAssetId?.let { AssetStore(File(application.filesDir, "assets")).file(it).delete() }
             source.delete()
+        }
+    }
+
+    @Test
+    fun manualMathUsesAssignmentsFromPageText() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Math variables"))
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val pageId = viewModel.awaitState("math page") { it.selectedPage != null }.selectedPage!!.id
+            onMain { viewModel.updatePageText(pageId, "width=12\nheight=4") }
+            viewModel.awaitState("math assignments") {
+                it.selectedBlocks.singleOrNull()?.text == "width=12\nheight=4"
+            }
+
+            onMain { viewModel.addMath(pageId, "width*height=") }
+            val math = viewModel.awaitState("manual variable math") { it.elements.size == 1 }.elements.single()
+            assertEquals("width*height = 48", math.resultText)
+        } finally {
+            repository.deleteNotebook(notebookId)
         }
     }
 

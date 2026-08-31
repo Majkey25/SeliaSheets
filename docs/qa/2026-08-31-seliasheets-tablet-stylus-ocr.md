@@ -29,11 +29,13 @@ The Android Emulator gRPC `PenEvent` API injected the pen stream. Android report
 
 ## Test evidence
 
-The final tablet suite discovers 259 tests. The main run passed 232 tests. Android's task-snapshot code then blocked `WindowManagerService`, and the API 36 watchdog restarted `system_server`.
+The final tablet suite discovers 260 tests. The main run passed 232 tests. Android's task-snapshot code then blocked `WindowManagerService`, and the API 36 watchdog restarted `system_server`.
 
-A fresh 25-test run covered the interrupted tail and passed with `OK (25 tests)`. A final bounded editor slice passed `OK (61 tests)`, including handwriting conversion, math rollback, OCR image search, image transforms, stylus reattachment, pressure, zoom, pan, and pinch routing. `externalTabletStylusDrawsAfterLivePinch` also passed separately with the emulator's real pen-event stream.
+A fresh 25-test run covered the interrupted tail and passed with `OK (25 tests)`. A final bounded editor slice passed `OK (61 tests)`, including handwriting conversion, math rollback, OCR image search, image transforms, stylus reattachment, pressure, zoom, pan, and pinch routing. A follow-up `OK (26 tests)` covered disabled OCR search, manual math variables, and every viewport/stylus regression. `externalTabletStylusDrawsAfterLivePinch` also passed separately with the emulator's real pen-event stream.
 
 The system watchdog stack ended in `android.window.ScreenCapture.captureLayers` and `TaskSnapshotController`. It had no SeliaSheets frame. Bounded runs avoid this Android 16 emulator-image defect.
+
+GitHub's API 29 emulator accumulated AndroidX Ink renderer resources when all tests shared one instrumentation process. Android Test Orchestrator 1.6.1 now runs each test in an isolated instrumentation instance and clears package data between tests.
 
 ## Build gate
 
