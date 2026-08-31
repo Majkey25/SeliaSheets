@@ -266,6 +266,7 @@ internal class BackupExporter(
             shapeKind = shapeKind,
             expression = expression,
             resultText = resultText,
+            ocrRegions = ocrRegions,
         )
 
     private fun BlockEntity.toBackup() =

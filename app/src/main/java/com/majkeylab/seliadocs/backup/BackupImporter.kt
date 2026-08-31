@@ -294,6 +294,7 @@ internal class BackupImporter(
             shapeKind = shapeKind,
             expression = expression,
             resultText = resultText,
+            ocrRegions = ocrRegions,
         )
 
     private fun BackupBlock.toEntity(mappings: IdMappings) =

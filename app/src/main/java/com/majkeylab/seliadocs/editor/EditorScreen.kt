@@ -102,6 +102,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.majkeylab.seliadocs.R
+import com.majkeylab.seliadocs.data.PageTextMatch
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkTextRecognizer
 import com.majkeylab.seliadocs.recognition.RecognitionLanguage
@@ -350,9 +351,8 @@ private fun EditorScreen(
         SearchDialog(
             state = state,
             onQuery = { query -> viewModel.searchPageText(query, settings.imageOcr) },
-            onSelect = { pageId ->
-                viewModel.selectPage(pageId)
-                viewModel.clearSearch()
+            onSelect = { result ->
+                viewModel.openSearchResult(result)
                 searchOpen = false
             },
             onDismiss = {
@@ -543,6 +543,7 @@ private fun EditorScreen(
                             selectedStrokeIds = state.selectedStrokeIds,
                             selectedElementId = state.selectedElementId,
                             smartShapePreviewId = state.smartShapePreviewId,
+                            ocrSearchHighlight = state.ocrSearchHighlight,
                             fingerDrawing = state.notebook?.fingerDrawing == true,
                             tool = state.tool,
                             penWidth = settings.penWidth,
@@ -597,6 +598,7 @@ private fun EditorScreen(
                             selectedStrokeIds = state.selectedStrokeIds,
                             selectedElementId = state.selectedElementId,
                             smartShapePreviewId = state.smartShapePreviewId,
+                            ocrSearchHighlight = state.ocrSearchHighlight,
                             fingerDrawing = state.notebook?.fingerDrawing == true,
                             tool = state.tool,
                             penWidth = settings.penWidth,
@@ -1279,7 +1281,7 @@ internal fun EditorToolBar(
 private fun SearchDialog(
     state: EditorUiState,
     onQuery: (String) -> Unit,
-    onSelect: (String) -> Unit,
+    onSelect: (PageTextMatch) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf(state.searchQuery) }
@@ -1309,7 +1311,7 @@ private fun SearchDialog(
                         TextButton(
                             onClick = {
                                 closing = true
-                                onSelect(result.pageId)
+                                onSelect(result)
                             },
                             modifier = Modifier.fillMaxWidth().testTag("search-result-${result.pageIndex}"),
                         ) {

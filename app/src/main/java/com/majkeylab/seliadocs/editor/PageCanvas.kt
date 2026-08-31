@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -96,6 +97,8 @@ import com.majkeylab.seliadocs.data.PAGE_TEXT_TOP
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.pageTextFits
+import com.majkeylab.seliadocs.recognition.ImageOcrRegion
+import com.majkeylab.seliadocs.recognition.matchingImageOcrRegions
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
@@ -109,6 +112,7 @@ private data class CanvasPageFrame(
     val strokes: List<StrokeEntity>,
     val elements: List<ElementEntity>,
     val blocks: List<BlockEntity>,
+    val ocrSearchHighlight: OcrSearchHighlight?,
 )
 
 @Composable
@@ -122,6 +126,7 @@ internal fun PageCanvas(
     selectedStrokeIds: Set<String>,
     selectedElementId: String?,
     smartShapePreviewId: String? = null,
+    ocrSearchHighlight: OcrSearchHighlight? = null,
     fingerDrawing: Boolean,
     tool: EditorTool,
     penWidth: Float,
@@ -146,7 +151,7 @@ internal fun PageCanvas(
     initialViewport: PageViewport = PageViewport(),
     modifier: Modifier = Modifier,
 ) {
-    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks)
+    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight)
     val currentPageId = rememberUpdatedState(page?.id)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
@@ -172,6 +177,7 @@ internal fun PageCanvas(
                     selectedStrokeIds,
                     selectedElementId,
                     smartShapePreviewId,
+                    target.ocrSearchHighlight,
                     fingerDrawing,
                     tool,
                     penWidth,
@@ -221,6 +227,7 @@ private fun Paper(
     selectedStrokeIds: Set<String>,
     selectedElementId: String?,
     smartShapePreviewId: String?,
+    ocrSearchHighlight: OcrSearchHighlight?,
     fingerDrawing: Boolean,
     tool: EditorTool,
     penWidth: Float,
@@ -457,6 +464,7 @@ private fun Paper(
                     elements,
                     selectedElementId,
                     smartShapePreviewId,
+                    ocrSearchHighlight,
                     previewTransform,
                     assetFile,
                     onSelectElement,
@@ -692,6 +700,7 @@ private fun ElementLayer(
     elements: List<ElementEntity>,
     selectedElementId: String?,
     smartShapePreviewId: String?,
+    ocrSearchHighlight: OcrSearchHighlight?,
     previewTransform: ElementTransform?,
     assetFile: (String) -> File,
     onSelectElement: (String) -> Unit,
@@ -750,7 +759,15 @@ private fun ElementLayer(
                         )
                     }
                     ElementKind.IMAGE -> element.assetId?.let { id ->
-                        StoredImage(assetFile(id), modifier)
+                        val highlightedRegions =
+                            remember(element.ocrRegions, ocrSearchHighlight) {
+                                if (ocrSearchHighlight?.elementId == element.id) {
+                                    matchingImageOcrRegions(element.ocrRegions, ocrSearchHighlight.query)
+                                } else {
+                                    emptyList()
+                                }
+                            }
+                        StoredImage(assetFile(id), modifier, highlightedRegions, element.id)
                     }
                     ElementKind.SHAPE -> CleanShape(element, modifier)
                     null -> Unit
@@ -813,19 +830,73 @@ private fun CleanShape(element: ElementEntity, modifier: Modifier) {
 }
 
 @Composable
-private fun StoredImage(file: File, modifier: Modifier) {
+private fun StoredImage(
+    file: File,
+    modifier: Modifier,
+    highlightedRegions: List<ImageOcrRegion>,
+    elementId: String,
+) {
     val bitmap by
         produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file.path, file.lastModified()) {
             value = withContext(Dispatchers.IO) { decodePreview(file)?.asImageBitmap() }
         }
     bitmap?.let { image ->
-        Image(
-            bitmap = image,
-            contentDescription = stringResource(R.string.inserted_image),
-            contentScale = ContentScale.Fit,
-            modifier = modifier.clip(RoundedCornerShape(4.dp)),
-        )
+        Box(modifier.clip(RoundedCornerShape(4.dp))) {
+            Image(
+                bitmap = image,
+                contentDescription = stringResource(R.string.inserted_image),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (highlightedRegions.isNotEmpty()) {
+                val color = MaterialTheme.colorScheme.primary
+                Canvas(Modifier.fillMaxSize().testTag("ocr-highlight-$elementId")) {
+                    highlightedRegions.forEach { region ->
+                        val rect =
+                            fittedImageRegionRect(
+                                region,
+                                size.width,
+                                size.height,
+                                image.width.toFloat(),
+                                image.height.toFloat(),
+                            )
+                        drawRect(
+                            color = color.copy(alpha = 0.24f),
+                            topLeft = rect.topLeft,
+                            size = rect.size,
+                        )
+                        drawRect(
+                            color = color,
+                            topLeft = rect.topLeft,
+                            size = rect.size,
+                            style = DrawStroke(2.dp.toPx()),
+                        )
+                    }
+                }
+            }
+        }
     }
+}
+
+internal fun fittedImageRegionRect(
+    region: ImageOcrRegion,
+    containerWidth: Float,
+    containerHeight: Float,
+    imageWidth: Float,
+    imageHeight: Float,
+): Rect {
+    require(containerWidth > 0f && containerHeight > 0f && imageWidth > 0f && imageHeight > 0f)
+    val scale = minOf(containerWidth / imageWidth, containerHeight / imageHeight)
+    val fittedWidth = imageWidth * scale
+    val fittedHeight = imageHeight * scale
+    val offsetX = (containerWidth - fittedWidth) / 2f
+    val offsetY = (containerHeight - fittedHeight) / 2f
+    return Rect(
+        left = offsetX + region.left * fittedWidth,
+        top = offsetY + region.top * fittedHeight,
+        right = offsetX + region.right * fittedWidth,
+        bottom = offsetY + region.bottom * fittedHeight,
+    )
 }
 
 private fun decodePreview(file: File): android.graphics.Bitmap? {

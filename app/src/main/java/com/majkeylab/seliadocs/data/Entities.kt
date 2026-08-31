@@ -177,6 +177,7 @@ internal data class PageTextMatch(
     val pageId: String,
     val pageIndex: Int,
     val text: String,
+    val elementId: String? = null,
 )
 
 @Entity(
@@ -224,6 +225,7 @@ internal data class ElementDraft(
     val shapeKind: String? = null,
     val expression: String? = null,
     val resultText: String? = null,
+    val ocrRegions: String? = null,
 )
 
 @Entity(
@@ -253,6 +255,7 @@ internal data class ElementEntity(
     val shapeKind: String?,
     val expression: String?,
     val resultText: String?,
+    val ocrRegions: String? = null,
 )
 
 internal data class NotebookContent(
