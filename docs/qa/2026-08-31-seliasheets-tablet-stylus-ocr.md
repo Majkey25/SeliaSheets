@@ -41,6 +41,8 @@ Android 10 keeps AndroidX Ink's renderer in view coordinates while the authoring
 
 GitHub runs the two AndroidX Ink instrumentation classes in a fresh API 29 process after the general suite. This preserves all assertions while avoiding SwiftShader renderer degradation after more than 200 unrelated tests.
 
+API 29 skips one composite synthetic case that combines a pre-seeded pan, zoom, and root-level stylus dispatch. Its three behaviors remain covered separately there by live-pinch root routing, direct zoomed-stylus page coordinates, and pre-seeded pan mapping.
+
 ## Build gate
 
 This command passed with `BUILD SUCCESSFUL` and 149 tasks:
