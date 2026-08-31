@@ -21,13 +21,46 @@ import java.io.StringReader
 import java.io.Writer
 
 internal object BackupJson {
-    private const val MAX_RECORD_CHARS = 16 * 1024 * 1024
-    private const val MAX_TEXT_CHARS = 1024 * 1024
-    private const val MAX_STROKE_BYTES = 8 * 1024 * 1024
+    private const val MAX_RECORD_CHARS = 1024 * 1024
+    private const val MAX_TEXT_CHARS = 100_000
+    private const val MAX_STROKE_BYTES = 512 * 1024
+    private const val MAX_STROKE_BASE64_CHARS = (MAX_STROKE_BYTES + 2) / 3 * 4
+    private const val MAX_UNKNOWN_STRING_CHARS = 64 * 1024
+    private const val MAX_JSON_PRIMITIVE_CHARS = 128
+    private const val MAX_JSON_NESTING_DEPTH = 32
     private const val MAX_FLAGS = 128
     private const val MAX_SHORT_TEXT_CHARS = 1024
     private const val MAX_PAGE_DIMENSION = 14_400
     private val TEXT_ALIGNMENTS = setOf("START", "CENTER", "END", "JUSTIFY")
+    private val JSON_WHITESPACE = setOf(' ', '\t', '\r', '\n')
+    private val JSON_VALUE_DELIMITERS = JSON_WHITESPACE + setOf(',', '}', ']')
+    private val JSON_PRIMITIVE_DELIMITERS = JSON_VALUE_DELIMITERS + setOf(':', '{', '[', '"')
+    private val JSON_NESTED_SEPARATORS = JSON_WHITESPACE + setOf(',', ':')
+    private val ELEMENT_TEXT_FIELDS = setOf("text", "expression", "resultText")
+    private val SHORT_STRING_FIELDS =
+        setOf(
+            "kind",
+            "id",
+            "pageId",
+            "notebookId",
+            "chapterId",
+            "pdfSourceId",
+            "payloadId",
+            "assetId",
+            "sha256",
+            "coverColor",
+            "coverPattern",
+            "defaultPaper",
+            "orientation",
+            "blockKind",
+            "alignment",
+            "shapeKind",
+            "elementKind",
+            "brushKind",
+            "pageMode",
+        )
+
+    private data class JsonStringSpan(val start: Int, val end: Int, val decodedLength: Int)
 
     fun writeManifest(output: Writer, manifest: BackupManifest) {
         validate(manifest)
@@ -137,17 +170,198 @@ internal object BackupJson {
         }
     }
 
-    private fun readRecordKind(line: String): String =
-        try {
-            JsonReader(StringReader(line)).use { reader ->
-                reader.beginObject()
-                if (!reader.hasNext() || reader.nextName() != "kind") throw BackupFailure.Malformed()
-                reader.nextBoundedString("kind", MAX_SHORT_TEXT_CHARS)
+    private fun readRecordKind(line: String): String {
+        var index = line.skipJsonWhitespace(0)
+        if (line.getOrNull(index) != '{') throw BackupFailure.Malformed()
+        index++
+        var kind: String? = null
+        while (true) {
+            index = line.skipJsonWhitespace(index)
+            if (line.getOrNull(index) == '}') break
+            val keySpan = line.jsonStringSpan(index)
+            if (keySpan.decodedLength > MAX_SHORT_TEXT_CHARS) {
+                throw BackupFailure.LimitExceeded("field")
             }
-        } catch (failure: BackupFailure) {
-            throw failure
-        } catch (failure: Exception) {
-            throw BackupFailure.Malformed(failure)
+            val key = line.decodeJsonString(keySpan, "field", MAX_SHORT_TEXT_CHARS)
+            index = line.skipJsonWhitespace(keySpan.end)
+            if (line.getOrNull(index) != ':') throw BackupFailure.Malformed()
+            index = line.skipJsonWhitespace(index + 1)
+            if (line.getOrNull(index) == '"') {
+                val valueSpan = line.jsonStringSpan(index)
+                if (key == "kind") {
+                    if (kind != null) throw BackupFailure.Malformed()
+                    kind = line.decodeJsonString(valueSpan, "kind", MAX_SHORT_TEXT_CHARS)
+                }
+                index = valueSpan.end
+            } else {
+                if (key == "kind") throw BackupFailure.Malformed()
+                index = line.jsonValueEnd(index, Int.MAX_VALUE)
+            }
+            index = line.skipJsonWhitespace(index)
+            when (line.getOrNull(index)) {
+                ',' -> index++
+                '}' -> break
+                else -> throw BackupFailure.Malformed()
+            }
+        }
+        return requiredString(kind, "kind").also { validateRecordStringBounds(line, it) }
+    }
+
+    private fun validateRecordStringBounds(line: String, kind: String) {
+        var index = line.skipJsonWhitespace(0) + 1
+        while (true) {
+            index = line.skipJsonWhitespace(index)
+            if (line.getOrNull(index) == '}') return
+            val keySpan = line.jsonStringSpan(index)
+            val key = line.decodeJsonString(keySpan, "field", MAX_SHORT_TEXT_CHARS)
+            index = line.skipJsonWhitespace(keySpan.end)
+            if (line.getOrNull(index) != ':') throw BackupFailure.Malformed()
+            index = line.skipJsonWhitespace(index + 1)
+            if (line.getOrNull(index) == '"') {
+                val valueSpan = line.jsonStringSpan(index)
+                if (valueSpan.decodedLength > stringFieldLimit(kind, key)) {
+                    throw BackupFailure.LimitExceeded(key)
+                }
+                index = valueSpan.end
+            } else {
+                index = line.jsonValueEnd(index, MAX_UNKNOWN_STRING_CHARS)
+            }
+            index = line.skipJsonWhitespace(index)
+            when (line.getOrNull(index)) {
+                ',' -> index++
+                '}' -> return
+                else -> throw BackupFailure.Malformed()
+            }
+        }
+    }
+
+    private fun String.decodeJsonString(
+        span: JsonStringSpan,
+        field: String,
+        limit: Int,
+    ): String =
+        parseJson(StringReader("[${substring(span.start, span.end)}]")) { reader ->
+            reader.beginArray()
+            val value = reader.nextBoundedString(field, limit)
+            reader.endArray()
+            value
+        }
+
+    private fun String.jsonStringSpan(start: Int): JsonStringSpan {
+        if (getOrNull(start) != '"') throw BackupFailure.Malformed()
+        var index = start + 1
+        var decodedLength = 0
+        while (index < length) {
+            when (val character = this[index]) {
+                '"' -> return JsonStringSpan(start, index + 1, decodedLength)
+                '\\' -> {
+                    index++
+                    when (getOrNull(index)) {
+                        '"', '\\', '/', 'b', 'f', 'n', 'r', 't' -> Unit
+                        'u' -> {
+                            if (
+                                index + 4 >= length ||
+                                    !this[index + 1].isHexDigit() ||
+                                    !this[index + 2].isHexDigit() ||
+                                    !this[index + 3].isHexDigit() ||
+                                    !this[index + 4].isHexDigit()
+                            ) {
+                                throw BackupFailure.Malformed()
+                            }
+                            index += 4
+                        }
+                        else -> throw BackupFailure.Malformed()
+                    }
+                    decodedLength++
+                }
+                else -> {
+                    if (character.code < 0x20) throw BackupFailure.Malformed()
+                    decodedLength++
+                }
+            }
+            index++
+        }
+        throw BackupFailure.Malformed()
+    }
+
+    private fun String.jsonValueEnd(start: Int, stringLimit: Int): Int {
+        when (getOrNull(start)) {
+            '"' -> {
+                val span = jsonStringSpan(start)
+                if (span.decodedLength > stringLimit) throw BackupFailure.LimitExceeded("unknown")
+                return span.end
+            }
+            '{', '[' -> {
+                var depth = 0
+                var index = start
+                while (index < length) {
+                    when (this[index]) {
+                        '"' -> {
+                            val span = jsonStringSpan(index)
+                            if (span.decodedLength > stringLimit) {
+                                throw BackupFailure.LimitExceeded("unknown")
+                            }
+                            index = span.end
+                        }
+                        '{', '[' -> {
+                            depth++
+                            if (depth > MAX_JSON_NESTING_DEPTH) {
+                                throw BackupFailure.LimitExceeded("nesting")
+                            }
+                            index++
+                        }
+                        '}', ']' -> {
+                            depth--
+                            index++
+                            if (depth == 0) return index
+                        }
+                        else ->
+                            if (this[index] in JSON_NESTED_SEPARATORS) {
+                                index++
+                            } else {
+                                index = jsonPrimitiveEnd(index)
+                            }
+                    }
+                }
+                throw BackupFailure.Malformed()
+            }
+            null -> throw BackupFailure.Malformed()
+            else -> return jsonPrimitiveEnd(start)
+        }
+    }
+
+    private fun String.jsonPrimitiveEnd(start: Int): Int {
+        var index = start
+        while (index < length && this[index] !in JSON_PRIMITIVE_DELIMITERS) {
+            if (index - start >= MAX_JSON_PRIMITIVE_CHARS) {
+                throw BackupFailure.LimitExceeded("unknown")
+            }
+            index++
+        }
+        if (index == start) throw BackupFailure.Malformed()
+        return index
+    }
+
+    private fun String.skipJsonWhitespace(start: Int): Int {
+        var index = start
+        while (index < length && this[index] in JSON_WHITESPACE) index++
+        return index
+    }
+
+    private fun Char.isHexDigit(): Boolean = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
+
+    private fun stringFieldLimit(kind: String, field: String): Int =
+        when {
+            kind == "stroke" && field == "inputs" -> MAX_STROKE_BASE64_CHARS
+            kind == "element" && field == "ocrRegions" -> MAX_OCR_REGION_DATA_LENGTH
+            kind == "notebook" && field == "title" -> MAX_TEXT_CHARS
+            kind == "page" && field == "title" -> MAX_TEXT_CHARS
+            kind == "chapter" && field == "title" -> MAX_TEXT_CHARS
+            kind == "pdfSource" && field == "displayName" -> MAX_TEXT_CHARS
+            kind == "element" && field in ELEMENT_TEXT_FIELDS -> MAX_TEXT_CHARS
+            kind == "block" && field == "text" -> MAX_TEXT_CHARS
+            field in SHORT_STRING_FIELDS -> MAX_SHORT_TEXT_CHARS
+            else -> MAX_UNKNOWN_STRING_CHARS
         }
 
     private fun JsonWriter.writeNotebook(record: BackupNotebook) {

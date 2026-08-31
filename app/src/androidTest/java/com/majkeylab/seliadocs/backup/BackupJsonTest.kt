@@ -166,10 +166,83 @@ class BackupJsonTest {
     @Test
     fun oversizedTextReturnsTypedFailure() {
         assertThrows(BackupFailure.LimitExceeded::class.java) {
-            val text = "x".repeat(1_048_577)
+            val text = "x".repeat(100_001)
             BackupJson.readRecords(
                 StringReader(
-                    """{"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"$text"}""",
+                    """{"text":"$text","kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun recordKindMayFollowAnotherField() {
+        val records = mutableListOf<BackupRecord>()
+        BackupJson.readRecords(
+            StringReader(
+                """{"id":"e","kind":"element","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
+            ),
+            records::add,
+        )
+
+        assertEquals("e", (records.single() as BackupElement).id)
+    }
+
+    @Test
+    fun oversizedNestedUnknownStringReturnsTypedFailure() {
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            val value = "x".repeat(65_537)
+            BackupJson.readRecords(
+                StringReader(
+                    """{"unknown":{"blob":"$value"},"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun strokeInputAllowanceDoesNotApplyToAnotherRecordKind() {
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            val value = "x".repeat(65_537)
+            BackupJson.readRecords(
+                StringReader(
+                    """{"inputs":"$value","kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun oversizedUnknownPrimitiveReturnsTypedFailure() {
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            val value = "9".repeat(129)
+            BackupJson.readRecords(
+                StringReader(
+                    """{"unknown":$value,"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun excessiveUnknownNestingReturnsTypedFailure() {
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            val value = "[".repeat(33) + "0" + "]".repeat(33)
+            BackupJson.readRecords(
+                StringReader(
+                    """{"unknown":$value,"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun oversizedNestedUnknownPrimitiveReturnsTypedFailure() {
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            val value = "9".repeat(129)
+            BackupJson.readRecords(
+                StringReader(
+                    """{"unknown":{"value":$value},"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note"}""",
                 ),
             ) {}
         }

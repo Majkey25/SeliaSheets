@@ -13,6 +13,7 @@ All notable changes to SeliaSheets are documented here.
 
 - Regenerated missing OCR regions lazily for notebooks migrated from older versions.
 - Rejected malformed OCR-region metadata during backup validation.
+- Bounded backup JSON parsing on low-memory Android 10 devices without requiring field order.
 
 ## [0.5.0-beta.1] - 2026-08-31
 
