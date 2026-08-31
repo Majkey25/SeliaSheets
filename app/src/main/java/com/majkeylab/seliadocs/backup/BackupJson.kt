@@ -138,19 +138,16 @@ internal object BackupJson {
     }
 
     private fun readRecordKind(line: String): String =
-        parseJson(StringReader(line)) { reader ->
-            var kind: String? = null
-            reader.beginObject()
-            while (reader.hasNext()) {
-                if (reader.nextName() == "kind") {
-                    if (kind != null) throw BackupFailure.Malformed()
-                    kind = reader.nextBoundedString("kind", MAX_SHORT_TEXT_CHARS)
-                } else {
-                    reader.skipValue()
-                }
+        try {
+            JsonReader(StringReader(line)).use { reader ->
+                reader.beginObject()
+                if (!reader.hasNext() || reader.nextName() != "kind") throw BackupFailure.Malformed()
+                reader.nextBoundedString("kind", MAX_SHORT_TEXT_CHARS)
             }
-            reader.endObject()
-            requiredString(kind, "kind")
+        } catch (failure: BackupFailure) {
+            throw failure
+        } catch (failure: Exception) {
+            throw BackupFailure.Malformed(failure)
         }
 
     private fun JsonWriter.writeNotebook(record: BackupNotebook) {
