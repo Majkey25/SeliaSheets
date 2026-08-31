@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -27,6 +28,7 @@ private enum class GestureKind { ERASE, LASSO, MOVE }
 
 private data class ActiveStroke(val id: InProgressStrokeId, val toolType: Int)
 
+@Suppress("DEPRECATION")
 internal class InkCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -65,6 +67,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     var brush = InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
 
     init {
+        inProgressView.useHighLatencyRenderHelper = Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
         addView(finishedView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(inProgressView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(gestureOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))

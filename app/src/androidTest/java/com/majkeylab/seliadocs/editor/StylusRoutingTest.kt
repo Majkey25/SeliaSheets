@@ -510,19 +510,21 @@ class StylusRoutingTest {
             scenario.onActivity {
                 val view = requireNotNull(viewRef.get())
                 assertTrue(view.isAttachedToWindow)
-                val downTime = android.os.SystemClock.uptimeMillis()
-                expected.set(
-                    CanvasPoint(
-                        300f / 2f * 1_000f / view.width,
-                        200f / 2f * 1_000f / view.height,
-                    ),
-                )
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
-                )
-                view.dispatchTouchEvent(
-                    stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 300f, 200f),
-                )
+                view.postWhenReady {
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    expected.set(
+                        CanvasPoint(
+                            300f / 2f * 1_000f / view.width,
+                            200f / 2f * 1_000f / view.height,
+                        ),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 300f, 200f),
+                    )
+                }
             }
             assertTrue(committed.await(10, TimeUnit.SECONDS))
         }
