@@ -28,7 +28,6 @@ private enum class GestureKind { ERASE, LASSO, MOVE }
 
 private data class ActiveStroke(val id: InProgressStrokeId, val toolType: Int)
 
-@Suppress("DEPRECATION")
 internal class InkCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -67,7 +66,6 @@ internal class InkCanvasView @JvmOverloads constructor(
     var brush = InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
 
     init {
-        inProgressView.useHighLatencyRenderHelper = Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
         addView(finishedView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(inProgressView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(gestureOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -339,10 +337,14 @@ internal class InkCanvasView @JvmOverloads constructor(
     private fun updateMotionEventToViewTransform() {
         // Compose offsets the platform event to the transformed layer origin; only scale remains.
         inProgressView.motionEventToViewTransform =
-            inputTransform(
-                width.coerceAtLeast(1).toFloat(),
-                height.coerceAtLeast(1).toFloat(),
-            )
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                Matrix()
+            } else {
+                inputTransform(
+                    width.coerceAtLeast(1).toFloat(),
+                    height.coerceAtLeast(1).toFloat(),
+                )
+            }
     }
 
     private fun inputTransform(targetWidth: Float, targetHeight: Float): Matrix {

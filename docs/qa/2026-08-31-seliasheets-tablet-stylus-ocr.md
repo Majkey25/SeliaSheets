@@ -37,7 +37,7 @@ The system watchdog stack ended in `android.window.ScreenCapture.captureLayers` 
 
 Active-stylus hover now reaches AndroidX Ink through Android's hover channel instead of the touch listener. Synthetic API 29 tests wait for the attached render surface and send hover before contact. Activity recreation creates a fresh canvas on Android 10; newer Android versions additionally verify safe same-instance reattachment.
 
-Android 10 uses AndroidX Ink's high-latency render helper because the API 29 front-buffered helper drops zoom-transformed first contact under SwiftShader. Android 11 and newer retain the low-latency renderer.
+Android 10 keeps AndroidX Ink's renderer in view coordinates while the authoring input uses the validated page transform. This avoids the API 29 front-buffered renderer dropping zoom-transformed first contact; Android 11 and newer retain the library's transformed render path.
 
 GitHub runs the two AndroidX Ink instrumentation classes in a fresh API 29 process after the general suite. This preserves all assertions while avoiding SwiftShader renderer degradation after more than 200 unrelated tests.
 
