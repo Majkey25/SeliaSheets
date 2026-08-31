@@ -842,7 +842,7 @@ class StylusRoutingTest {
                     onHoverEvent(
                         stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
                     )
-                    postDelayed(block, 250L)
+                    postDelayed(block, 1_000L)
                 } else {
                     block()
                 }

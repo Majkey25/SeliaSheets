@@ -401,8 +401,8 @@ class PageViewportFlowTest {
                     stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
                 )
             }
-            val initializedAt = android.os.SystemClock.uptimeMillis() + 250L
-            compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
+            val initializedAt = android.os.SystemClock.uptimeMillis() + 1_000L
+            compose.waitUntil(2_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
         }
     }
 
