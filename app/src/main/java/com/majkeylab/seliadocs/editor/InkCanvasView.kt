@@ -115,15 +115,12 @@ internal class InkCanvasView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        handleHoverEvent(event)
+        return super.onHoverEvent(event)
+    }
+
     private fun handleMotionEvent(event: MotionEvent): Boolean {
-        if (
-            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER &&
-            (event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
-                event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER)
-        ) {
-            inProgressView.eagerInit()
-            return false
-        }
         predictor.record(event)
         return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> startInteraction(event)
@@ -134,6 +131,17 @@ internal class InkCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_POINTER_UP -> finishInteraction(event) || hasActiveInteraction()
             else -> hasActiveInteraction()
         }
+    }
+
+    private fun handleHoverEvent(event: MotionEvent): Boolean {
+        if (
+            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER &&
+            (event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
+                event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER)
+        ) {
+            inProgressView.eagerInit()
+        }
+        return false
     }
 
     private fun startAdditionalInteraction(event: MotionEvent): Boolean {

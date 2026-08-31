@@ -35,7 +35,7 @@ A fresh 25-test run covered the interrupted tail and passed with `OK (25 tests)`
 
 The system watchdog stack ended in `android.window.ScreenCapture.captureLayers` and `TaskSnapshotController`. It had no SeliaSheets frame. Bounded runs avoid this Android 16 emulator-image defect.
 
-Synthetic API 29 stylus tests wait for the attached AndroidX Ink render surface before input. Activity recreation creates a fresh canvas on Android 10; newer Android versions additionally verify safe same-instance reattachment.
+Active-stylus hover now reaches AndroidX Ink through Android's hover channel instead of the touch listener. Synthetic API 29 tests wait for the attached render surface and send hover before contact. Activity recreation creates a fresh canvas on Android 10; newer Android versions additionally verify safe same-instance reattachment.
 
 ## Build gate
 

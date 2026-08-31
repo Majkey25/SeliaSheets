@@ -835,6 +835,19 @@ class StylusRoutingTest {
         android.view.View.MeasureSpec.makeMeasureSpec(size, android.view.View.MeasureSpec.EXACTLY)
 
     private fun View.postWhenReady(block: () -> Unit) {
-        postDelayed(block, 250L)
+        postDelayed(
+            {
+                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                    val eventTime = android.os.SystemClock.uptimeMillis()
+                    onHoverEvent(
+                        stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
+                    )
+                    postDelayed(block, 250L)
+                } else {
+                    block()
+                }
+            },
+            250L,
+        )
     }
 }

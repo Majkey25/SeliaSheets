@@ -393,6 +393,17 @@ class PageViewportFlowTest {
         compose.waitForIdle()
         val readyAt = android.os.SystemClock.uptimeMillis() + 250L
         compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
+        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+            compose.runOnUiThread {
+                val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+                val eventTime = android.os.SystemClock.uptimeMillis()
+                canvas.onHoverEvent(
+                    stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
+                )
+            }
+            val initializedAt = android.os.SystemClock.uptimeMillis() + 250L
+            compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
+        }
     }
 
     private fun stylusEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =
