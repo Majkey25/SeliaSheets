@@ -73,7 +73,10 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) inProgressView.eagerInit()
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+            val attachedView = inProgressView
+            attachedView.post { if (attachedView.isAttachedToWindow) attachedView.eagerInit() }
+        }
         inProgressView.addFinishedStrokesListener(this)
         setOnTouchListener(touchListener)
     }
