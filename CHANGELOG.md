@@ -2,6 +2,12 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.5.2-beta.1] - 2026-09-01
+
+### Fixed
+
+- Made primary and secondary active-stylus barrel buttons act as a temporary eraser without changing the selected pen tool.
+
 ## [0.5.1-beta.1] - 2026-08-31
 
 ### Added
@@ -117,3 +123,4 @@ All notable changes to SeliaSheets are documented here.
 [0.4.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.2-beta.1
 [0.5.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.0-beta.1
 [0.5.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.1-beta.1
+[0.5.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.2-beta.1
