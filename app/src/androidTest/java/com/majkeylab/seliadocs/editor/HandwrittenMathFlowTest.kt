@@ -539,8 +539,9 @@ class HandwrittenMathFlowTest {
             assertTrue(rolledBack.canUndo)
             onMain(viewModel::undo)
 
-            val undone = await(viewModel, "raw undo") { it.elements.isEmpty() && it.strokes.isEmpty() }
-            assertTrue(undone.canRedo)
+            await(viewModel, "raw undo") {
+                it.elements.isEmpty() && it.strokes.isEmpty() && it.canRedo
+            }
         }
     }
 
@@ -575,10 +576,9 @@ class HandwrittenMathFlowTest {
             assertTrue(rolledBack.canUndo)
             onMain(viewModel::undo)
 
-            val undone = await(viewModel, "unique raw undo") {
-                it.elements.isEmpty() && it.strokes.isEmpty()
+            await(viewModel, "unique raw undo") {
+                it.elements.isEmpty() && it.strokes.isEmpty() && it.canRedo
             }
-            assertTrue(undone.canRedo)
         }
     }
 
