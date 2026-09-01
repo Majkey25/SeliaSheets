@@ -411,6 +411,59 @@ class StylusRoutingTest {
     }
 
     @Test
+    fun stylusButtonsTemporarilyEraseWithoutInk() {
+        val erased = CountDownLatch(2)
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.tool = EditorTool.PEN
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+
+                        override fun onEraseFinished(points: List<CanvasPoint>) {
+                            if (points.isNotEmpty()) erased.countDown()
+                        }
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                listOf(MotionEvent.BUTTON_STYLUS_PRIMARY, MotionEvent.BUTTON_STYLUS_SECONDARY).forEach { button ->
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    view.dispatchTouchEvent(
+                        stylusEvent(
+                            downTime,
+                            downTime,
+                            MotionEvent.ACTION_DOWN,
+                            40f,
+                            50f,
+                            buttonState = button,
+                        ),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(
+                            downTime,
+                            downTime + 16,
+                            MotionEvent.ACTION_UP,
+                            100f,
+                            120f,
+                            buttonState = button,
+                        ),
+                    )
+                }
+                assertEquals(EditorTool.PEN, view.tool)
+            }
+            assertTrue(erased.await(3, TimeUnit.SECONDS))
+        }
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
     fun lassoReturnsPageCoordinates() {
         val lasso = mutableListOf<CanvasPoint>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -661,6 +714,7 @@ class StylusRoutingTest {
         flags: Int = 0,
         toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
         pressure: Float = 0.7f,
+        buttonState: Int = 0,
     ): MotionEvent {
         val properties =
             MotionEvent.PointerProperties().apply {
@@ -684,7 +738,7 @@ class StylusRoutingTest {
             arrayOf(properties),
             arrayOf(coordinates),
             0,
-            0,
+            buttonState,
             1f,
             1f,
             0,

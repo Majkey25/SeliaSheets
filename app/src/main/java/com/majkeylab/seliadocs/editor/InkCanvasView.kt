@@ -168,7 +168,17 @@ internal class InkCanvasView @JvmOverloads constructor(
     private fun startInteraction(event: MotionEvent): Boolean {
         val pointerIndex = event.actionIndex
         val inputTool = event.getToolType(pointerIndex)
-        val selectedTool = if (inputTool == MotionEvent.TOOL_TYPE_ERASER) EditorTool.ERASER else tool
+        val selectedTool =
+            if (
+                inputTool == MotionEvent.TOOL_TYPE_ERASER ||
+                    (inputTool == MotionEvent.TOOL_TYPE_STYLUS &&
+                        event.buttonState and
+                        (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY) != 0)
+            ) {
+                EditorTool.ERASER
+            } else {
+                tool
+            }
         if (!canInteract(inputTool, selectedTool)) return false
         requestUnbufferedDispatch(event)
         val pointerId = event.getPointerId(pointerIndex)

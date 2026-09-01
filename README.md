@@ -64,7 +64,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.5.1-beta.1` highlights the exact matching OCR line inside an imported image and preserves bounded OCR regions through backup and restore. Huawei QA covers real on-device OCR, legacy-region regeneration, Room migration, search, backup, and the rendered Compose overlay. See the [0.5.1 OCR highlight acceptance report](docs/qa/2026-08-31-seliasheets-ocr-highlights.md). Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.5.2-beta.1` adds temporary erasing through Android's primary and secondary stylus barrel-button states. Huawei synthetic input QA covers both button paths plus pressure, zoom, palm rejection, lasso, eraser, and page navigation; physical barrel-button reporting still needs a compatible active pen. See the [0.5.2 stylus-button acceptance report](docs/qa/2026-09-01-seliasheets-stylus-buttons.md). Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 
