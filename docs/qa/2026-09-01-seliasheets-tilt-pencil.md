@@ -15,6 +15,10 @@ Hardware eraser tips and both Android stylus-button states pass through selected
 - JVM tests, Android lint, debug and instrumentation APK assembly, and the signed release APK/AAB build passed.
 - Release metadata reports `com.majkeylab.seliadocs`, version code `12`, and version name `0.5.3-beta.1`; APK Signature Scheme v2 and AAB JAR verification passed.
 
+## Android 17 runtime boundary
+
+Compile SDK and target SDK 37 pass the build and lint gates. Cloud instrumentation could not produce app evidence: both Android 17 `google_apis` and 16 KB `google_apis_ps16k` images disconnected their virtual `/sdcard` before activity launch, then reported `Unable to resolve activity` from the test package. The same 31-test stylus/viewport suite passes on Huawei API 29. Android 17 runtime acceptance remains open until a stable API 37 target is available.
+
 ## Hardware boundary
 
 Huawei `BQLDU19927002646` reports no connected active stylus. Synthetic `MotionEvent` coverage verifies routing and axis handling, but physical pressure, hover, tilt feel, and barrel-button reporting still require a compatible active-stylus tablet.
