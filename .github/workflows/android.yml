@@ -60,6 +60,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_4
+          disk-size: 8G
           script: |
             ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.notClass=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
             ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
