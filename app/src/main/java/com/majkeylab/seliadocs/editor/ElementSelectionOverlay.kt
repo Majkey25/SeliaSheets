@@ -1,5 +1,6 @@
 package com.majkeylab.seliadocs.editor
 
+import android.view.MotionEvent
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -20,8 +21,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -34,6 +39,7 @@ import androidx.compose.ui.zIndex
 import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
+import java.util.concurrent.atomic.AtomicInteger
 
 @Composable
 internal fun ElementSelectionOverlay(
@@ -44,6 +50,8 @@ internal fun ElementSelectionOverlay(
     onPreview: (ElementTransform?) -> Unit,
     onCommit: (ElementTransform) -> Unit,
     onGestureOwnershipChange: (Boolean) -> Unit = {},
+    eraserPointerId: AtomicInteger? = null,
+    onBoundsChanged: (Rect?) -> Unit = {},
 ) {
     val moveDescription = stringResource(R.string.move_element)
     val resizeDescription = stringResource(R.string.resize_element)
@@ -57,7 +65,9 @@ internal fun ElementSelectionOverlay(
     val rotateClockwise = stringResource(R.string.rotate_clockwise)
     val rotateCounterclockwise = stringResource(R.string.rotate_counterclockwise)
     val latestGestureOwnership = rememberUpdatedState(onGestureOwnershipChange)
+    val latestBoundsChanged = rememberUpdatedState(onBoundsChanged)
     val density = LocalDensity.current
+    val activeEraserPointer = eraserPointerId ?: remember(element.id) { AtomicInteger(-1) }
     var current by
         remember(element.id, element.x, element.y, element.width, element.height, element.rotation) {
             mutableStateOf(element.transform())
@@ -80,7 +90,10 @@ internal fun ElementSelectionOverlay(
         return true
     }
     DisposableEffect(Unit) {
-        onDispose { latestGestureOwnership.value(false) }
+        onDispose {
+            latestGestureOwnership.value(false)
+            latestBoundsChanged.value(null)
+        }
     }
     val width = current.width * scaleX
     val height = current.height * scaleY
@@ -94,6 +107,20 @@ internal fun ElementSelectionOverlay(
                 .size((width + HANDLE_REGION * 2f).dp, (height + HANDLE_REGION * 2f).dp)
                 .rotate(current.rotation)
                 .zIndex(4f)
+                .onGloballyPositioned { coordinates ->
+                    latestBoundsChanged.value(coordinates.boundsInRoot())
+                }
+                .pointerInteropFilter { event ->
+                    val hasStylus =
+                        (0 until event.pointerCount).any { index ->
+                            event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS
+                        }
+                    val hasEraser =
+                        (0 until event.pointerCount).any { index ->
+                            event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
+                        }
+                    hasStylus || hasEraser
+                }
                 .pointerInput(element.id) {
                     awaitEachGesture {
                         do {
@@ -120,10 +147,13 @@ internal fun ElementSelectionOverlay(
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {
-                                onCommit(current)
-                                onPreview(null)
+                                if (activeEraserPointer.get() < 0) {
+                                    onCommit(current)
+                                    onPreview(null)
+                                }
                             },
                         ) { change, amount ->
+                            if (activeEraserPointer.get() >= 0) return@detectDragGestures
                             change.consume()
                             update(
                                 current.copy(
@@ -174,10 +204,13 @@ internal fun ElementSelectionOverlay(
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {
-                                onCommit(current)
-                                onPreview(null)
+                                if (activeEraserPointer.get() < 0) {
+                                    onCommit(current)
+                                    onPreview(null)
+                                }
                             },
                         ) { change, amount ->
+                            if (activeEraserPointer.get() >= 0) return@detectDragGestures
                             change.consume()
                             update(
                                 current.copy(
@@ -224,10 +257,13 @@ internal fun ElementSelectionOverlay(
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {
-                                onCommit(current)
-                                onPreview(null)
+                                if (activeEraserPointer.get() < 0) {
+                                    onCommit(current)
+                                    onPreview(null)
+                                }
                             },
                         ) { change, amount ->
+                            if (activeEraserPointer.get() >= 0) return@detectDragGestures
                             change.consume()
                             val proposed =
                                 current.copy(
