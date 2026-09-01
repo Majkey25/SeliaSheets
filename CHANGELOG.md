@@ -2,6 +2,17 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.5.3-beta.1] - 2026-09-01
+
+### Added
+
+- Made Pencil strokes wider and lighter when an active stylus starts at a steeper tilt while retaining pressure sensitivity and stored tilt/orientation samples.
+
+### Fixed
+
+- Routed inverted eraser tips and both barrel-button erase gestures through selected image overlays at zoom.
+- Preserved normal stylus image transforms, delayed two-finger pinch zoom, and back-to-back eraser-to-pen transitions.
+
 ## [0.5.2-beta.1] - 2026-09-01
 
 ### Fixed

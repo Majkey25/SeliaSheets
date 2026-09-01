@@ -64,7 +64,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.5.2-beta.1` adds temporary erasing through Android's primary and secondary stylus barrel-button states. Huawei synthetic input QA covers both button paths plus pressure, zoom, palm rejection, lasso, eraser, and page navigation; physical barrel-button reporting still needs a compatible active pen. See the [0.5.2 stylus-button acceptance report](docs/qa/2026-09-01-seliasheets-stylus-buttons.md). Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.5.3-beta.1` adds stable per-stroke Pencil tilt shading and routes hardware/button erasers through selected image overlays without breaking normal stylus transforms or delayed two-finger pinch. Huawei synthetic input QA covers pressure normalization, tilt/orientation persistence, zoom, palm rejection, lasso, eraser, and navigation; physical barrel-button reporting still needs a compatible active pen. See the [0.5.3 stylus acceptance report](docs/qa/2026-09-01-seliasheets-tilt-pencil.md). Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 

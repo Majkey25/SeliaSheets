@@ -673,6 +673,8 @@ class PageViewportFlowTest {
                     this.x = x
                     this.y = y
                     pressure = 0.7f
+                    orientation = 0.3f
+                    setAxisValue(MotionEvent.AXIS_TILT, 0.4f)
                 },
             ),
             0,

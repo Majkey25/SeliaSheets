@@ -119,6 +119,76 @@ class StylusRoutingTest {
     }
 
     @Test
+    fun pencilUsesInitialTiltForWiderLighterStroke() {
+        val committed = CountDownLatch(2)
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.tool = EditorTool.PENCIL
+                view.brush = InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 2.2f)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                            committed.countDown()
+                            if (finished.size == 1) {
+                                view.post {
+                                    val tiltedTime = android.os.SystemClock.uptimeMillis()
+                                    view.dispatchTouchEvent(
+                                        stylusEvent(
+                                            tiltedTime,
+                                            tiltedTime,
+                                            MotionEvent.ACTION_DOWN,
+                                            120f,
+                                            130f,
+                                            tilt = 1.2f,
+                                        ),
+                                    )
+                                    view.dispatchTouchEvent(
+                                        stylusEvent(
+                                            tiltedTime,
+                                            tiltedTime + 16,
+                                            MotionEvent.ACTION_UP,
+                                            180f,
+                                            190f,
+                                            tilt = 1.2f,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                view.postWhenReady {
+                    val uprightTime = android.os.SystemClock.uptimeMillis()
+                    view.dispatchTouchEvent(
+                        stylusEvent(uprightTime, uprightTime, MotionEvent.ACTION_DOWN, 40f, 50f, tilt = 0f),
+                    )
+                    view.dispatchTouchEvent(
+                        stylusEvent(uprightTime, uprightTime + 16, MotionEvent.ACTION_UP, 90f, 100f, tilt = 0f),
+                    )
+                }
+            }
+            assertTrue(committed.await(10, TimeUnit.SECONDS))
+        }
+
+        val upright = finished.first().brush
+        val tilted = finished.last().brush
+        assertTrue(tilted.size > upright.size)
+        assertTrue(tilted.colorIntArgb ushr 24 < upright.colorIntArgb ushr 24)
+        assertEquals(1.2f, finished.last().inputs[0].tiltRadians, 0.01f)
+        assertEquals(
+            StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1),
+            tilted.family,
+        )
+    }
+
+    @Test
     fun completedStylusStrokeIsCommitted() {
         val committed = CountDownLatch(1)
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -723,6 +793,7 @@ class StylusRoutingTest {
         toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
         pressure: Float = 0.7f,
         buttonState: Int = 0,
+        tilt: Float = 0.4f,
     ): MotionEvent {
         val properties =
             MotionEvent.PointerProperties().apply {
@@ -736,7 +807,7 @@ class StylusRoutingTest {
                 this.pressure = pressure
                 size = 0.1f
                 orientation = 0.3f
-                setAxisValue(MotionEvent.AXIS_TILT, 0.4f)
+                setAxisValue(MotionEvent.AXIS_TILT, tilt)
             }
         return MotionEvent.obtain(
             downTime,

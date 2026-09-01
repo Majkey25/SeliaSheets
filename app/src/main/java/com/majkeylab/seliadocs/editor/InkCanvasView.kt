@@ -15,10 +15,12 @@ import android.widget.FrameLayout
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
+import androidx.ink.brush.Brush
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.rendering.android.view.ViewStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.input.motionprediction.MotionEventPredictor
+import kotlin.math.roundToInt
 
 internal enum class EditorTool { TYPE, PEN, PENCIL, HIGHLIGHTER, ERASER, LASSO }
 
@@ -213,9 +215,11 @@ internal class InkCanvasView @JvmOverloads constructor(
             return true
         }
         val inputToWorld = inputTransform(pageWidth, pageHeight)
+        val interactionBrush =
+            if (selectedTool == EditorTool.PENCIL) pencilBrush(event, pointerIndex) else brush
         activeStrokes[pointerId] =
             ActiveStroke(
-                inProgressView.startStroke(event, pointerId, brush, inputToWorld, identity),
+                inProgressView.startStroke(event, pointerId, interactionBrush, inputToWorld, identity),
                 inputTool,
             )
         return true
@@ -396,7 +400,35 @@ internal class InkCanvasView @JvmOverloads constructor(
                 inputTool == MotionEvent.TOOL_TYPE_ERASER ||
                 (inputTool == MotionEvent.TOOL_TYPE_FINGER && fingerDrawing))
 
+    private fun pencilBrush(event: MotionEvent, pointerIndex: Int): Brush {
+        val tilt = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
+        val tiltProgress =
+            if (tilt.isFinite()) {
+                (tilt / PENCIL_MAX_TILT_RADIANS).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        val alpha =
+            ((brush.colorIntArgb ushr 24) * (1f - PENCIL_TILT_OPACITY_LOSS * tiltProgress))
+                .roundToInt()
+                .coerceIn(0, 255)
+        val color = (brush.colorIntArgb and 0x00FFFFFF) or (alpha shl 24)
+        // ponytail: Ink brushes are immutable per stroke; use live tilt behavior when Android 10 supports it.
+        return Brush.createWithColorIntArgb(
+            brush.family,
+            color,
+            brush.size * (1f + PENCIL_TILT_SIZE_GAIN * tiltProgress),
+            brush.epsilon,
+        )
+    }
+
     private fun hasActiveInteraction(): Boolean = activeStrokes.isNotEmpty() || gesturePointerId != null
+
+    private companion object {
+        const val PENCIL_MAX_TILT_RADIANS = 1.5707964f
+        const val PENCIL_TILT_SIZE_GAIN = 1.8f
+        const val PENCIL_TILT_OPACITY_LOSS = 0.45f
+    }
 }
 
 private class GestureOverlayView(context: Context) : View(context) {
