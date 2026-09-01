@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.PI
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -66,7 +67,7 @@ class StylusRoutingTest {
     }
 
     @Test
-    fun completedStylusStrokePreservesPressureChanges() {
+    fun completedStylusStrokePreservesPressureTiltAndOrientation() {
         val committed = CountDownLatch(1)
         val finished = AtomicReference<Stroke>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -90,7 +91,7 @@ class StylusRoutingTest {
                         stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f, pressure = 0.15f),
                     )
                     view.dispatchTouchEvent(
-                        stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 80f, 90f, pressure = 0.9f),
+                        stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, 80f, 90f, pressure = 1.4f),
                     )
                     view.dispatchTouchEvent(
                         stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, 100f, 120f, pressure = 0.9f),
@@ -102,8 +103,15 @@ class StylusRoutingTest {
 
         val stroke = requireNotNull(finished.get())
         val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
+        val tilts = (0 until stroke.inputs.size).map { stroke.inputs[it].tiltRadians }
+        val orientations = (0 until stroke.inputs.size).map { stroke.inputs[it].orientationRadians }
         assertTrue(pressures.min() <= 0.2f)
         assertTrue(pressures.max() >= 0.85f)
+        assertTrue(pressures.max() <= 1f)
+        assertTrue(stroke.inputs.hasTilt())
+        assertTrue(stroke.inputs.hasOrientation())
+        assertEquals(0.4f, tilts.last(), 0.01f)
+        assertEquals(0.3f + (PI / 2f).toFloat(), orientations.last(), 0.01f)
         assertEquals(
             StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1),
             stroke.brush.family,

@@ -14,6 +14,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
@@ -313,6 +316,164 @@ class PageViewportFlowTest {
         assertEquals(before.y, after.y, 0.5f)
     }
 
+    @Test
+    fun selectedElementDoesNotBlockStylusErasers() {
+        val erased = AtomicInteger()
+        val lastErase = AtomicReference<List<CanvasPoint>>()
+        val committed = AtomicReference<ElementTransform>()
+        val element = element()
+        renderSelectedElement(
+            element = element,
+            initialViewport = PageViewport(zoom = 2f, panX = 120f, panY = -80f),
+            onEraseFinished = { points ->
+                if (points.isNotEmpty()) {
+                    lastErase.set(points)
+                    erased.incrementAndGet()
+                }
+            },
+            onCommit = committed::set,
+        )
+        val handle = compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val rootPoint = rootPoint(handle)
+        val movedPoint = rootPoint + Offset(80f, 0f)
+        listOf(
+            MotionEvent.TOOL_TYPE_ERASER to 0,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_PRIMARY,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_SECONDARY,
+        ).forEach { (toolType, buttonState) ->
+            dispatchStylusGesture(rootPoint, movedPoint, toolType, buttonState)
+        }
+        compose.waitForIdle()
+        assertEquals("eraser callbacks; transform=$committed", 3, erased.get())
+
+        val first = requireNotNull(lastErase.get()).first()
+        assertEquals(element.x + element.width / 2f, first.x, 4f)
+        assertEquals(element.y + element.height / 2f, first.y, 4f)
+        assertEquals(null, committed.get())
+    }
+
+    @Test
+    fun selectedElementCanStillMoveWithStylus() {
+        val committed = AtomicReference<ElementTransform>()
+        val selections = AtomicInteger()
+        val element = element()
+        renderSelectedElement(
+            element = element,
+            onSelectContent = { selections.incrementAndGet() },
+            onCommit = committed::set,
+        )
+        val handle = compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val start = rootPoint(handle)
+        val end = start + Offset(120f, 0f)
+        dispatchStylusGesture(start, end)
+        compose.waitUntil(1_000) { committed.get() != null }
+
+        assertTrue(requireNotNull(committed.get()).x > element.x)
+        assertEquals(0, selections.get())
+    }
+
+    @Test
+    fun reusedPointerIdDoesNotClearNextEraserGesture() {
+        val erased = AtomicInteger()
+        val element = element()
+        renderSelectedElement(element, onEraseFinished = { erased.incrementAndGet() })
+        val handle = compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val point = rootPoint(handle)
+        val moved = point + Offset(60f, 0f)
+        val firstDown = android.os.SystemClock.uptimeMillis()
+        val secondDown = firstDown + 32
+
+        dispatchEvents(
+            stylusEvent(firstDown, firstDown, MotionEvent.ACTION_DOWN, point.x, point.y, MotionEvent.TOOL_TYPE_ERASER),
+            stylusEvent(firstDown, firstDown + 16, MotionEvent.ACTION_UP, point.x, point.y, MotionEvent.TOOL_TYPE_ERASER),
+            stylusEvent(secondDown, secondDown, MotionEvent.ACTION_DOWN, point.x, point.y, MotionEvent.TOOL_TYPE_ERASER),
+        )
+        compose.waitForIdle()
+        dispatchEvents(
+            stylusEvent(secondDown, secondDown + 16, MotionEvent.ACTION_MOVE, moved.x, moved.y, MotionEvent.TOOL_TYPE_ERASER),
+            stylusEvent(secondDown, secondDown + 32, MotionEvent.ACTION_UP, moved.x, moved.y, MotionEvent.TOOL_TYPE_ERASER),
+        )
+        compose.waitForIdle()
+
+        assertEquals(2, erased.get())
+    }
+
+    @Test
+    fun normalStylusCanStartBeforeEraserClearRuns() {
+        val erased = AtomicInteger()
+        val selected = AtomicInteger()
+        val committed = AtomicReference<ElementTransform>()
+        val finished = AtomicReference<Stroke>()
+        val element = element()
+        var tool by mutableStateOf(EditorTool.LASSO)
+        var selectedElementId by mutableStateOf<String?>(element.id)
+        renderSelectedElement(
+            element,
+            tool = { tool },
+            selectedElementId = { selectedElementId },
+            onStrokeFinished = finished::set,
+            onEraseFinished = { erased.incrementAndGet() },
+            onSelectContent = { selected.incrementAndGet() },
+            onCommit = committed::set,
+        )
+        val handle = compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val point = rootPoint(handle)
+        val moved = point + Offset(80f, 0f)
+        val eraserDown = android.os.SystemClock.uptimeMillis()
+        val stylusDown = eraserDown + 32
+
+        dispatchEvents(
+            stylusEvent(eraserDown, eraserDown, MotionEvent.ACTION_DOWN, point.x, point.y, MotionEvent.TOOL_TYPE_ERASER),
+            stylusEvent(eraserDown, eraserDown + 16, MotionEvent.ACTION_UP, point.x, point.y, MotionEvent.TOOL_TYPE_ERASER),
+            stylusEvent(stylusDown, stylusDown, MotionEvent.ACTION_DOWN, point.x, point.y),
+        )
+        compose.waitForIdle()
+        dispatchEvents(
+            stylusEvent(stylusDown, stylusDown + 16, MotionEvent.ACTION_MOVE, moved.x, moved.y),
+            stylusEvent(stylusDown, stylusDown + 32, MotionEvent.ACTION_UP, moved.x, moved.y),
+        )
+        compose.waitUntil(1_000) { committed.get() != null }
+
+        assertEquals(1, erased.get())
+        assertEquals(0, selected.get())
+        assertTrue(requireNotNull(committed.get()).x > element.x)
+
+        compose.runOnUiThread {
+            tool = EditorTool.PEN
+            selectedElementId = null
+        }
+        compose.waitForIdle()
+        val inkStart = visiblePaperPoint(0.2f, 0.2f)
+        dispatchStylusGesture(inkStart, inkStart + Offset(60f, 40f))
+        compose.waitUntil(1_000) { finished.get() != null }
+
+        assertEquals(0, selected.get())
+    }
+
+    @Test
+    fun delayedSecondFingerPinchesSelectedElement() {
+        val commits = AtomicInteger()
+        renderSelectedElement(element(), onCommit = { commits.incrementAndGet() })
+        val viewport = compose.onNodeWithTag("page-viewport")
+
+        compose.onNodeWithTag("element-selection").performTouchInput {
+            val start0 = center + Offset(-20f, 0f)
+            val start1 = center + Offset(20f, 0f)
+            down(0, start0)
+            advanceEventTime(100)
+            down(1, start1)
+            updatePointerTo(0, center + Offset(-90f, 0f))
+            updatePointerTo(1, center + Offset(90f, 0f))
+            move(300)
+            up(0)
+            up(1)
+        }
+        compose.waitForIdle()
+
+        assertTrue(zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100)
+        assertEquals(0, commits.get())
+    }
+
     private fun zoomDescription(viewport: androidx.compose.ui.test.SemanticsNodeInteraction): String =
         viewport.fetchSemanticsNode().config[SemanticsProperties.StateDescription]
 
@@ -366,6 +527,90 @@ class PageViewportFlowTest {
         return null
     }
 
+    private fun renderSelectedElement(
+        element: ElementEntity,
+        tool: () -> EditorTool = { EditorTool.LASSO },
+        selectedElementId: () -> String? = { element.id },
+        initialViewport: PageViewport = PageViewport(),
+        onStrokeFinished: (Stroke) -> Unit = {},
+        onEraseFinished: (List<CanvasPoint>) -> Unit = {},
+        onSelectContent: (List<CanvasPoint>) -> Unit = {},
+        onCommit: (ElementTransform) -> Unit = {},
+    ) {
+        compose.setContent {
+            PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = emptyList(),
+                elements = listOf(element),
+                blocks = emptyList(),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = selectedElementId(),
+                fingerDrawing = false,
+                tool = tool(),
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, stroke -> onStrokeFinished(stroke) },
+                onEraseFinished = { _, points -> onEraseFinished(points) },
+                onSelectContent = { _, points -> onSelectContent(points) },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { _, _ -> },
+                onCommitElementTransform = onCommit,
+                assetFile = { File(it) },
+                initialViewport = initialViewport,
+            )
+        }
+        awaitInkReady()
+    }
+
+    private fun dispatchStylusGesture(
+        start: Offset,
+        end: Offset,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        buttonState: Int = 0,
+    ) {
+        val downTime = android.os.SystemClock.uptimeMillis()
+        dispatchEvents(
+            stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, start.x, start.y, toolType, buttonState),
+            stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, end.x, end.y, toolType, buttonState),
+            stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, end.x, end.y, toolType, buttonState),
+        )
+    }
+
+    private fun dispatchEvents(vararg events: MotionEvent) {
+        compose.runOnUiThread {
+            val decor = compose.activity.window.decorView
+            events.forEach { event ->
+                try {
+                    decor.dispatchTouchEvent(event)
+                } finally {
+                    event.recycle()
+                }
+            }
+        }
+    }
+
+    private fun awaitInkReady() {
+        compose.waitForIdle()
+        val readyAt = android.os.SystemClock.uptimeMillis() + 250L
+        compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
+        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
+            compose.runOnUiThread {
+                val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+                val eventTime = android.os.SystemClock.uptimeMillis()
+                canvas.onHoverEvent(
+                    stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
+                )
+            }
+            val initializedAt = android.os.SystemClock.uptimeMillis() + 1_000L
+            compose.waitUntil(2_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
+        }
+    }
+
     private fun renderPage(
         tool: EditorTool,
         initialViewport: PageViewport = PageViewport(),
@@ -400,23 +645,18 @@ class PageViewportFlowTest {
                 initialViewport = initialViewport,
             )
         }
-        compose.waitForIdle()
-        val readyAt = android.os.SystemClock.uptimeMillis() + 250L
-        compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
-        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
-            compose.runOnUiThread {
-                val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
-                val eventTime = android.os.SystemClock.uptimeMillis()
-                canvas.onHoverEvent(
-                    stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
-                )
-            }
-            val initializedAt = android.os.SystemClock.uptimeMillis() + 1_000L
-            compose.waitUntil(2_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
-        }
+        awaitInkReady()
     }
 
-    private fun stylusEvent(downTime: Long, eventTime: Long, action: Int, x: Float, y: Float): MotionEvent =
+    private fun stylusEvent(
+        downTime: Long,
+        eventTime: Long,
+        action: Int,
+        x: Float,
+        y: Float,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+        buttonState: Int = 0,
+    ): MotionEvent =
         MotionEvent.obtain(
             downTime,
             eventTime,
@@ -425,7 +665,7 @@ class PageViewportFlowTest {
             arrayOf(
                 MotionEvent.PointerProperties().apply {
                     id = 0
-                    toolType = MotionEvent.TOOL_TYPE_STYLUS
+                    this.toolType = toolType
                 },
             ),
             arrayOf(
@@ -436,7 +676,7 @@ class PageViewportFlowTest {
                 },
             ),
             0,
-            0,
+            buttonState,
             1f,
             1f,
             0,

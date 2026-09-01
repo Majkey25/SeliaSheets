@@ -28,6 +28,14 @@ private enum class GestureKind { ERASE, LASSO, MOVE }
 
 private data class ActiveStroke(val id: InProgressStrokeId, val toolType: Int)
 
+internal fun isStylusEraser(event: MotionEvent, pointerIndex: Int): Boolean {
+    val inputTool = event.getToolType(pointerIndex)
+    return inputTool == MotionEvent.TOOL_TYPE_ERASER ||
+        (inputTool == MotionEvent.TOOL_TYPE_STYLUS &&
+            event.buttonState and
+            (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY) != 0)
+}
+
 internal class InkCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -93,6 +101,21 @@ internal class InkCanvasView @JvmOverloads constructor(
         require(zoom > 0f && zoom.isFinite())
         viewportZoom = zoom
         updateMotionEventToViewTransform()
+    }
+
+    fun dispatchScreenMotionEvent(event: MotionEvent): Boolean {
+        val location = IntArray(2)
+        getLocationOnScreen(location)
+        val forwarded = MotionEvent.obtain(event)
+        return try {
+            forwarded.offsetLocation(
+                event.rawX - location[0] - event.x,
+                event.rawY - location[1] - event.y,
+            )
+            dispatchTouchEvent(forwarded)
+        } finally {
+            forwarded.recycle()
+        }
     }
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
@@ -168,17 +191,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     private fun startInteraction(event: MotionEvent): Boolean {
         val pointerIndex = event.actionIndex
         val inputTool = event.getToolType(pointerIndex)
-        val selectedTool =
-            if (
-                inputTool == MotionEvent.TOOL_TYPE_ERASER ||
-                    (inputTool == MotionEvent.TOOL_TYPE_STYLUS &&
-                        event.buttonState and
-                        (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_STYLUS_SECONDARY) != 0)
-            ) {
-                EditorTool.ERASER
-            } else {
-                tool
-            }
+        val selectedTool = if (isStylusEraser(event, pointerIndex)) EditorTool.ERASER else tool
         if (!canInteract(inputTool, selectedTool)) return false
         requestUnbufferedDispatch(event)
         val pointerId = event.getPointerId(pointerIndex)

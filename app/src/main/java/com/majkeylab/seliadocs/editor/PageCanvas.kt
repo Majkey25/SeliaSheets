@@ -68,6 +68,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -101,6 +102,8 @@ import com.majkeylab.seliadocs.recognition.ImageOcrRegion
 import com.majkeylab.seliadocs.recognition.matchingImageOcrRegions
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -297,7 +300,12 @@ private fun Paper(
         val paperWidthPx = with(density) { paperWidth.toPx() }
         val paperHeightPx = with(density) { paperHeight.toPx() }
         val zoomDescription = stringResource(R.string.zoom_level, (viewportZoom * 100).roundToInt())
+        val hostView = LocalView.current
         val nativeReleased = remember(page.id) { AtomicBoolean(false) }
+        val inkCanvas = remember(page.id) { AtomicReference<InkCanvasView>() }
+        val eraserPointerId = remember(page.id) { AtomicInteger(-1) }
+        val eraserEpoch = remember(page.id) { AtomicInteger() }
+        val selectionBounds = remember(page.id) { AtomicReference<Rect?>(null) }
         val viewportModifier =
             Modifier
                 .fillMaxSize()
@@ -355,12 +363,12 @@ private fun Paper(
                                     pinchOwned = true
                                 }
                             }
-                            val gestureOwned =
-                                overlayGestureOwnedState.value || (tool == EditorTool.TYPE && touches.isNotEmpty())
+                            val overlayOwned = overlayGestureOwnedState.value && touches.size < 2
+                            val gestureOwned = overlayOwned || (tool == EditorTool.TYPE && touches.isNotEmpty())
                             if (
                                 canUpdatePageViewport(
                                     hasStylus = hasStylus,
-                                    overlayOwned = overlayGestureOwnedState.value,
+                                    overlayOwned = overlayOwned,
                                     touchCount = touches.size,
                                     fingerDrawing = fingerDrawing,
                                 )
@@ -424,9 +432,50 @@ private fun Paper(
                     }
                 }
                 .motionEventSpy { event ->
+                    val pointerIndex = event.actionIndex
+                    val eraserAction = isStylusEraser(event, pointerIndex)
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN && !eraserAction) {
+                        eraserEpoch.incrementAndGet()
+                        eraserPointerId.set(-1)
+                    }
+                    if (
+                        (event.actionMasked == MotionEvent.ACTION_DOWN ||
+                            event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) &&
+                        eraserAction
+                    ) {
+                        val location = IntArray(2)
+                        hostView.getLocationOnScreen(location)
+                        val point =
+                            Offset(
+                                event.getRawX(pointerIndex) - location[0],
+                                event.getRawY(pointerIndex) - location[1],
+                        )
+                        if (selectionBounds.get()?.contains(point) == true) {
+                            eraserEpoch.incrementAndGet()
+                            eraserPointerId.set(event.getPointerId(pointerIndex))
+                        }
+                    }
+                    val activeEraserPointer = eraserPointerId.get()
+                    val activeEraserEpoch = eraserEpoch.get()
+                    if (activeEraserPointer >= 0) {
+                        inkCanvas.get()?.dispatchScreenMotionEvent(event)
+                    }
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> nativeReleased.set(false)
                         MotionEvent.ACTION_UP -> nativeReleased.set(true)
+                    }
+                    if (
+                        activeEraserPointer >= 0 &&
+                        (event.actionMasked == MotionEvent.ACTION_CANCEL ||
+                            ((event.actionMasked == MotionEvent.ACTION_UP ||
+                                event.actionMasked == MotionEvent.ACTION_POINTER_UP) &&
+                                event.getPointerId(pointerIndex) == activeEraserPointer))
+                    ) {
+                        hostView.post {
+                            if (eraserEpoch.get() == activeEraserEpoch) {
+                                eraserPointerId.compareAndSet(activeEraserPointer, -1)
+                            }
+                        }
                     }
                 }
         Box(viewportModifier, contentAlignment = Alignment.Center) {
@@ -470,7 +519,7 @@ private fun Paper(
                     onSelectElement,
                 )
                 AndroidView(
-                    factory = { context -> InkCanvasView(context) },
+                    factory = { context -> InkCanvasView(context).also(inkCanvas::set) },
                     update = { view ->
                         view.setPageSize(page.widthPoints, page.heightPoints)
                         view.fingerDrawing = fingerDrawing
@@ -509,6 +558,8 @@ private fun Paper(
                         onPreview = { previewTransform = it },
                         onCommit = onCommitElementTransform,
                         onGestureOwnershipChange = { overlayGestureOwned = it },
+                        eraserPointerId = eraserPointerId,
+                        onBoundsChanged = selectionBounds::set,
                     )
                 }
                 Text(
