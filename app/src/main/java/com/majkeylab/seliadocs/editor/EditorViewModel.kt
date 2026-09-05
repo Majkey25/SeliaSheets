@@ -44,7 +44,6 @@ import com.majkeylab.seliadocs.recognition.recognizeImage
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -2049,14 +2048,8 @@ internal class EditorViewModel(
         candidateChoiceJob?.cancel()
         handwritingConversionJob?.cancel()
         searchJob?.cancel()
-        CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
-                    LibraryMutationGate.withLock {
-                        assets.deleteUnreferenced(repository.getReferencedAssetIds())
-                    }
-                }
-                .onFailure { failure -> Log.e(TAG, "Asset cleanup failed", failure) }
-        }
+        // ponytail: orphan images wait for LibraryViewModel cleanup;
+        // a global sweep can break another editor's live undo.
     }
 
     private companion object {

@@ -10,6 +10,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.test.core.app.ApplicationProvider
@@ -27,10 +28,12 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
+import com.majkeylab.seliadocs.library.LibraryViewModel
 import com.majkeylab.seliadocs.recognition.ImageOcrResult
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -543,26 +546,29 @@ class ElementFlowTest {
     }
 
     @Test
-    fun orphanedImageAssetIsRemovedWhenEditorHistoryClears() = runBlocking {
+    fun orphanedImageAssetIsRemovedAtNextLibraryStartupAfterEditorHistoryClears() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
         val notebookId = repository.createNotebook(testNotebook("Image cleanup"))
         val assetStore = AssetStore(File(application.filesDir, "assets"))
         val assetId = "cleanup-${System.nanoTime()}.png"
         val assetFile = assetStore.prepare().let { assetStore.file(assetId) }
-        assetFile.writeBytes(byteArrayOf(1, 2, 3))
         val owner =
             object : ViewModelStoreOwner {
                 override val viewModelStore = ViewModelStore()
             }
         val factory = viewModelFactory { initializer { EditorViewModel(application, notebookId) } }
+        var library: LibraryViewModel? = null
         try {
             val pageId = repository.getPages(notebookId).single().id
             val elementId =
-                repository.addElement(
-                    pageId,
-                    ElementDraft(ElementKind.IMAGE, 20f, 20f, 200f, 100f, assetId = assetId),
-                )
+                LibraryMutationGate.withLock {
+                    assetFile.writeBytes(byteArrayOf(1, 2, 3))
+                    repository.addElement(
+                        pageId,
+                        ElementDraft(ElementKind.IMAGE, 20f, 20f, 200f, 100f, assetId = assetId),
+                    )
+                }
             lateinit var viewModel: EditorViewModel
             onMain { viewModel = ViewModelProvider(owner, factory)[EditorViewModel::class.java] }
             viewModel.awaitState("image load") { it.elements.singleOrNull()?.id == elementId }
@@ -575,6 +581,13 @@ class ElementFlowTest {
             assertTrue(assetFile.isFile)
 
             onMain(owner.viewModelStore::clear)
+            val deletedWhenEditorCleared =
+                withTimeoutOrNull(1_000) {
+                    while (assetFile.exists()) delay(10)
+                    true
+                }
+            assertNull(deletedWhenEditorCleared)
+            library = LibraryViewModel(application, repository, assetStore)
 
             val removed =
                 withTimeoutOrNull(TIMEOUT_MS) {
@@ -584,6 +597,7 @@ class ElementFlowTest {
             assertEquals(true, removed)
         } finally {
             onMain(owner.viewModelStore::clear)
+            library?.viewModelScope?.cancel()
             repository.deleteNotebook(notebookId)
             assetFile.delete()
         }
