@@ -9,7 +9,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -125,7 +124,7 @@ class LibraryFlowTest {
 
         openActions(newest, "Move to trash")
 
-        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle)).assertIsDisplayed()
+        rule.onNodeWithTag("notebook-actions-sheet").assertIsDisplayed()
         rule.onNodeWithText("Move to trash").assertIsDisplayed()
     }
 

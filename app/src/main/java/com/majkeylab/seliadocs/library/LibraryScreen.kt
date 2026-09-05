@@ -348,6 +348,7 @@ private fun NotebookActionSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        modifier = Modifier.testTag("notebook-actions-sheet"),
     ) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
             Text(

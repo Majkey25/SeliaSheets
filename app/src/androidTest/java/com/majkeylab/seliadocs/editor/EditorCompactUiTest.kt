@@ -278,7 +278,9 @@ class EditorCompactUiTest {
         val editorY = (editorBounds.top - editorPageBounds.top) / editorPageBounds.height
         rule.onNodeWithTag("inline-text-editor").performImeAction()
         rule.waitUntil(5_000) {
-            runCatching { rule.onNodeWithText(draft).fetchSemanticsNode() }.isSuccess
+            rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                .fetchSemanticsNodes().isEmpty() &&
+                runCatching { rule.onNodeWithText(draft).fetchSemanticsNode() }.isSuccess
         }
 
         rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
@@ -313,6 +315,11 @@ class EditorCompactUiTest {
         rule.onNodeWithText("Delete").assertDoesNotExist()
         editor.performTextReplacement(updated)
         editor.performImeAction()
+        rule.waitUntil(5_000) {
+            rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                .fetchSemanticsNodes().isEmpty() &&
+                runCatching { rule.onNodeWithText(updated).fetchSemanticsNode() }.isSuccess
+        }
 
         rule.onNodeWithText(updated).assertIsDisplayed()
         rule.onNodeWithText(original).assertDoesNotExist()
@@ -443,6 +450,10 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("compact-insert-text").performClick()
         rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
         rule.onNodeWithTag("inline-text-editor").assertIsDisplayed().performImeAction()
+        rule.waitUntil(5_000) {
+            rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                .fetchSemanticsNodes().isEmpty()
+        }
 
         rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
         rule.onNodeWithTag("element-selection").assertDoesNotExist()
@@ -670,6 +681,11 @@ class EditorCompactUiTest {
     fun typeFieldKeepsPageNavigationKeys() {
         openCompactEditor()
         addPageFromEditor()
+        rule.waitUntil(5_000) {
+            runCatching {
+                rule.onNodeWithTag("compact-page-location").assertTextContains("Page 2 of 2")
+            }.isSuccess
+        }
         rule.onNodeWithTag("compact-page-location").assertTextContains("Page 2 of 2")
         selectTypeTool()
 
