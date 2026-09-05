@@ -1,5 +1,9 @@
 package com.majkeylab.seliadocs.editor
 
+import android.graphics.Paint
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import com.majkeylab.seliadocs.data.ElementEntity
 import kotlin.math.abs
 import kotlin.math.cos
@@ -13,6 +17,65 @@ internal data class ElementTransform(
     val height: Float,
     val rotation: Float,
 )
+
+internal fun initialTextElementTransform(
+    pageWidth: Float,
+    pageHeight: Float,
+    origin: CanvasPoint,
+    text: String,
+): ElementTransform? {
+    if (
+        pageWidth <= 0f ||
+        pageHeight <= 0f ||
+        !pageWidth.isFinite() ||
+        !pageHeight.isFinite() ||
+        !origin.x.isFinite() ||
+        !origin.y.isFinite()
+    ) {
+        return null
+    }
+    val minimumWidth = minOf(96f, pageWidth)
+    val minimumHeight = minOf(64f, pageHeight)
+    val x = origin.x.coerceIn(0f, pageWidth - minimumWidth)
+    val y = origin.y.coerceIn(0f, pageHeight - minimumHeight)
+    val width = minOf(pageWidth * 0.7f, pageWidth - x).coerceAtLeast(minimumWidth)
+    val height = textElementHeight(text, width)
+    if (height > pageHeight - y) return null
+    return ElementTransform(
+        x = x,
+        y = y,
+        width = width,
+        height = height,
+        rotation = 0f,
+    )
+}
+
+internal fun textElementHeight(text: String, width: Float): Float {
+    require(width > 0f && width.isFinite())
+    val paint =
+        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TEXT_ELEMENT_FONT_SIZE
+            letterSpacing = 0f
+        }
+    val layout =
+        StaticLayout.Builder.obtain(text, 0, text.length, paint, width.toInt().coerceAtLeast(1))
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setIncludePad(false)
+            .setLineSpacing(TEXT_ELEMENT_LINE_HEIGHT - paint.fontSpacing, 1f)
+            .build()
+    return maxOf(TEXT_ELEMENT_MIN_HEIGHT, TEXT_ELEMENT_VERTICAL_ROOM + layout.lineCount * TEXT_ELEMENT_LINE_HEIGHT)
+}
+
+internal fun resizedTextElementTransform(
+    current: ElementTransform,
+    pageWidth: Float,
+    pageHeight: Float,
+    text: String,
+): ElementTransform? {
+    val proposed = current.copy(height = maxOf(current.height, textElementHeight(text, current.width)))
+    val fitted = clampElementTransform(proposed, pageWidth, pageHeight) ?: return null
+    return fitted.takeIf { it.width == proposed.width && it.height == proposed.height }
+}
 
 internal fun validElementTransform(value: ElementTransform): ElementTransform? =
     value.takeIf {
@@ -105,3 +168,8 @@ private fun rotatedExtents(width: Float, height: Float, rotation: Float): Pair<F
     return (width / 2f * cosine + height / 2f * sine) to
         (width / 2f * sine + height / 2f * cosine)
 }
+
+private const val TEXT_ELEMENT_FONT_SIZE = 18f
+private const val TEXT_ELEMENT_LINE_HEIGHT = 24f
+private const val TEXT_ELEMENT_VERTICAL_ROOM = 40f
+private const val TEXT_ELEMENT_MIN_HEIGHT = 64f

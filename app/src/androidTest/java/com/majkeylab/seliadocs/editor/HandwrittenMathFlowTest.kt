@@ -26,6 +26,7 @@ import com.majkeylab.seliadocs.recognition.InkTextRecognizer
 import com.majkeylab.seliadocs.recognition.RecognitionCandidate
 import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 import com.majkeylab.seliadocs.recognition.RecognitionRequest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,104 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HandwrittenMathFlowTest {
+    @Test
+    fun selectedHandwritingRecognitionDoesNotBlockPageTextWrites() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, pageId ->
+            onMain {
+                viewModel.addStroke(
+                    pageId,
+                    rawStroke(),
+                    shapeAssist = false,
+                    handwritingRecognition = false,
+                )
+            }
+            await(viewModel, "conversion source") { it.strokes.size == 1 }
+            onMain {
+                viewModel.selectContent(
+                    pageId,
+                    listOf(
+                        CanvasPoint(20f, 60f),
+                        CanvasPoint(150f, 60f),
+                        CanvasPoint(150f, 120f),
+                        CanvasPoint(20f, 120f),
+                        CanvasPoint(20f, 60f),
+                    ),
+                )
+                viewModel.recognizeSelectedHandwriting(RecognitionLanguage.ENGLISH)
+            }
+            invocation.awaitStarted()
+
+            try {
+                onMain { viewModel.updatePageText(pageId, "Saved while recognizing") }
+                assertTrue(
+                    withTimeoutOrNull(5_000) {
+                        viewModel.state.first {
+                            it.selectedBlocks.singleOrNull()?.text == "Saved while recognizing"
+                        }
+                    } != null,
+                )
+            } finally {
+                invocation.complete(emptyList())
+                invocation.awaitClosed()
+                drainMutationGate()
+            }
+        }
+    }
+
+    @Test
+    fun selectionChangeDropsInFlightHandwritingConversion() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, pageId ->
+            startSelectedHandwritingRecognition(viewModel, pageId)
+            invocation.awaitStarted()
+
+            onMain { viewModel.selectElement(null) }
+            invocation.complete(listOf(RecognitionCandidate("Stale selection")))
+            invocation.awaitClosed()
+            drainMutationGate()
+
+            assertTrue(viewModel.state.value.handwritingCandidates.isEmpty())
+        }
+    }
+
+    @Test
+    fun toolChangeDropsInFlightHandwritingConversion() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, pageId ->
+            startSelectedHandwritingRecognition(viewModel, pageId)
+            invocation.awaitStarted()
+
+            onMain { viewModel.selectTool(EditorTool.TYPE) }
+            invocation.complete(listOf(RecognitionCandidate("Stale tool")))
+            invocation.awaitClosed()
+            drainMutationGate()
+
+            assertTrue(viewModel.state.value.handwritingCandidates.isEmpty())
+        }
+    }
+
+    @Test
+    fun closingEditorDropsInFlightHandwritingConversion() = runBlocking {
+        val mutationsAllowed = AtomicBoolean(true)
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create, mutationAllowed = mutationsAllowed::get) { viewModel, pageId ->
+            startSelectedHandwritingRecognition(viewModel, pageId)
+            invocation.awaitStarted()
+
+            mutationsAllowed.set(false)
+            invocation.complete(listOf(RecognitionCandidate("Stale close")))
+            invocation.awaitClosed()
+            drainMutationGate()
+
+            assertTrue(viewModel.state.value.handwritingCandidates.isEmpty())
+        }
+    }
+
     @Test
     fun pageSwitchDropsInFlightHandwritingConversion() = runBlocking {
         val provider = ControlledProvider()
@@ -161,6 +260,26 @@ class HandwrittenMathFlowTest {
             val math = recognized.elements.single()
             assertEquals("width*height=", math.expression)
             assertEquals("width*height = 48", math.resultText)
+        }
+    }
+
+    @Test
+    fun pageVariablesChangedDuringRecognitionDiscardStaleResult() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, pageId ->
+            onMain { viewModel.updatePageText(pageId, "value=2") }
+            await(viewModel, "initial variable") { it.selectedBlocks.singleOrNull()?.text == "value=2" }
+            addRecognizedStroke(viewModel, pageId, rawStroke())
+            invocation.awaitStarted()
+
+            onMain { viewModel.updatePageText(pageId, "value=3") }
+            await(viewModel, "updated variable") { it.selectedBlocks.singleOrNull()?.text == "value=3" }
+            invocation.complete(listOf(RecognitionCandidate("value+1=")))
+            invocation.awaitClosed()
+            drainMutationGate()
+
+            assertTrue(viewModel.state.value.elements.isEmpty())
         }
     }
 
@@ -1029,6 +1148,34 @@ class HandwrittenMathFlowTest {
                 .add(InputToolType.STYLUS, 80f + offsetX, 96f, 100L, 0.01f, 0.7f, 0.2f, 0.3f)
                 .add(InputToolType.STYLUS, 120f + offsetX, 80f, lastTimeMillis, 0.01f, 0.7f, 0.2f, 0.3f),
         )
+
+    private suspend fun startSelectedHandwritingRecognition(
+        viewModel: EditorViewModel,
+        pageId: String,
+    ) {
+        onMain {
+            viewModel.addStroke(
+                pageId,
+                rawStroke(),
+                shapeAssist = false,
+                handwritingRecognition = false,
+            )
+        }
+        await(viewModel, "conversion source") { it.strokes.size == 1 }
+        onMain {
+            viewModel.selectContent(
+                pageId,
+                listOf(
+                    CanvasPoint(20f, 60f),
+                    CanvasPoint(150f, 60f),
+                    CanvasPoint(150f, 120f),
+                    CanvasPoint(20f, 120f),
+                    CanvasPoint(20f, 60f),
+                ),
+            )
+            viewModel.recognizeSelectedHandwriting(RecognitionLanguage.ENGLISH)
+        }
+    }
 
     private fun heldLine(): Stroke =
         Stroke(

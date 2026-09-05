@@ -35,6 +35,22 @@ internal class PageHistory<T>(
         trimUndo()
     }
 
+    fun amend(transform: (T) -> T) {
+        val amendedCurrent = entry(transform(current))
+        val amendedUndo = undo.map { entry(transform(it.value)) }
+        val amendedRedo = redo.map { entry(transform(it.value)) }
+        currentEntry = amendedCurrent
+        undo.clear()
+        undo.addAll(amendedUndo)
+        redo.clear()
+        redo.addAll(amendedRedo)
+        retainedWeight = currentEntry.weight.toLong() + undo.sumOf { it.weight.toLong() } + redo.sumOf { it.weight.toLong() }
+        trimUndo()
+        while (redo.isNotEmpty() && retainedWeight > maxWeight) {
+            retainedWeight -= redo.removeFirst().weight
+        }
+    }
+
     fun undo(): T? {
         val previous = undo.removeLastOrNull() ?: return null
         redo.addLast(currentEntry)

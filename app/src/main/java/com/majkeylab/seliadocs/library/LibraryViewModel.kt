@@ -42,8 +42,7 @@ internal class LibraryViewModel(
 
     init {
         mutate {
-            val referenced = repository.getReferencedAssetIds()
-            deleteUnusedAssets(assets.files().map(File::getName).filterNot(referenced::contains))
+            assets.deleteUnreferenced(repository.getReferencedAssetIds())
         }
     }
 
@@ -97,21 +96,12 @@ internal class LibraryViewModel(
         val assetIds =
             (content.elements.mapNotNull { it.assetId } + content.pdfSources.map { it.assetId }).distinct()
         repository.deleteNotebook(id)
-        deleteUnusedAssets(assetIds)
+        assets.deleteUnreferenced(repository.getReferencedAssetIds(), assetIds)
     }
 
     private fun mutate(block: suspend () -> Unit) {
         viewModelScope.launch {
             failed.value = runCatching { LibraryMutationGate.withLock { block() } }.isFailure
-        }
-    }
-
-    private suspend fun deleteUnusedAssets(assetIds: List<String>) {
-        assetIds.forEach { assetId ->
-            if (repository.getAssetReferenceCount(assetId) == 0) {
-                val file = assets.file(assetId)
-                check(!file.exists() || file.delete()) { "Asset could not be deleted" }
-            }
         }
     }
 }

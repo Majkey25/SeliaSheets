@@ -55,15 +55,14 @@ class PageViewportTest {
     }
 
     @Test
-    fun inputCoordinateAccountsForViewportZoom() {
-        assertEquals(600f, viewportCoordinateToPage(300f, 500f, 1_000f, 1f), 0.001f)
+    fun inputCoordinateUsesMeasuredViewSize() {
+        assertEquals(600f, viewportCoordinateToPage(300f, 500f, 1_000f), 0.001f)
         assertEquals(
             300f,
             viewportCoordinateToPage(
                 coordinate = 300f,
-                viewSize = 500f,
+                viewSize = 1_000f,
                 pageSize = 1_000f,
-                zoom = 2f,
             ),
             0.001f,
         )
@@ -71,9 +70,8 @@ class PageViewportTest {
             200f,
             viewportCoordinateToPage(
                 coordinate = 200f,
-                viewSize = 500f,
+                viewSize = 1_000f,
                 pageSize = 1_000f,
-                zoom = 2f,
             ),
             0.001f,
         )

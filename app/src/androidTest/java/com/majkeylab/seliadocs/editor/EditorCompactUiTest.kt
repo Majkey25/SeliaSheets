@@ -1,11 +1,13 @@
 package com.majkeylab.seliadocs.editor
 
+import android.net.Uri
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
@@ -14,8 +16,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.WindowSize
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -29,9 +33,13 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.test.espresso.Espresso.pressBack
@@ -39,6 +47,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
 import com.majkeylab.seliadocs.SeliaDocsApp
 import com.majkeylab.seliadocs.data.LibraryMutationGate
+import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.SeliaDocsDatabase
+import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -88,13 +99,133 @@ class EditorCompactUiTest {
     }
 
     @Test
+    fun sessionHolderKeepsCloseIntentAndDraftUntilSaveCompletes() {
+        val holder = EditorSessionHolder()
+        holder.prepare("0:notebook")
+        val draft = InlineTextDraft("page", null, CanvasPoint(20f, 30f), "Draft")
+        assertTrue(holder.beginInlineText(draft))
+        assertTrue(holder.acceptDraft("page", TextFieldValue("Page draft")))
+        holder.requestAction(EditorAction.SelectTool(EditorTool.PENCIL))
+        val epoch = requireNotNull(holder.beginActionSave())
+        holder.prepare("0:notebook")
+        assertNull(holder.beginActionSave())
+        assertFalse(holder.beginInlineText(draft.copy(text = "Rejected")))
+        assertFalse(holder.acceptDraft("page", TextFieldValue("Rejected")))
+        holder.requestAction(EditorAction.Close(EditorCloseIntent.BACK))
+        holder.requestAction(EditorAction.AddText)
+        assertNull(holder.takeReadyAction())
+        assertEquals(draft, holder.inlineTextDraft.value)
+
+        holder.completeActionSave(epoch, false)
+        assertNull(holder.takeReadyAction())
+        assertEquals(draft, holder.inlineTextDraft.value)
+        holder.requestAction(EditorAction.Close(EditorCloseIntent.BACK))
+        assertEquals(epoch, holder.beginActionSave())
+        holder.clearInlineText()
+        holder.completeActionSave(epoch, true)
+        assertEquals(EditorAction.Close(EditorCloseIntent.BACK), holder.takeReadyAction())
+        assertNull(holder.takeReadyAction())
+    }
+
+    @Test
+    fun callbacksFromPreviousSessionCannotClearTheNewDraftOrPendingAction() {
+        val holder = EditorSessionHolder()
+        holder.prepare("0:old-notebook")
+        holder.requestAction(EditorAction.FinishText)
+        val oldEpoch = requireNotNull(holder.beginActionSave())
+        holder.prepare("1:new-notebook")
+        val draft = InlineTextDraft("new-page", null, CanvasPoint(20f, 30f), "New draft")
+        assertTrue(holder.beginInlineText(draft))
+        holder.requestAction(EditorAction.Close(EditorCloseIntent.BACK))
+        val newEpoch = requireNotNull(holder.beginActionSave())
+
+        assertFalse(holder.clearInlineText(oldEpoch))
+        holder.completeActionSave(oldEpoch, false)
+        holder.completeActionSave(oldEpoch, true)
+        assertEquals(draft, holder.inlineTextDraft.value)
+        assertEquals(EditorAction.Close(EditorCloseIntent.BACK), holder.actionState.value.pending)
+        assertTrue(holder.actionState.value.saving)
+        assertNull(holder.takeReadyAction())
+        holder.completeActionSave(newEpoch, true)
+        assertEquals(EditorAction.Close(EditorCloseIntent.BACK), holder.takeReadyAction())
+        assertTrue(holder.beginClose(EditorCloseIntent.BACK))
+        holder.completeClose(true, oldEpoch)
+        assertFalse(holder.closeState.value.completed)
+    }
+
+    @Test
+    fun pickerActionsRetainTheirPayloadUntilDraftSaveCompletes() {
+        val source = Uri.parse("content://test/document/source")
+        val destination = Uri.parse("content://test/document/export")
+        val actions = listOf(
+            EditorAction.ImportPdf(source),
+            EditorAction.ExportPdf(destination),
+            EditorAction.ImportImage("image-page", source, ocr = true),
+        )
+        actions.forEach { action ->
+            val holder = EditorSessionHolder()
+            holder.prepare("0:notebook")
+            val draft = InlineTextDraft("draft-page", null, CanvasPoint(20f, 30f), "Draft before picker")
+            assertTrue(holder.beginInlineText(draft))
+            assertTrue(holder.acceptDraft("draft-page", TextFieldValue("Page text before picker")))
+            holder.requestAction(action)
+            val epoch = requireNotNull(holder.beginActionSave())
+            holder.prepare("0:notebook")
+            assertEquals(action, holder.actionState.value.pending)
+            assertEquals(draft, holder.inlineTextDraft.value)
+            assertNull(holder.takeReadyAction())
+            assertFalse(holder.acceptDraft("draft-page", TextFieldValue("Rejected during save")))
+            assertTrue(holder.clearInlineText(epoch))
+            holder.completeActionSave(epoch, true)
+            assertEquals(action, holder.takeReadyAction())
+            assertNull(holder.takeReadyAction())
+            holder.completeExecutingAction(epoch, action)
+            assertFalse(holder.actionState.value.busy)
+        }
+    }
+
+    @Test
+    fun executingImportSurvivesRecreationAndKeepsBackQueuedUntilCompletion() {
+        listOf(
+            EditorAction.ImportPdf(Uri.parse("content://test/import.pdf")),
+            EditorAction.ImportImage("page", Uri.parse("content://test/image.png"), ocr = false),
+        ).forEach { action ->
+            val holder = EditorSessionHolder()
+            holder.prepare("0:notebook")
+            holder.requestAction(action)
+            val epoch = requireNotNull(holder.beginActionSave())
+            holder.completeActionSave(epoch, true)
+            assertEquals(action, holder.takeReadyAction())
+            holder.prepare("0:notebook")
+            assertEquals(action, holder.actionState.value.executing)
+            assertTrue(holder.actionState.value.busy)
+            assertFalse(holder.acceptDraft("page", TextFieldValue("Rejected during import")))
+            assertFalse(holder.beginInlineText(InlineTextDraft("page", null, CanvasPoint(20f, 30f), "Rejected")))
+            holder.requestAction(EditorAction.AddText)
+            holder.requestAction(EditorAction.Close(EditorCloseIntent.BACK))
+            holder.requestAction(EditorAction.AddText)
+            assertNull(holder.beginActionSave())
+            assertNull(holder.takeReadyAction())
+            holder.completeExecutingAction(epoch - 1, action)
+            assertEquals(action, holder.actionState.value.executing)
+
+            holder.completeExecutingAction(epoch, action)
+            assertEquals(EditorAction.Close(EditorCloseIntent.BACK), holder.actionState.value.pending)
+            assertEquals(epoch, holder.beginActionSave())
+            holder.completeActionSave(epoch, true)
+            assertEquals(EditorAction.Close(EditorCloseIntent.BACK), holder.takeReadyAction())
+            assertFalse(holder.actionState.value.busy)
+        }
+    }
+
+    @Test
     fun compactEditorKeepsPrimaryActionsVisibleAndOneToolSelected() {
         val title = openCompactEditor()
 
         listOf("compact-undo", "compact-redo", "compact-more", "compact-page-location").forEach {
             rule.onNodeWithTag(it).assertIsDisplayed().assertHasClickAction()
         }
-        val tools = listOf("type", "pen", "highlighter", "eraser", "lasso")
+        val tools = listOf("type", "pen", "pencil", "highlighter", "eraser", "lasso")
         tools.forEach { rule.onNodeWithTag("compact-tool-$it").assertIsDisplayed() }
         rule.onNodeWithTag("compact-insert").assertIsDisplayed()
         rule.onNodeWithTag("compact-tool-pen").assertIsSelected()
@@ -115,7 +246,7 @@ class EditorCompactUiTest {
         openCompactEditor()
 
         rule.onNodeWithTag("compact-more").performClick()
-        listOf("add-page", "search", "pencil", "export", "settings").forEach {
+        listOf("add-page", "search", "export", "settings").forEach {
             rule.onNodeWithTag("compact-more-$it").assertIsDisplayed()
         }
         pressBack()
@@ -126,6 +257,344 @@ class EditorCompactUiTest {
         }
         rule.onNodeWithTag("compact-insert-shape").assertDoesNotExist()
         rule.onNodeWithTag("compact-insert-math").assertDoesNotExist()
+    }
+
+    @Test
+    fun compactTextObjectWaitsForPageTapThenSavesInline() {
+        openCompactEditor()
+
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+
+        rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+        rule.onNodeWithText("Add text").assertDoesNotExist()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        val draft = "Inline ${System.nanoTime()}"
+        val editor = rule.onNodeWithTag("inline-text-editor").assertIsDisplayed()
+        editor.performTextInput(draft)
+        val editorBounds = editor.fetchSemanticsNode().boundsInRoot
+        val editorPageBounds = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
+        val editorX = (editorBounds.left - editorPageBounds.left) / editorPageBounds.width
+        val editorY = (editorBounds.top - editorPageBounds.top) / editorPageBounds.height
+        rule.onNodeWithTag("inline-text-editor").performImeAction()
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithText(draft).fetchSemanticsNode() }.isSuccess
+        }
+
+        rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+        val savedBounds = rule.onNodeWithText(draft).fetchSemanticsNode().boundsInRoot
+        val savedPageBounds = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
+        val savedX = (savedBounds.left - savedPageBounds.left) / savedPageBounds.width
+        val savedY = (savedBounds.top - savedPageBounds.top) / savedPageBounds.height
+        assertTrue(kotlin.math.abs(savedX - editorX) <= 0.03f)
+        assertTrue(kotlin.math.abs(savedY - editorY) <= 0.03f)
+        rule.onNodeWithTag("element-selection").assertIsDisplayed()
+    }
+
+    @Test
+    fun selectedTextCanBeEditedInline() {
+        openCompactEditor()
+        val original = "Editable ${System.nanoTime()}"
+        val updated = "$original updated"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(original)
+        rule.onNodeWithTag("inline-text-editor").performImeAction()
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText(original).fetchSemanticsNode() }.isSuccess }
+
+        rule.onNodeWithText("Edit text").performClick()
+        val editor = rule.onNodeWithTag("inline-text-editor").assertTextContains(original)
+        rule.onNodeWithTag("element-context-bar").assertDoesNotExist()
+        rule.onNodeWithText("Delete").assertDoesNotExist()
+        editor.performTextReplacement(updated)
+        editor.performImeAction()
+
+        rule.onNodeWithText(updated).assertIsDisplayed()
+        rule.onNodeWithText(original).assertDoesNotExist()
+    }
+
+    @Test
+    fun clearingExistingInlineTextDeletesItAndUndoRestoresIt() {
+        val title = openCompactEditor()
+        val original = "Clear and undo ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(original)
+        rule.onNodeWithTag("inline-text-editor").performImeAction()
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithTag("element-context-bar").fetchSemanticsNode() }.isSuccess
+        }
+        rule.onNodeWithText("Edit text").performClick()
+        rule.onNodeWithTag("inline-text-editor").performTextReplacement("")
+        val gateAcquired = CountDownLatch(1)
+        val releaseGate = CompletableDeferred<Unit>()
+        val gateOwner = CoroutineScope(Dispatchers.IO).launch {
+            LibraryMutationGate.withLock {
+                gateAcquired.countDown()
+                releaseGate.await()
+            }
+        }
+        try {
+            assertTrue(gateAcquired.await(5, TimeUnit.SECONDS))
+            rule.onNodeWithTag("inline-text-editor").performImeAction()
+            rule.onNodeWithTag("inline-text-editor").assertIsNotEnabled()
+            rule.onNodeWithTag("element-context-bar").assertDoesNotExist()
+            rule.onNodeWithTag("ink-context-bar").assertDoesNotExist()
+            rule.onNodeWithText("Delete").assertDoesNotExist()
+            releaseGate.complete(Unit)
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithTag("compact-undo").assertIsEnabled() }.isSuccess
+            }
+            rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+            rule.onNodeWithText(original).assertDoesNotExist()
+            assertStoredInlineTexts(title, emptyList())
+            rule.onNodeWithTag("compact-undo").performClick()
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithText(original).assertIsDisplayed() }.isSuccess
+            }
+            assertStoredInlineTexts(title, listOf(original))
+        } finally {
+            releaseGate.complete(Unit)
+            runBlocking { gateOwner.join() }
+        }
+    }
+
+    @Test
+    fun recreationKeepsOrSavesInlineText() {
+        createAndOpenNotebook()
+        val draft = "Recreated inline ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
+
+        rule.activityRule.scenario.recreate()
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNodeWithTag("editor-top-bar").fetchSemanticsNode() }.isSuccess
+        }
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNodeWithTag("inline-text-editor").fetchSemanticsNode() }.isSuccess ||
+                rule.onAllNodes(hasText(draft)).fetchSemanticsNodes().size == 1
+        }
+        if (runCatching { rule.onNodeWithTag("inline-text-editor").fetchSemanticsNode() }.isSuccess) {
+            rule.onNodeWithTag("inline-text-editor").assertTextContains(draft)
+        } else {
+            rule.onNodeWithText(draft).assertIsDisplayed()
+            assertEquals(1, rule.onAllNodes(hasText(draft)).fetchSemanticsNodes().size)
+        }
+    }
+
+    @Test
+    fun toolSwitchSavesInlineTextBeforeChangingTool() {
+        openCompactEditor()
+        val draft = "Saved before Pencil ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
+
+        rule.onNodeWithTag("compact-tool-pencil").performClick()
+        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText(draft).fetchSemanticsNode() }.isSuccess }
+
+        rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+        rule.onNodeWithTag("compact-tool-pencil").assertIsSelected()
+        rule.onNodeWithText(draft).assertIsDisplayed()
+    }
+
+    @Test
+    fun pageHistoryActionsAreDisabledWhileEditingPageOrInlineText() {
+        openCompactEditor()
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput("History ${System.nanoTime()}")
+        rule.onNodeWithTag("inline-text-editor").performImeAction()
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithTag("compact-undo").assertIsEnabled() }.isSuccess
+        }
+        rule.onNodeWithTag("compact-undo").performClick()
+        rule.onNodeWithTag("compact-redo").assertIsEnabled()
+        rule.onNodeWithTag("compact-tool-type").performClick()
+        rule.onNodeWithTag("compact-undo").assertIsNotEnabled()
+        rule.onNodeWithTag("compact-redo").assertIsNotEnabled()
+
+        rule.onNodeWithTag("compact-tool-pencil").performClick()
+        rule.onNodeWithTag("compact-redo").assertIsEnabled()
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("compact-undo").assertIsNotEnabled()
+        rule.onNodeWithTag("compact-redo").assertIsNotEnabled()
+    }
+
+    @Test
+    fun emptyInlineTextDraftCreatesNoElement() {
+        openCompactEditor()
+
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").assertIsDisplayed().performImeAction()
+
+        rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+        rule.onNodeWithTag("element-selection").assertDoesNotExist()
+    }
+
+    @Test
+    fun backSavesInlineTextBeforeLeavingTheEditor() {
+        val title = openCompactEditor()
+        val draft = "Saved on close ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
+
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithContentDescription("Open $title").fetchSemanticsNode() }.isSuccess
+        }
+        rule.onNodeWithContentDescription("Open $title").performClick()
+
+        assertStoredInlineTexts(title, listOf(draft))
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithText(draft).assertIsDisplayed() }.isSuccess
+        }
+        rule.onNodeWithText(draft).assertIsDisplayed()
+    }
+
+    @Test
+    fun doneThenBackWaitsForTheInlineWrite() {
+        val title = openCompactEditor()
+        val draft = "Queued inline ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
+        val gateAcquired = CountDownLatch(1)
+        val releaseGate = CompletableDeferred<Unit>()
+        val gateOwner =
+            CoroutineScope(Dispatchers.IO).launch {
+                LibraryMutationGate.withLock {
+                    gateAcquired.countDown()
+                    releaseGate.await()
+                }
+            }
+        try {
+            assertTrue(gateAcquired.await(5, TimeUnit.SECONDS))
+            rule.onNodeWithTag("inline-text-editor").performImeAction()
+            rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+            releaseGate.complete(Unit)
+            rule.waitUntil(10_000) {
+                runCatching { rule.onNodeWithContentDescription("Open $title").fetchSemanticsNode() }.isSuccess
+            }
+            rule.onNodeWithContentDescription("Open $title").performClick()
+
+            assertStoredInlineTexts(title, listOf(draft))
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithText(draft).assertIsDisplayed() }.isSuccess
+            }
+            rule.onNodeWithText(draft).assertIsDisplayed()
+        } finally {
+            releaseGate.complete(Unit)
+            runBlocking { gateOwner.join() }
+        }
+    }
+
+    @Test
+    fun recreationDuringToolSaveKeepsInputDisabledAndBackSavesOnce() {
+        val title = createAndOpenNotebook()
+        val draft = "Retained save ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
+        val gateAcquired = CountDownLatch(1)
+        val releaseGate = CompletableDeferred<Unit>()
+        val gateOwner = CoroutineScope(Dispatchers.IO).launch {
+            LibraryMutationGate.withLock {
+                gateAcquired.countDown()
+                releaseGate.await()
+            }
+        }
+        try {
+            assertTrue(gateAcquired.await(5, TimeUnit.SECONDS))
+            rule.onNodeWithTag("compact-tool-pencil").performClick()
+            rule.onNodeWithTag("inline-text-editor").assertIsNotEnabled().assertTextContains(draft)
+            rule.activityRule.scenario.recreate()
+            rule.waitUntil(10_000) {
+                runCatching { rule.onNodeWithTag("inline-text-editor").fetchSemanticsNode() }.isSuccess
+            }
+            rule.onNodeWithTag("inline-text-editor").assertIsNotEnabled().assertTextContains(draft)
+            rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+            releaseGate.complete(Unit)
+            rule.waitUntil(10_000) {
+                runCatching { rule.onNodeWithContentDescription("Open $title").fetchSemanticsNode() }.isSuccess
+            }
+            assertStoredInlineTexts(title, listOf(draft))
+            rule.onNodeWithContentDescription("Open $title").performClick()
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithText(draft).assertIsDisplayed() }.isSuccess
+            }
+            rule.onNodeWithText(draft).assertIsDisplayed()
+            assertEquals(1, rule.onAllNodes(hasText(draft)).fetchSemanticsNodes().size)
+        } finally {
+            releaseGate.complete(Unit)
+            runBlocking { gateOwner.join() }
+        }
+    }
+
+    @Test
+    fun addTextDuringSaveKeepsOriginalAndStartsAnEmptyPlacement() {
+        val title = openCompactEditor()
+        val original = "First text ${System.nanoTime()}"
+        val next = "Second text ${System.nanoTime()}"
+        rule.onNodeWithTag("compact-insert").performClick()
+        rule.onNodeWithTag("compact-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+        rule.onNodeWithTag("inline-text-editor").performTextInput(original)
+        val gateAcquired = CountDownLatch(1)
+        val releaseGate = CompletableDeferred<Unit>()
+        val gateOwner = CoroutineScope(Dispatchers.IO).launch {
+            LibraryMutationGate.withLock {
+                gateAcquired.countDown()
+                releaseGate.await()
+            }
+        }
+        try {
+            assertTrue(gateAcquired.await(5, TimeUnit.SECONDS))
+            rule.onNodeWithTag("inline-text-editor").performImeAction()
+            rule.onNodeWithTag("compact-insert").performClick()
+            rule.onNodeWithTag("compact-insert-text").performClick()
+            releaseGate.complete(Unit)
+            rule.waitUntil(10_000) {
+                runCatching { rule.onNodeWithTag("inline-text-placement").fetchSemanticsNode() }.isSuccess
+            }
+            assertStoredInlineTexts(title, listOf(original))
+            rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+            rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+            rule.onNodeWithTag("inline-text-editor").performTextInput(next)
+            rule.onNodeWithTag("inline-text-editor").performImeAction()
+            rule.waitUntil(5_000) {
+                rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                    .fetchSemanticsNodes().isEmpty()
+            }
+            assertStoredInlineTexts(title, listOf(original, next))
+        } finally {
+            releaseGate.complete(Unit)
+            runBlocking { gateOwner.join() }
+        }
+    }
+
+    @Test
+    fun expandedTextObjectAlsoStartsInlineOnThePage() {
+        openEditor(widthDp = 1280)
+
+        rule.onNodeWithTag("toolbar-insert").performClick()
+        rule.onNodeWithTag("toolbar-insert-text").performClick()
+        rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
+
+        rule.onNodeWithTag("inline-text-editor").assertIsDisplayed()
     }
 
     @Test
@@ -191,13 +660,26 @@ class EditorCompactUiTest {
     }
 
     @Test
+    fun typeFieldKeepsPageNavigationKeys() {
+        openCompactEditor()
+        addPageFromEditor()
+        rule.onNodeWithTag("compact-page-location").assertTextContains("Page 2 of 2")
+        selectTypeTool()
+
+        rule.onNodeWithTag("page-text").performKeyInput { pressKey(Key.PageUp) }
+
+        rule.onNodeWithTag("compact-page-location").assertTextContains("Page 2 of 2")
+    }
+
+    @Test
     fun compactActionsKeepFortyEightDpTouchTargets() {
         openCompactEditor()
-        val minimumHeight = 48f * rule.activity.resources.displayMetrics.density
         val rootBounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val minimumHeight = 48f * rootBounds.width / 360f
         val tags =
             listOf("back", "undo", "redo", "more", "page-location").map { "compact-$it" } +
-                listOf("type", "pen", "highlighter", "eraser", "lasso").map { "compact-tool-$it" } +
+                listOf("type", "pen", "pencil", "highlighter", "eraser", "lasso")
+                    .map { "compact-tool-$it" } +
                 "compact-insert"
 
         tags.forEach { tag ->
@@ -214,7 +696,7 @@ class EditorCompactUiTest {
     fun compactTopBarAtTwoHundredPercentKeepsActionsReachable() {
         val title = openEditor(widthDp = 360, fontScale = 2f)
         val rootBounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        val minimum = 48f * rule.activity.resources.displayMetrics.density
+        val minimum = 48f * rootBounds.width / 360f
         listOf("compact-back", "compact-page-location", "compact-more").forEach { tag ->
             val node = rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction()
             val bounds = node.fetchSemanticsNode().boundsInRoot
@@ -353,10 +835,6 @@ class EditorCompactUiTest {
 
     @Test
     fun compactPaletteAppliesInjectedNavigationInsets() {
-        val density = rule.activity.resources.displayMetrics.density
-        val safeLeft = (16f * density).toInt()
-        val safeRight = (20f * density).toInt()
-        val safeBottom = (24f * density).toInt()
         rule.activity.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.WindowSize(DpSize(360.dp, 744.dp)),
@@ -379,8 +857,13 @@ class EditorCompactUiTest {
         }
         rule.waitForIdle()
         val rootBounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val density = rootBounds.width / 360f
+        val safeLeft = (16f * density).toInt()
+        val safeRight = (20f * density).toInt()
+        val safeBottom = (24f * density).toInt()
 
-        listOf("type", "pen", "highlighter", "eraser", "lasso").map { "compact-tool-$it" }
+        listOf("type", "pen", "pencil", "highlighter", "eraser", "lasso")
+            .map { "compact-tool-$it" }
             .plus("compact-insert")
             .forEach { tag ->
                 val bounds = rule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
@@ -396,7 +879,7 @@ class EditorCompactUiTest {
     fun compactToolsExposeMaterialIconDescriptions() {
         openCompactEditor()
 
-        listOf("Back", "Undo", "Redo", "More options", "Type", "Pen", "Highlighter", "Eraser", "Lasso", "Insert")
+        listOf("Back", "Undo", "Redo", "More options", "Type", "Pen", "Pencil", "Highlighter", "Eraser", "Lasso", "Insert")
             .forEach { description ->
                 rule.onNodeWithContentDescription(description).assertIsDisplayed()
             }
@@ -405,6 +888,9 @@ class EditorCompactUiTest {
     @Test
     fun compactPenExposesWidthsAndColorsWithoutLeavingEditor() {
         openCompactEditor()
+
+        rule.onNodeWithTag("brush-width-slider").assertDoesNotExist()
+        rule.onNodeWithTag("compact-tool-pen").performClick()
 
         val penRange =
             rule.onNodeWithTag("brush-width-slider")
@@ -433,6 +919,8 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("brush-shape-assist").assertExists().assertHasClickAction()
 
         rule.onNodeWithTag("compact-tool-highlighter").performClick()
+        rule.onNodeWithTag("brush-width-slider").assertDoesNotExist()
+        rule.onNodeWithTag("compact-tool-highlighter").performClick()
         val highlighterRange =
             rule.onNodeWithTag("brush-width-slider")
                 .assertIsDisplayed()
@@ -443,15 +931,14 @@ class EditorCompactUiTest {
     }
 
     @Test
-    fun pencilPresetKeepsOneVisibleToolSelectedAndDismissesMore() {
+    fun compactPencilUsesItsOwnVisibleSelectedTool() {
         openCompactEditor()
 
-        rule.onNodeWithTag("compact-more").performClick()
-        rule.onNodeWithTag("compact-more-pencil").performClick()
+        rule.onNodeWithTag("compact-tool-pencil").performClick()
 
-        rule.onNodeWithTag("compact-more-pencil").assertDoesNotExist()
-        rule.onNodeWithTag("compact-tool-pen").assertIsSelected()
-        val tools = listOf("type", "pen", "highlighter", "eraser", "lasso")
+        rule.onNodeWithTag("compact-tool-pencil").assertIsSelected()
+        rule.onNodeWithTag("compact-tool-pen").assertIsNotSelected()
+        val tools = listOf("type", "pen", "pencil", "highlighter", "eraser", "lasso")
         assertEquals(
             1,
             tools.count {
@@ -493,7 +980,7 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("compact-page-location").assertDoesNotExist()
         rule.onNodeWithTag("compact-insert").assertDoesNotExist()
         rule.onNodeWithText("Contents").assertIsDisplayed()
-        rule.onNodeWithText("Search").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Search").assertIsDisplayed()
     }
 
     @Test
@@ -502,11 +989,27 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("compact-page-location").assertDoesNotExist()
         rule.onNodeWithTag("compact-insert").assertDoesNotExist()
         rule.onNodeWithText("Add chapter").assertExists()
-        rule.onNodeWithText("Search").assertExists()
+        rule.onNodeWithContentDescription("Search").assertExists()
     }
 
     private fun openCompactEditor(): String {
         return openEditor(widthDp = 360)
+    }
+
+    private fun assertStoredInlineTexts(title: String, expected: List<String>) = runBlocking {
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity.application))
+        val notebook = repository.getAllNotebooks().single { it.title == title }
+        val pages = repository.getPages(notebook.id)
+        val elements = pages.flatMap { repository.getElements(it.id) }.filter { it.kind == ElementKind.TEXT.name }
+        assertEquals("Stored text elements: $elements", expected.sorted(), elements.map { it.text }.sortedBy { it })
+        elements.forEach { element ->
+            val page = pages.single { it.id == element.pageId }
+            assertTrue(
+                "Text must fit page ${page.widthPoints}x${page.heightPoints}: $element",
+                element.x >= 0f && element.y >= 0f && element.width > 0f && element.height > 0f &&
+                    element.x + element.width <= page.widthPoints && element.y + element.height <= page.heightPoints,
+            )
+        }
     }
 
     private fun openEditor(widthDp: Int, fontScale: Float = 1f): String {

@@ -10,11 +10,15 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val BIND_TIMEOUT_MILLIS = 10_000L
 
 internal data class PdfPageSize(val width: Int, val height: Int)
 
@@ -77,36 +81,52 @@ internal class PdfSandboxClient(context: Context) {
     }
 
     private suspend fun bind(): BoundService =
-        suspendCancellableCoroutine { continuation ->
-            val connection =
-                object : ServiceConnection {
-                    override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                        if (!continuation.isActive) return
-                        val service = IPdfRenderService.Stub.asInterface(binder)
-                        if (service == null) {
+        withTimeoutOrNull(BIND_TIMEOUT_MILLIS) {
+            suspendCancellableCoroutine { continuation ->
+                val delivered = AtomicBoolean()
+                val connection =
+                    object : ServiceConnection {
+                        private fun fail(message: String) {
+                            if (!delivered.compareAndSet(false, true)) return
                             runCatching { application.unbindService(this) }
-                            continuation.resumeWithException(IOException("PDF sandbox unavailable"))
-                        } else {
-                            continuation.resume(BoundService(service, this))
+                            continuation.resumeWithException(IOException(message))
                         }
-                    }
 
-                    override fun onServiceDisconnected(name: ComponentName?) = Unit
-
-                    override fun onNullBinding(name: ComponentName?) {
-                        if (continuation.isActive) {
-                            runCatching { application.unbindService(this) }
-                            continuation.resumeWithException(IOException("PDF sandbox returned no binder"))
+                        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                            val service = IPdfRenderService.Stub.asInterface(binder)
+                            if (service == null) {
+                                fail("PDF sandbox unavailable")
+                                return
+                            }
+                            if (delivered.compareAndSet(false, true)) {
+                                continuation.resume(BoundService(service, this))
+                            }
                         }
+
+                        override fun onServiceDisconnected(name: ComponentName?) {
+                            fail("PDF sandbox disconnected while connecting")
+                        }
+
+                        override fun onBindingDied(name: ComponentName?) {
+                            fail("PDF sandbox binding died while connecting")
+                        }
+
+                        override fun onNullBinding(name: ComponentName?) =
+                            fail("PDF sandbox returned no binder")
                     }
+                val intent = Intent(application, PdfRenderService::class.java)
+                if (!application.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                    if (delivered.compareAndSet(false, true)) {
+                        continuation.resumeWithException(IOException("PDF sandbox could not be started"))
+                    }
+                    return@suspendCancellableCoroutine
                 }
-            val intent = Intent(application, PdfRenderService::class.java)
-            if (!application.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
-                continuation.resumeWithException(IOException("PDF sandbox could not be started"))
-                return@suspendCancellableCoroutine
+                continuation.invokeOnCancellation {
+                    delivered.set(true)
+                    runCatching { application.unbindService(connection) }
+                }
             }
-            continuation.invokeOnCancellation { runCatching { application.unbindService(connection) } }
-        }
+        } ?: throw IOException("PDF sandbox connection timed out")
 
     private fun android.os.Bundle.requireSuccess() {
         if (!getBoolean(PdfProtocol.SUCCESS)) {

@@ -3,6 +3,7 @@ package com.majkeylab.seliadocs.editor
 import android.app.Application
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.ink.strokes.Stroke
@@ -43,11 +44,14 @@ import com.majkeylab.seliadocs.recognition.recognizeImage
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -243,6 +247,15 @@ private data class PendingHandwritingConversion(
     val candidates: List<String>,
 )
 
+private data class CapturedHandwritingConversion(
+    val generation: Long,
+    val pageId: String,
+    val tool: EditorTool,
+    val selectedIds: Set<String>,
+    val request: RecognitionRequest,
+    val sources: List<RecognitionSource>,
+)
+
 private data class RecognitionBurstSession(
     val pageId: String,
     val language: RecognitionLanguage,
@@ -268,7 +281,6 @@ internal class EditorViewModel(
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
     private val assets = AssetStore(File(application.filesDir, "assets"))
     private val imageImporter = ImageImporter(application.contentResolver, assets)
-    private val pdfExporter = PdfExporter(assets)
     private val pdfSandbox = PdfSandboxClient(application)
     private val pdfImporter = PdfImporter(application.contentResolver, assets, repository, pdfSandbox)
     private val selectedPageId = MutableStateFlow<String?>(null)
@@ -279,6 +291,8 @@ internal class EditorViewModel(
     private var recognitionJob: Job? = null
     private var candidateChoiceJob: Job? = null
     private var searchJob: Job? = null
+    private val imageOcrInFlight = mutableSetOf<String>()
+    private var imageOcrFeedback: Pair<String, Long>? = null
     private var latestSearchQuery = ""
     private var latestSearchIncludesImageOcr = true
     private var recognitionGeneration = 0L
@@ -466,7 +480,13 @@ internal class EditorViewModel(
         handwritingRecognition: Boolean = false,
         recognitionLanguage: RecognitionLanguage = RecognitionLanguage.CZECH,
     ) {
-        val toolAtFinish = controls.value.tool
+        val encoded = InkCodec.encode(stroke)
+        val toolAtFinish =
+            when (encoded.brushKind) {
+                BrushKind.PENCIL -> EditorTool.PENCIL
+                BrushKind.HIGHLIGHTER -> EditorTool.HIGHLIGHTER
+                BrushKind.PRESSURE_PEN, BrushKind.MARKER -> EditorTool.PEN
+            }
         val recognitionEligible =
             handwritingRecognition &&
                 (toolAtFinish == EditorTool.PEN || toolAtFinish == EditorTool.PENCIL)
@@ -505,7 +525,6 @@ internal class EditorViewModel(
                 } else {
                     null
                 }
-            val encoded = InkCodec.encode(stroke)
             val payload =
                 StrokePayload(
                     brushKind = encoded.brushKind.name,
@@ -614,6 +633,10 @@ internal class EditorViewModel(
     }
 
     fun selectElement(id: String?) {
+        if (controls.value.selectedElementId != id && imageOcrFeedback != null) {
+            imageOcrFeedback = null
+            controls.value = controls.value.copy(recognitionMessage = null)
+        }
         controls.value =
             controls.value.copy(
                 selectedElementId = id?.takeIf { candidate ->
@@ -674,53 +697,82 @@ internal class EditorViewModel(
         mutate {
             val history = history(selected.pageId)
             repository.deleteElement(selected.id)
-            // ponytail: retain orphan assets until history-safe GC exists; immediate deletion breaks Undo.
             history.push(snapshot(selected.pageId))
             controls.value = controls.value.copy(selectedElementId = null)
             updateHistoryControls(history)
         }
     }
 
-    fun moveSelectedStrokes(pageId: String, delta: CanvasPoint) = mutate {
-        if (!delta.x.isFinite() || !delta.y.isFinite()) return@mutate
+    fun moveSelectedStrokes(pageId: String, delta: CanvasPoint) {
         val selectedIds = controls.value.selectedStrokeIds
-        if (selectedIds.isEmpty()) return@mutate
-        val history = history(pageId)
-        val selectedPoints =
-            history.current.strokes
-                .filter { it.id in selectedIds }
-                .flatMap { it.toStrokePath().points }
-        if (selectedPoints.isEmpty()) return@mutate
-        val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
-        val dx = delta.x.coerceIn(-selectedPoints.minOf { it.x }, page.widthPoints - selectedPoints.maxOf { it.x })
-        val dy = delta.y.coerceIn(-selectedPoints.minOf { it.y }, page.heightPoints - selectedPoints.maxOf { it.y })
-        if (dx == 0f && dy == 0f) return@mutate
-        val moved =
-            history.current.strokes.map { stroke ->
-                if (stroke.id in selectedIds) stroke.translated(dx, dy) else stroke
-            }
-        repository.replaceStrokes(pageId, moved)
-        history.push(history.current.copy(strokes = moved))
-        updateHistoryControls(history)
+        mutate {
+            if (!delta.x.isFinite() || !delta.y.isFinite()) return@mutate
+            if (selectedIds.isEmpty()) return@mutate
+            val history = history(pageId)
+            val selectedPoints =
+                history.current.strokes
+                    .filter { it.id in selectedIds }
+                    .flatMap { it.toStrokePath().points }
+            if (selectedPoints.isEmpty()) return@mutate
+            val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
+            val dx =
+                delta.x.coerceIn(
+                    -selectedPoints.minOf { it.x },
+                    page.widthPoints - selectedPoints.maxOf { it.x },
+                )
+            val dy =
+                delta.y.coerceIn(
+                    -selectedPoints.minOf { it.y },
+                    page.heightPoints - selectedPoints.maxOf { it.y },
+                )
+            if (dx == 0f && dy == 0f) return@mutate
+            val moved =
+                history.current.strokes.map { stroke ->
+                    if (stroke.id in selectedIds) stroke.translated(dx, dy) else stroke
+                }
+            repository.replaceStrokes(pageId, moved)
+            history.push(history.current.copy(strokes = moved))
+            updateHistoryControls(history)
+        }
     }
 
-    fun addText(pageId: String, text: String) = mutate {
+    fun addText(
+        pageId: String,
+        text: String,
+        origin: CanvasPoint? = null,
+        onComplete: (Boolean) -> Unit = {},
+    ) = mutate(onComplete = onComplete) {
         val normalized = text.trim()
         if (normalized.isEmpty()) return@mutate
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val history = history(pageId)
-        repository.addElement(
+        val transform =
+            requireNotNull(
+                initialTextElementTransform(
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    origin ?: CanvasPoint(page.widthPoints * 0.15f, page.heightPoints * 0.2f),
+                    normalized,
+                ),
+            ) { "Text does not fit on the page" }
+        val id = repository.addElement(
             pageId,
             ElementDraft(
                 kind = ElementKind.TEXT,
-                x = page.widthPoints * 0.15f,
-                y = page.heightPoints * 0.2f,
-                width = page.widthPoints * 0.7f,
-                height = (64f + normalized.length / 40 * 24f).coerceAtMost(page.heightPoints * 0.5f),
+                x = transform.x,
+                y = transform.y,
+                width = transform.width,
+                height = transform.height,
                 text = normalized,
             ),
         )
         history.push(snapshot(pageId))
+        controls.value =
+            controls.value.copy(
+                tool = EditorTool.LASSO,
+                selectedStrokeIds = emptySet(),
+                selectedElementId = id,
+            )
         updateHistoryControls(history)
     }
 
@@ -739,7 +791,49 @@ internal class EditorViewModel(
         }
     }
 
-    fun flushPageTextBeforeSearch(pageId: String?, text: String?, onComplete: (Boolean) -> Unit) {
+    fun updateTextElement(
+        elementId: String,
+        text: String,
+        onComplete: (Boolean) -> Unit = {},
+    ) = mutate(onComplete = onComplete) {
+        val normalized = text.trim()
+        val element = requireNotNull(state.value.elements.firstOrNull { it.id == elementId })
+        require(element.kind == ElementKind.TEXT.name)
+        if (text == element.text) return@mutate
+        val page = requireNotNull(state.value.pages.firstOrNull { it.id == element.pageId })
+        val history = history(page.id)
+        if (normalized.isEmpty()) {
+            repository.deleteElement(element.id)
+            history.push(snapshot(page.id))
+            controls.value = controls.value.copy(selectedElementId = null, selectedStrokeIds = emptySet())
+            updateHistoryControls(history)
+            return@mutate
+        }
+        val transform =
+            requireNotNull(
+                resizedTextElementTransform(
+                    element.transform(),
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    normalized,
+                ),
+            )
+        repository.updateElement(
+            element.copy(
+                text = normalized,
+                x = transform.x,
+                y = transform.y,
+                width = transform.width,
+                height = transform.height,
+                rotation = transform.rotation,
+            ),
+        )
+        history.push(snapshot(page.id))
+        controls.value = controls.value.copy(selectedElementId = element.id, selectedStrokeIds = emptySet())
+        updateHistoryControls(history)
+    }
+
+    fun flushPageTextBeforeAction(pageId: String?, text: String?, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch {
             if (!mutationAllowed()) {
                 onComplete(false)
@@ -837,49 +931,91 @@ internal class EditorViewModel(
         clearSearch()
     }
 
-    private fun regenerateMissingOcrRegions(elementId: String) {
+    fun recognizeSelectedImage() {
+        val element = state.value.selectedElement?.takeIf { it.kind == ElementKind.IMAGE.name } ?: return
         if (!mutationAllowed()) return
+        clearRecognition()
+        imageOcrFeedback = element.id to recognitionGeneration
+        publishImageOcrMessage(element.id, R.string.image_ocr_running)
+        regenerateMissingOcrRegions(element.id)
+    }
+
+    private fun publishImageOcrMessage(elementId: String, message: Int) {
+        if (
+            imageOcrFeedback == (elementId to recognitionGeneration) &&
+                controls.value.selectedElementId == elementId && mutationAllowed()
+        ) {
+            controls.value = controls.value.copy(recognitionMessage = getApplication<Application>().getString(message))
+        }
+    }
+
+    private fun regenerateMissingOcrRegions(elementId: String) {
+        if (!mutationAllowed() || !imageOcrInFlight.add(elementId)) return
         viewModelScope.launch {
-            val element = runCatching { repository.getElement(elementId) }.getOrNull() ?: return@launch
-            if (
-                element.kind != ElementKind.IMAGE.name ||
-                    decodeImageOcrRegions(element.ocrRegions).isNotEmpty()
-            ) {
-                return@launch
-            }
-            val assetId = element.assetId ?: return@launch
-            val recognized = runCatching { imageOcrRecognizer(assets.file(assetId)) }.getOrNull() ?: return@launch
-            val regions = encodeImageOcrRegions(recognized.regions).takeIf(String::isNotEmpty) ?: return@launch
-            LibraryMutationGate.withLock {
-                val current = repository.getElement(elementId) ?: return@withLock
-                if (
-                    current.assetId != assetId ||
-                        decodeImageOcrRegions(current.ocrRegions).isNotEmpty()
-                ) {
-                    return@withLock
+            try {
+                val element = repository.getElement(elementId) ?: return@launch
+                if (element.kind != ElementKind.IMAGE.name) return@launch
+                if (decodeImageOcrRegions(element.ocrRegions).isNotEmpty()) {
+                    publishImageOcrMessage(elementId, R.string.image_ocr_ready)
+                    return@launch
                 }
-                repository.updateElement(
-                    current.copy(
-                        text = recognized.text.trim().take(10_000).takeIf(String::isNotEmpty) ?: current.text,
-                        ocrRegions = regions,
-                    ),
-                )
+                val assetId = element.assetId ?: return@launch
+                val recognized = imageOcrRecognizer(assets.file(assetId))
+                currentCoroutineContext().ensureActive()
+                val text = recognized.text.trim().take(10_000).takeIf(String::isNotEmpty)
+                val regions = encodeImageOcrRegions(recognized.regions).takeIf(String::isNotEmpty)
+                if (text == null && regions == null) {
+                    publishImageOcrMessage(elementId, R.string.recognition_no_text)
+                    return@launch
+                }
+                LibraryMutationGate.withLock {
+                    currentCoroutineContext().ensureActive()
+                    if (!mutationAllowed()) return@withLock
+                    val current = repository.getElement(elementId)
+                    if (
+                        current != null &&
+                            (current.assetId != assetId || decodeImageOcrRegions(current.ocrRegions).isNotEmpty())
+                    ) {
+                        return@withLock
+                    }
+                    if (current != null) {
+                        repository.updateElement(current.copy(text = text ?: current.text, ocrRegions = regions))
+                    }
+                    pageHistories.existing(element.pageId)?.let { history ->
+                        history.amend { snapshot ->
+                            snapshot.copy(
+                                elements = snapshot.elements.map { saved ->
+                                    if (saved.id == elementId && saved.assetId == assetId) {
+                                        saved.copy(text = text ?: saved.text, ocrRegions = regions)
+                                    } else {
+                                        saved
+                                    }
+                                },
+                            )
+                        }
+                        if (state.value.selectedPageId == element.pageId) updateHistoryControls(history)
+                    }
+                    if (current != null) publishImageOcrMessage(elementId, R.string.image_ocr_ready)
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                Log.e(TAG, "Image text recognition failed", failure)
+                publishImageOcrMessage(elementId, R.string.image_ocr_failed)
+            } finally {
+                imageOcrInFlight.remove(elementId)
             }
         }
     }
 
-    fun importImage(pageId: String, uri: Uri, ocrEnabled: Boolean = true) = mutate {
+    fun importImage(
+        pageId: String,
+        uri: Uri,
+        ocrEnabled: Boolean = true,
+        onComplete: (Boolean) -> Unit = {},
+    ) = mutate(onComplete = onComplete) {
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
         val asset = imageImporter.importImage(uri).getOrThrow()
-        val recognized =
-            if (ocrEnabled) {
-                runCatching { imageOcrRecognizer(asset.file) }.getOrNull()
-            } else {
-                null
-            }
-        val recognizedText = recognized?.text?.trim()?.take(10_000)?.takeIf(String::isNotEmpty)
-        val recognizedRegions =
-            recognized?.regions?.let(::encodeImageOcrRegions)?.takeIf(String::isNotEmpty)
         val history = history(pageId)
         val elementId =
             runCatching {
@@ -898,9 +1034,7 @@ internal class EditorViewModel(
                         y = (page.heightPoints - height) / 2f,
                         width = width,
                         height = height,
-                        text = recognizedText,
                         assetId = asset.id,
-                        ocrRegions = recognizedRegions,
                     ),
                 )
             }
@@ -916,9 +1050,119 @@ internal class EditorViewModel(
                 selectedElementId = elementId,
             )
         updateHistoryControls(history)
+        if (ocrEnabled) regenerateMissingOcrRegions(elementId)
     }
 
-    fun importPdf(uri: Uri) = mutate {
+    fun duplicateSelectedStrokes() {
+        val page = state.value.selectedPage ?: return
+        val selectedIds = controls.value.selectedStrokeIds
+        if (selectedIds.isEmpty()) return
+        mutate {
+            val history = history(page.id)
+            val selected = history.current.strokes.filter { it.id in selectedIds }
+            val points = selected.flatMap { it.toStrokePath().points }
+            if (points.isEmpty()) return@mutate
+            val dx =
+                when {
+                    points.maxOf { it.x } + SELECTION_DUPLICATE_OFFSET <= page.widthPoints ->
+                        SELECTION_DUPLICATE_OFFSET
+                    points.minOf { it.x } - SELECTION_DUPLICATE_OFFSET >= 0f ->
+                        -SELECTION_DUPLICATE_OFFSET
+                    else -> 0f
+                }
+            val dy =
+                when {
+                    points.maxOf { it.y } + SELECTION_DUPLICATE_OFFSET <= page.heightPoints ->
+                        SELECTION_DUPLICATE_OFFSET
+                    points.minOf { it.y } - SELECTION_DUPLICATE_OFFSET >= 0f ->
+                        -SELECTION_DUPLICATE_OFFSET
+                    else -> 0f
+                }
+            val firstZ = (history.current.strokes.maxOfOrNull(StrokeEntity::zIndex) ?: -1) + 1
+            val copies =
+                selected.mapIndexed { index, stroke ->
+                    stroke
+                        .copy(id = UUID.randomUUID().toString(), zIndex = firstZ + index)
+                        .translated(dx, dy)
+                }
+            val updated = history.current.strokes + copies
+            repository.replaceStrokes(page.id, updated)
+            history.push(history.current.copy(strokes = updated))
+            controls.value =
+                controls.value.copy(
+                    selectedStrokeIds = copies.mapTo(mutableSetOf(), StrokeEntity::id),
+                )
+            updateHistoryControls(history)
+        }
+    }
+
+    fun deleteSelectedStrokes() {
+        val pageId = state.value.selectedPage?.id ?: return
+        val selectedIds = controls.value.selectedStrokeIds
+        if (selectedIds.isEmpty()) return
+        mutate {
+            val history = history(pageId)
+            val existingIds =
+                history.current.strokes.mapTo(mutableSetOf(), StrokeEntity::id) intersect selectedIds
+            if (existingIds.isEmpty()) return@mutate
+            repository.deleteStrokes(pageId, existingIds)
+            history.push(
+                history.current.copy(
+                    strokes = history.current.strokes.filterNot { it.id in existingIds },
+                ),
+            )
+            controls.value = controls.value.copy(selectedStrokeIds = emptySet())
+            updateHistoryControls(history)
+        }
+    }
+
+    fun recolorSelectedStrokes(colorArgb: Int) {
+        val pageId = state.value.selectedPage?.id ?: return
+        val selectedIds = controls.value.selectedStrokeIds
+        if (selectedIds.isEmpty()) return
+        mutate {
+            val history = history(pageId)
+            val rgb = colorArgb and 0x00FFFFFF
+            if (history.current.strokes.none { it.id in selectedIds && (it.colorArgb and 0x00FFFFFF) != rgb }) {
+                return@mutate
+            }
+            val updated =
+                history.current.strokes.map { stroke ->
+                    if (stroke.id in selectedIds) {
+                        stroke.copy(
+                            colorArgb = (stroke.colorArgb and 0xFF000000.toInt()) or rgb,
+                        )
+                    } else {
+                        stroke
+                    }
+                }
+            repository.replaceStrokes(pageId, updated)
+            history.push(history.current.copy(strokes = updated))
+            updateHistoryControls(history)
+        }
+    }
+
+    fun transformSelectedStrokes(scale: Float, rotationDegrees: Float) {
+        val page = state.value.selectedPage ?: return
+        val selectedIds = controls.value.selectedStrokeIds
+        mutate {
+            val history = history(page.id)
+            val updated =
+                transformStrokeSelection(
+                    history.current.strokes,
+                    selectedIds,
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    scale,
+                    rotationDegrees,
+                ) ?: return@mutate
+            repository.replaceStrokes(page.id, updated)
+            history.push(history.current.copy(strokes = updated))
+            updateHistoryControls(history)
+        }
+    }
+
+    fun importPdf(uri: Uri, onComplete: (Boolean) -> Unit = {}) = mutate(onComplete = onComplete) {
         val imported = pdfImporter.import(notebookId, uri)
         val firstPageId = imported.pageIds.first()
         selectedPageId.value = firstPageId
@@ -1001,44 +1245,68 @@ internal class EditorViewModel(
     fun recognizeSelectedHandwriting(language: RecognitionLanguage) {
         clearRecognition()
         val page = state.value.selectedPage ?: return
-        val selectedIds = controls.value.selectedStrokeIds
+        val selectedIds = controls.value.selectedStrokeIds.toSet()
+        val tool = controls.value.tool
+        val generation = recognitionGeneration
         if (selectedIds.isEmpty() || !mutationAllowed()) return
         handwritingConversionJob = viewModelScope.launch {
             try {
-                LibraryMutationGate.withLock {
-                    if (!mutationAllowed()) return@withLock
-                    val strokesById = repository.getStrokes(page.id).associateBy(StrokeEntity::id)
-                    val selected = selectedIds.map { strokesById[it] ?: return@withLock }
-                    val payload =
-                        recognitionPayload(
-                            page,
-                            selected,
-                            maxStrokes = MAX_CONVERSION_STROKES,
-                            maxPoints = MAX_CONVERSION_POINTS,
-                            maxDurationMillis = MAX_CONVERSION_DURATION_MS,
-                        )
-                    if (payload == null) {
-                        controls.value =
-                            controls.value.copy(
-                                recognitionMessage =
-                                    getApplication<Application>().getString(
-                                        R.string.recognition_selection_too_large,
-                                    ),
-                            )
-                        return@withLock
-                    }
-                    val recognizer = recognizerProvider(language)
-                    val candidates =
-                        try {
-                            recognizer.recognize(payload.request)
-                        } finally {
-                            recognizer.close()
+                val capture =
+                    LibraryMutationGate.withLock {
+                        currentCoroutineContext().ensureActive()
+                        if (
+                            !mutationAllowed() ||
+                            generation != recognitionGeneration ||
+                            state.value.selectedPage?.id != page.id ||
+                            controls.value.tool != tool ||
+                            controls.value.selectedStrokeIds != selectedIds
+                        ) {
+                            return@withLock null
                         }
-                            .map { it.text.trim().take(10_000) }
-                            .filter(String::isNotEmpty)
-                            .distinct()
-                            .take(5)
-                    if (state.value.selectedPage?.id != page.id) return@withLock
+                        val strokesById = repository.getStrokes(page.id).associateBy(StrokeEntity::id)
+                        val selected = selectedIds.map { strokesById[it] ?: return@withLock null }
+                        val payload =
+                            recognitionPayload(
+                                page,
+                                selected,
+                                maxStrokes = MAX_CONVERSION_STROKES,
+                                maxPoints = MAX_CONVERSION_POINTS,
+                                maxDurationMillis = MAX_CONVERSION_DURATION_MS,
+                            )
+                        if (payload == null) {
+                            controls.value =
+                                controls.value.copy(
+                                    recognitionMessage =
+                                        getApplication<Application>().getString(
+                                            R.string.recognition_selection_too_large,
+                                        ),
+                                )
+                            return@withLock null
+                        }
+                        CapturedHandwritingConversion(
+                            generation = generation,
+                            pageId = page.id,
+                            tool = tool,
+                            selectedIds = selectedIds,
+                            request = payload.request,
+                            sources = selected.map { it.recognitionSource() },
+                        )
+                    } ?: return@launch
+                val recognizer = recognizerProvider(language)
+                val candidates =
+                    try {
+                        recognizer.recognize(capture.request)
+                    } finally {
+                        recognizer.close()
+                    }
+                        .map { it.text.trim().take(10_000) }
+                        .filter(String::isNotEmpty)
+                        .distinct()
+                        .take(5)
+                currentCoroutineContext().ensureActive()
+                LibraryMutationGate.withLock {
+                    currentCoroutineContext().ensureActive()
+                    if (!revalidateHandwritingConversion(capture)) return@withLock
                     if (candidates.isEmpty()) {
                         controls.value =
                             controls.value.copy(
@@ -1049,8 +1317,8 @@ internal class EditorViewModel(
                     }
                     pendingHandwritingConversion =
                         PendingHandwritingConversion(
-                            pageId = page.id,
-                            sources = selected.map { it.recognitionSource() },
+                            pageId = capture.pageId,
+                            sources = capture.sources,
                             candidates = candidates,
                         )
                     controls.value =
@@ -1062,6 +1330,15 @@ internal class EditorViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                if (
+                    generation != recognitionGeneration ||
+                    state.value.selectedPage?.id != page.id ||
+                    controls.value.tool != tool ||
+                    controls.value.selectedStrokeIds != selectedIds ||
+                    !mutationAllowed()
+                ) {
+                    return@launch
+                }
                 val message =
                     if (error.message?.contains("not downloaded", ignoreCase = true) == true) {
                         R.string.recognition_model_required
@@ -1076,6 +1353,27 @@ internal class EditorViewModel(
             }
         }
     }
+
+    private suspend fun revalidateHandwritingConversion(capture: CapturedHandwritingConversion): Boolean {
+        if (!isHandwritingConversionCurrent(capture)) return false
+        val page = repository.getPages(notebookId).firstOrNull { it.id == capture.pageId } ?: return false
+        if (
+            page.widthPoints.toFloat() != capture.request.pageWidth ||
+            page.heightPoints.toFloat() != capture.request.pageHeight
+        ) {
+            return false
+        }
+        val strokesById = repository.getStrokes(capture.pageId).associateBy(StrokeEntity::id)
+        return capture.sources.all { source -> strokesById[source.id]?.let(source::matches) == true } &&
+            isHandwritingConversionCurrent(capture)
+    }
+
+    private fun isHandwritingConversionCurrent(capture: CapturedHandwritingConversion): Boolean =
+        mutationAllowed() &&
+            capture.generation == recognitionGeneration &&
+            state.value.selectedPage?.id == capture.pageId &&
+            controls.value.tool == capture.tool &&
+            controls.value.selectedStrokeIds == capture.selectedIds
 
     fun addHandwritingCandidateToPage(candidate: String) {
         val conversion = pendingHandwritingConversion ?: return
@@ -1167,33 +1465,48 @@ internal class EditorViewModel(
         controls.value = controls.value.copy(ambiguousMathCandidates = emptyList())
     }
 
-    fun exportPdf(uri: Uri) = mutate {
-        val content = repository.loadNotebook(notebookId)
+    fun exportPdf(uri: Uri) {
+        clearRecognition()
+        if (!mutationAllowed()) return
         val application = getApplication<Application>()
         val resolver = application.contentResolver
-        withContext(Dispatchers.IO) {
-            writePdfToDestination(
-                cacheDir = application.cacheDir,
-                render = { output ->
-                    pdfExporter.write(
-                        content,
-                        output,
-                    ) { source, page, width, height ->
-                        pdfSandbox.renderPage(
-                            assets.requireFile(source.assetId),
-                            requireNotNull(page.pdfPageIndex),
-                            width,
-                            height,
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    withPdfExportSnapshot(
+                        cacheDir = application.cacheDir,
+                        assets = assets,
+                        loadContent = {
+                            check(mutationAllowed()) { "Library is unavailable for export" }
+                            repository.loadNotebook(notebookId)
+                        },
+                    ) { content, exportAssets ->
+                        writePdfToDestination(
+                            cacheDir = application.cacheDir,
+                            render = { output ->
+                                PdfExporter(exportAssets).write(content, output) { source, page, width, height ->
+                                    pdfSandbox.renderPage(
+                                        exportAssets.requireFile(source.assetId),
+                                        requireNotNull(page.pdfPageIndex),
+                                        width,
+                                        height,
+                                    )
+                                }
+                            },
+                            openDestination = { resolver.openOutputStream(uri, "rwt") },
+                            deleteDestination = {
+                                check(DocumentsContract.deleteDocument(resolver, uri)) {
+                                    "Incomplete PDF destination could not be deleted"
+                                }
+                            },
                         )
                     }
-                },
-                openDestination = { resolver.openOutputStream(uri, "rwt") },
-                deleteDestination = {
-                    check(DocumentsContract.deleteDocument(resolver, uri)) {
-                        "Incomplete PDF destination could not be deleted"
-                    }
-                },
-            )
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                controls.value = controls.value.copy(failed = true)
+            }
         }
     }
 
@@ -1266,15 +1579,23 @@ internal class EditorViewModel(
 
     private fun mutate(
         cancelRecognition: Boolean = true,
+        onComplete: (Boolean) -> Unit = {},
         block: suspend () -> Unit,
     ) {
         if (cancelRecognition) clearRecognition()
-        if (!mutationAllowed()) return
+        if (!mutationAllowed()) {
+            onComplete(false)
+            return
+        }
         viewModelScope.launch {
             LibraryMutationGate.withLock {
-                if (!mutationAllowed()) return@withLock
+                if (!mutationAllowed()) {
+                    onComplete(false)
+                    return@withLock
+                }
                 val didFail = runCatching { block() }.isFailure
                 controls.value = controls.value.copy(failed = didFail)
+                onComplete(!didFail)
             }
         }
     }
@@ -1728,9 +2049,18 @@ internal class EditorViewModel(
         candidateChoiceJob?.cancel()
         handwritingConversionJob?.cancel()
         searchJob?.cancel()
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                    LibraryMutationGate.withLock {
+                        assets.deleteUnreferenced(repository.getReferencedAssetIds())
+                    }
+                }
+                .onFailure { failure -> Log.e(TAG, "Asset cleanup failed", failure) }
+        }
     }
 
     private companion object {
+        const val TAG = "EditorViewModel"
         const val DEFAULT_CHAPTER_COLOR = 0xFF3156D9.toInt()
         const val ERASER_RADIUS = 16f
         const val PAGE_HISTORY_MAX_BYTES = 8 * 1024 * 1024
@@ -1747,5 +2077,6 @@ internal class EditorViewModel(
         const val MATH_ELEMENT_MIN_WIDTH = 160f
         const val MATH_ELEMENT_HEIGHT = 64f
         const val MATH_ELEMENT_GAP = 12f
+        const val SELECTION_DUPLICATE_OFFSET = 12f
     }
 }

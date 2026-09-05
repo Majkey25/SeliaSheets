@@ -50,19 +50,14 @@ internal class ImageImporter(
                     while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) {
                         sample *= 2
                     }
-                    requireNotNull(
-                            BitmapFactory.decodeFile(
-                                temporary.path,
-                                BitmapFactory.Options().apply { inSampleSize = sample },
-                            ),
-                        ) { "Corrupt image" }
-                        .recycle()
+                    decodeOrientedImage(temporary, sample).recycle()
+                    val (width, height) = orientedImageDimensions(temporary, bounds.outWidth, bounds.outHeight)
                     val id = "${idFactory()}.${extensionFor(requireNotNull(actualMime))}"
                     val destination = assets.file(id)
                     require(!destination.exists() && temporary.renameTo(destination)) {
                         "Image could not be stored"
                     }
-                    ImportedAsset(id, actualMime, bounds.outWidth, bounds.outHeight, destination)
+                    ImportedAsset(id, actualMime, width, height, destination)
                 }
                 .also { result -> if (result.isFailure) temporary?.delete() }
         }

@@ -7,7 +7,6 @@ import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
-import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -15,12 +14,10 @@ import android.widget.FrameLayout
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
-import androidx.ink.brush.Brush
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.rendering.android.view.ViewStrokeRenderer
 import androidx.ink.strokes.Stroke
 import androidx.input.motionprediction.MotionEventPredictor
-import kotlin.math.roundToInt
 
 internal enum class EditorTool { TYPE, PEN, PENCIL, HIGHLIGHTER, ERASER, LASSO }
 
@@ -68,17 +65,19 @@ internal class InkCanvasView @JvmOverloads constructor(
     private var gestureToolType: Int? = null
     private var pageWidth = 595f
     private var pageHeight = 842f
-    private var viewportZoom = 1f
 
     var listener: Listener? = null
     var fingerDrawing: Boolean = false
     var tool: EditorTool = EditorTool.PEN
     var brush = InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f)
+    internal val hoverPreviewVisible: Boolean
+        get() = gestureOverlay.hoverVisible
 
     init {
         addView(finishedView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(inProgressView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(gestureOverlay, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        inProgressView.motionEventToViewTransform = Matrix()
     }
 
     override fun onAttachedToWindow() {
@@ -99,12 +98,6 @@ internal class InkCanvasView @JvmOverloads constructor(
         gestureOverlay.setPageSize(pageWidth, pageHeight)
     }
 
-    fun setViewportTransform(zoom: Float) {
-        require(zoom > 0f && zoom.isFinite())
-        viewportZoom = zoom
-        updateMotionEventToViewTransform()
-    }
-
     fun dispatchScreenMotionEvent(event: MotionEvent): Boolean {
         val location = IntArray(2)
         getLocationOnScreen(location)
@@ -120,11 +113,6 @@ internal class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
-        super.onSizeChanged(width, height, oldWidth, oldHeight)
-        updateMotionEventToViewTransform()
-    }
-
     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
         finishedView.addStrokes(strokes.values)
         finishedView.invalidate()
@@ -138,6 +126,7 @@ internal class InkCanvasView @JvmOverloads constructor(
         inProgressView.clearFinishedStrokesListeners()
         activeStrokes.clear()
         clearGesture()
+        gestureOverlay.setHover(null, 0f)
         super.onDetachedFromWindow()
     }
 
@@ -160,12 +149,26 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun handleHoverEvent(event: MotionEvent): Boolean {
-        if (
-            event.actionMasked == MotionEvent.ACTION_HOVER_ENTER &&
-            (event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_STYLUS ||
-                event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_ERASER)
-        ) {
-            inProgressView.eagerInit()
+        val pointerIndex = event.actionIndex
+        val inputTool = event.getToolType(pointerIndex)
+        if (inputTool != MotionEvent.TOOL_TYPE_STYLUS && inputTool != MotionEvent.TOOL_TYPE_ERASER) {
+            gestureOverlay.setHover(null, 0f)
+            return false
+        }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER -> {
+                inProgressView.eagerInit()
+                gestureOverlay.setHover(
+                    pagePoint(event, event.getPointerId(pointerIndex)),
+                    maxOf(brush.size / 2f, 4f),
+                )
+            }
+            MotionEvent.ACTION_HOVER_MOVE ->
+                gestureOverlay.setHover(
+                    pagePoint(event, event.getPointerId(pointerIndex)),
+                    maxOf(brush.size / 2f, 4f),
+                )
+            MotionEvent.ACTION_HOVER_EXIT -> gestureOverlay.setHover(null, 0f)
         }
         return false
     }
@@ -194,7 +197,10 @@ internal class InkCanvasView @JvmOverloads constructor(
         val pointerIndex = event.actionIndex
         val inputTool = event.getToolType(pointerIndex)
         val selectedTool = if (isStylusEraser(event, pointerIndex)) EditorTool.ERASER else tool
-        if (!canInteract(inputTool, selectedTool)) return false
+        gestureOverlay.setHover(null, 0f)
+        if (!canInteract(inputTool, selectedTool)) {
+            return inputTool == MotionEvent.TOOL_TYPE_FINGER && selectedTool != EditorTool.TYPE
+        }
         requestUnbufferedDispatch(event)
         val pointerId = event.getPointerId(pointerIndex)
         parent?.requestDisallowInterceptTouchEvent(true)
@@ -215,11 +221,9 @@ internal class InkCanvasView @JvmOverloads constructor(
             return true
         }
         val inputToWorld = inputTransform(pageWidth, pageHeight)
-        val interactionBrush =
-            if (selectedTool == EditorTool.PENCIL) pencilBrush(event, pointerIndex) else brush
         activeStrokes[pointerId] =
             ActiveStroke(
-                inProgressView.startStroke(event, pointerId, interactionBrush, inputToWorld, identity),
+                inProgressView.startStroke(event, pointerId, brush, inputToWorld, identity),
                 inputTool,
             )
         return true
@@ -255,6 +259,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun cancelAll(event: MotionEvent?): Boolean {
+        gestureOverlay.setHover(null, 0f)
         if (activeStrokes.isEmpty() && gesturePointerId == null) return false
         activeStrokes.forEach { (pointerId, stroke) ->
             inProgressView.cancelStroke(stroke.id, event)
@@ -326,13 +331,11 @@ internal class InkCanvasView @JvmOverloads constructor(
                         event.getHistoricalX(index, historyIndex),
                         width.coerceAtLeast(1).toFloat(),
                         pageWidth,
-                        viewportZoom,
                     ),
                     viewportCoordinateToPage(
                         event.getHistoricalY(index, historyIndex),
                         height.coerceAtLeast(1).toFloat(),
                         pageHeight,
-                        viewportZoom,
                     ),
                 )
         }
@@ -350,28 +353,13 @@ internal class InkCanvasView @JvmOverloads constructor(
                 event.getX(index),
                 width.coerceAtLeast(1).toFloat(),
                 pageWidth,
-                viewportZoom,
             ),
             viewportCoordinateToPage(
                 event.getY(index),
                 height.coerceAtLeast(1).toFloat(),
                 pageHeight,
-                viewportZoom,
             ),
         )
-    }
-
-    private fun updateMotionEventToViewTransform() {
-        // Compose offsets the platform event to the transformed layer origin; only scale remains.
-        inProgressView.motionEventToViewTransform =
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                Matrix()
-            } else {
-                inputTransform(
-                    width.coerceAtLeast(1).toFloat(),
-                    height.coerceAtLeast(1).toFloat(),
-                )
-            }
     }
 
     private fun inputTransform(targetWidth: Float, targetHeight: Float): Matrix {
@@ -380,11 +368,11 @@ internal class InkCanvasView @JvmOverloads constructor(
         return Matrix().apply {
             setValues(
                 floatArrayOf(
-                    targetWidth / viewWidth / viewportZoom,
+                    targetWidth / viewWidth,
                     0f,
                     0f,
                     0f,
-                    targetHeight / viewHeight / viewportZoom,
+                    targetHeight / viewHeight,
                     0f,
                     0f,
                     0f,
@@ -400,38 +388,11 @@ internal class InkCanvasView @JvmOverloads constructor(
                 inputTool == MotionEvent.TOOL_TYPE_ERASER ||
                 (inputTool == MotionEvent.TOOL_TYPE_FINGER && fingerDrawing))
 
-    private fun pencilBrush(event: MotionEvent, pointerIndex: Int): Brush {
-        val tilt = event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
-        val tiltProgress =
-            if (tilt.isFinite()) {
-                (tilt / PENCIL_MAX_TILT_RADIANS).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-        val alpha =
-            ((brush.colorIntArgb ushr 24) * (1f - PENCIL_TILT_OPACITY_LOSS * tiltProgress))
-                .roundToInt()
-                .coerceIn(0, 255)
-        val color = (brush.colorIntArgb and 0x00FFFFFF) or (alpha shl 24)
-        // ponytail: Ink brushes are immutable per stroke; use live tilt behavior when Android 10 supports it.
-        return Brush.createWithColorIntArgb(
-            brush.family,
-            color,
-            brush.size * (1f + PENCIL_TILT_SIZE_GAIN * tiltProgress),
-            brush.epsilon,
-        )
-    }
-
     private fun hasActiveInteraction(): Boolean = activeStrokes.isNotEmpty() || gesturePointerId != null
-
-    private companion object {
-        const val PENCIL_MAX_TILT_RADIANS = 1.5707964f
-        const val PENCIL_TILT_SIZE_GAIN = 1.8f
-        const val PENCIL_TILT_OPACITY_LOSS = 0.45f
-    }
 }
 
 private class GestureOverlayView(context: Context) : View(context) {
+    private val path = Path()
     private val paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(49, 86, 217)
@@ -439,9 +400,19 @@ private class GestureOverlayView(context: Context) : View(context) {
             strokeWidth = 2f
             pathEffect = DashPathEffect(floatArrayOf(10f, 8f), 0f)
         }
+    private val hoverPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(180, 32, 33, 36)
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f * resources.displayMetrics.density
+        }
     private var points: List<CanvasPoint> = emptyList()
+    private var hoverPoint: CanvasPoint? = null
+    private var hoverRadius = 0f
     private var pageWidth = 595f
     private var pageHeight = 842f
+    val hoverVisible: Boolean
+        get() = hoverPoint != null
 
     fun setPageSize(width: Float, height: Float) {
         pageWidth = width
@@ -453,14 +424,30 @@ private class GestureOverlayView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setHover(point: CanvasPoint?, radius: Float) {
+        hoverPoint = point
+        hoverRadius = radius.coerceAtLeast(0f)
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
-        if (points.size < 2) return
-        val path = Path()
-        path.moveTo(points.first().x * width / pageWidth, points.first().y * height / pageHeight)
-        points.drop(1).forEach { point ->
-            path.lineTo(point.x * width / pageWidth, point.y * height / pageHeight)
+        if (points.size >= 2) {
+            path.rewind()
+            path.moveTo(points.first().x * width / pageWidth, points.first().y * height / pageHeight)
+            for (index in 1 until points.size) {
+                val point = points[index]
+                path.lineTo(point.x * width / pageWidth, point.y * height / pageHeight)
+            }
+            canvas.drawPath(path, paint)
         }
-        canvas.drawPath(path, paint)
+        hoverPoint?.let { point ->
+            canvas.drawCircle(
+                point.x * width / pageWidth,
+                point.y * height / pageHeight,
+                hoverRadius * minOf(width / pageWidth, height / pageHeight),
+                hoverPaint,
+            )
+        }
     }
 }
 

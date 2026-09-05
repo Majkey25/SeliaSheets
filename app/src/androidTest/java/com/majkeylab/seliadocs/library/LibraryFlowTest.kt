@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.library
 
 import androidx.activity.compose.setContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -17,11 +18,15 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -95,7 +100,18 @@ class LibraryFlowTest {
     fun gridTemplateSelectsGridPortraitDefaults() {
         rule.onNodeWithContentDescription("New notebook").performClick()
 
-        rule.onNodeWithText("Grid notebook").performClick()
+        rule.onNodeWithTag("notebook-dialog-scroll").performTouchInput {
+            swipe(
+                Offset(centerX, height * 0.75f),
+                Offset(centerX, height * 0.45f),
+                durationMillis = 300,
+            )
+        }
+        rule.onNodeWithContentDescription("Notebook template: Grid notebook")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+            .assertIsSelected()
 
         rule.onNodeWithContentDescription("Paper option: Grid").assertIsSelected()
         rule.onNodeWithContentDescription("Orientation option: Portrait").assertIsSelected()

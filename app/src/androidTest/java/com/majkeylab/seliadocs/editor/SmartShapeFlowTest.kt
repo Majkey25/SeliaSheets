@@ -96,6 +96,29 @@ class SmartShapeFlowTest {
         }
     }
 
+    @Test
+    fun delayedPenCompletionUsesStrokeBrushInsteadOfCurrentToolbarTool() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(request())
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val pageId = await(viewModel, "page") { it.selectedPage != null }.selectedPage!!.id
+
+            onMain {
+                viewModel.selectTool(EditorTool.HIGHLIGHTER)
+                viewModel.addStroke(pageId, heldLine(), shapeAssist = true)
+            }
+
+            val converted = await(viewModel, "delayed pen shape") { it.elements.size == 1 }
+            assertEquals(ShapeKind.LINE.name, converted.elements.single().shapeKind)
+            assertEquals(0, converted.strokes.size)
+        } finally {
+            repository.deleteNotebook(notebookId)
+        }
+    }
+
     private fun heldLine(): Stroke =
         Stroke(
             InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f),

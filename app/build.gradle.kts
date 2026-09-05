@@ -1,15 +1,16 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
-val releaseSigningProperties =
-    (providers.gradleProperty("seliaSheetsKeystoreProperties").orNull
+val releaseSigningPropertiesPath =
+    providers.gradleProperty("seliaSheetsKeystoreProperties").orNull
         ?: providers.environmentVariable("SELIA_SHEETS_KEYSTORE_PROPERTIES").orNull
-        ?: providers.environmentVariable("SELIADOCS_KEYSTORE_PROPERTIES").orNull)
-        ?.let(::file)
-        ?.takeIf { it.isFile }
-        ?.let { propertiesFile ->
-            Properties().apply { propertiesFile.inputStream().use(::load) }
-        }
+        ?: providers.environmentVariable("SELIADOCS_KEYSTORE_PROPERTIES").orNull
+val releaseSigningProperties =
+    releaseSigningPropertiesPath?.let { path ->
+        val propertiesFile = file(path)
+        require(propertiesFile.isFile) { "SeliaSheets signing properties file not found: $path" }
+        Properties().apply { propertiesFile.inputStream().use(::load) }
+    }
 
 plugins {
     id("com.android.application")
@@ -25,8 +26,8 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.5.3-beta.1"
+        versionCode = 13
+        versionName = "0.6.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
@@ -60,7 +61,8 @@ android {
             manifestPlaceholders["appLabel"] = "SeliaSheets Debug"
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -88,19 +90,24 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+val inkVersion = "1.1.0-alpha07"
+
 dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
-    implementation("androidx.ink:ink-authoring:1.0.0")
-    implementation("androidx.ink:ink-brush:1.0.0")
-    implementation("androidx.ink:ink-rendering:1.0.0")
-    implementation("androidx.ink:ink-storage:1.0.0")
-    implementation("androidx.ink:ink-strokes:1.0.0")
+    implementation("androidx.ink:ink-authoring:$inkVersion")
+    implementation("androidx.ink:ink-brush:$inkVersion")
+    implementation("androidx.ink:ink-rendering:$inkVersion")
+    implementation("androidx.ink:ink-storage:$inkVersion")
+    implementation("androidx.ink:ink-strokes:$inkVersion")
     implementation("androidx.input:input-motionprediction:1.0.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0") {
+        because("ML Kit's OkHttp 3.12.1 is affected by CVE-2021-0341")
+    }
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.room:room-ktx:2.8.4")
     implementation("androidx.room:room-runtime:2.8.4")
@@ -119,5 +126,7 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.0")
-    debugImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    debugImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") {
+        because("Room migration tests need the serialization 1.8 ABI in the target APK")
+    }
 }

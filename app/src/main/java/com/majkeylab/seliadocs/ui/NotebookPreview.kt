@@ -116,6 +116,8 @@ internal fun TemplatePreview(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val label = templateLabel(template)
+    val description = stringResource(R.string.notebook_template_option, label)
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f) else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(10.dp),
@@ -124,7 +126,14 @@ internal fun TemplatePreview(
                 if (selected) 2.dp else 1.dp,
                 if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
             ),
-        modifier = modifier.selectable(selected = selected, onClick = onClick, role = androidx.compose.ui.semantics.Role.RadioButton),
+        modifier =
+            modifier
+                .selectable(
+                    selected = selected,
+                    onClick = onClick,
+                    role = androidx.compose.ui.semantics.Role.RadioButton,
+                )
+                .semantics { contentDescription = description },
     ) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             NotebookPreview(
@@ -132,12 +141,12 @@ internal fun TemplatePreview(
                 coverPattern = template.coverPattern,
                 paper = template.paper,
                 orientation = template.orientation,
-                title = templateLabel(template),
+                title = label,
                 compact = true,
                 modifier = Modifier.fillMaxWidth().height(92.dp),
             )
             Text(
-                templateLabel(template),
+                label,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )

@@ -9,6 +9,10 @@
     <string name="search_notebooks">Search notebooks</string>
     <string name="no_notebooks">Your shelf is empty</string>
     <string name="no_notebooks_hint">Create a notebook and choose its cover and paper.</string>
+    <string name="no_matching_notebooks">No matching notebooks</string>
+    <string name="no_matching_notebooks_hint">Try a different name or clear the search.</string>
+    <string name="trash_empty">Trash is empty</string>
+    <string name="trash_empty_hint">Notebooks moved to Trash appear here.</string>
     <string name="cover_color">Cover color</string>
     <string name="cover_pattern">Cover pattern</string>
     <string name="paper">Paper</string>
@@ -85,8 +89,8 @@
     <string name="remove_page_bookmark">Remove page bookmark</string>
     <string name="bookmarked">Bookmarked</string>
     <string name="not_bookmarked">Not bookmarked</string>
-    <string name="selected">Selected</string>
-    <string name="not_selected">Not selected</string>
+    <string name="selection_state_selected">Selected</string>
+    <string name="selection_state_not_selected">Not selected</string>
     <string name="tool_pen">Pen</string>
     <string name="tool_type">Type</string>
     <string name="tool_pencil">Pencil</string>
@@ -105,10 +109,19 @@
     <string name="zoom_level">Zoom %1$d%%</string>
     <string name="tool_image">Image</string>
     <string name="import_pdf">PDF</string>
+    <string name="pdf_render_loading">Rendering PDF…</string>
+    <string name="pdf_render_error">The PDF page could not be rendered.</string>
+    <string name="retry">Retry</string>
     <string name="add_text">Add text</string>
     <string name="text_content">Text</string>
+    <string name="place_text">Tap the page to place text</string>
+    <string name="inline_text_hint">Type here…</string>
+    <string name="inline_text_too_long">Text is too long.</string>
+    <string name="inline_text_does_not_fit">Text does not fit on this page.</string>
+    <string name="edit_text">Edit text</string>
     <string name="add">Add</string>
     <string name="inserted_image">Inserted image</string>
+    <string name="image_render_error">The image could not be rendered.</string>
     <string name="tool_shape">Shape</string>
     <string name="clean_shape">Clean up selection</string>
     <string name="shape_line">Line</string>
@@ -168,6 +181,10 @@
     <string name="retry_download">Retry download</string>
     <string name="recognition_disclosure">Handwriting recognition runs on-device after model download. Image OCR uses a bundled on-device model. Google ML Kit may send SDK diagnostics and usage metrics.</string>
     <string name="image_ocr">Search text in imported images</string>
+    <string name="recognize_image_text">Recognize text</string>
+    <string name="image_ocr_running">Recognizing image text…</string>
+    <string name="image_ocr_ready">Image text is searchable.</string>
+    <string name="image_ocr_failed">Image text recognition failed. Try again.</string>
     <string name="image_ocr_hint">Uses the bundled on-device Latin OCR model. Failed recognition never blocks image import.</string>
     <string name="export_details">PDF export includes every page, paper, ink, text, images, shapes, and math blocks.</string>
     <string name="theme">Theme</string>
@@ -190,6 +207,7 @@
     <string name="template_ruled_notes">Ruled notes</string>
     <string name="template_ruled_notes_hint">Classes, meetings, and continuous notes</string>
     <string name="template_grid_notebook">Grid notebook</string>
+    <string name="notebook_template_option">Notebook template: %1$s</string>
     <string name="template_grid_notebook_hint">Diagrams, calculations, and technical notes</string>
     <string name="template_dotted_journal">Dotted journal</string>
     <string name="template_dotted_journal_hint">Flexible writing, planning, and bullet journals</string>
@@ -235,6 +253,14 @@
     <string name="duplicate_element">Duplicate</string>
     <string name="bring_forward">Bring forward</string>
     <string name="delete_element">Delete element</string>
+    <string name="delete_selection">Delete selection</string>
+    <string name="color">Color</string>
+    <string name="transform">Transform</string>
+    <string name="scale_up">Scale up</string>
+    <string name="scale_down">Scale down</string>
+    <string name="scale_selected_ink">Scale selected ink</string>
+    <string name="rotate_selected_ink">Rotate selected ink</string>
+    <string name="move_selected_ink">Move selected ink</string>
     <string name="move_element">Move selected element</string>
     <string name="resize_element">Resize selected element</string>
     <string name="rotate_element">Rotate selected element</string>
@@ -247,4 +273,6 @@
     <string name="shrink_element">Shrink element</string>
     <string name="rotate_clockwise">Rotate clockwise</string>
     <string name="rotate_counterclockwise">Rotate counter-clockwise</string>
+    <string name="settings_save_failed">Settings not saved</string>
+    <string name="settings_save_failed_message">Your change could not be saved. Check available device storage, then retry.</string>
 </resources>

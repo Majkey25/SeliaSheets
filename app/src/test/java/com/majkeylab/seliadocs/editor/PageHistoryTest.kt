@@ -10,6 +10,53 @@ import org.junit.Test
 
 class PageHistoryTest {
     @Test
+    fun amendmentPreservesUndoAndRedoWithoutAddingAStep() {
+        val history = PageHistory("empty")
+        history.push("image")
+        history.push("moved image")
+        history.undo()
+
+        history.amend { it.replace("image", "indexed image") }
+
+        assertEquals("indexed image", history.current)
+        assertEquals("empty", history.undo())
+        assertNull(history.undo())
+        assertEquals("indexed image", history.redo())
+        assertEquals("moved indexed image", history.redo())
+        assertNull(history.redo())
+    }
+
+    @Test
+    fun amendmentLeavesUndoneContentAbsentAndEnrichesRedo() {
+        val history = PageHistory(emptyList<String>())
+        history.push(listOf("image"))
+        history.undo()
+
+        history.amend { snapshot -> snapshot.map { "indexed $it" } }
+
+        assertEquals(emptyList<String>(), history.current)
+        assertFalse(history.canUndo)
+        assertEquals(listOf("indexed image"), history.redo())
+    }
+
+    @Test
+    fun amendmentRecalculatesWeightAndRetainsNearestRedo() {
+        val history = PageHistory("a", maxWeight = 6, weightOf = String::length)
+        history.push("b")
+        history.push("c")
+        history.push("d")
+        history.undo()
+        history.undo()
+
+        history.amend { it.repeat(3) }
+
+        assertEquals("bbb", history.current)
+        assertNull(history.undo())
+        assertEquals("ccc", history.redo())
+        assertNull(history.redo())
+    }
+
+    @Test
     fun historyDropsOldestStateAtOneHundred() {
         val history = PageHistory(0)
         repeat(101) { history.push(it + 1) }

@@ -13,14 +13,86 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.PI
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class StylusRoutingTest {
+    @Test
+    fun stylusHoverPreviewFollowsHoverLifecycleWithoutCommittingInk() {
+        val finished = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            finished += stroke
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+
+                view.onHoverEvent(stylusHoverEvent(MotionEvent.ACTION_HOVER_ENTER, 100f, 120f))
+                assertTrue(view.hoverPreviewVisible)
+                view.onHoverEvent(stylusHoverEvent(MotionEvent.ACTION_HOVER_MOVE, 180f, 220f))
+                assertTrue(view.hoverPreviewVisible)
+                view.onHoverEvent(stylusHoverEvent(MotionEvent.ACTION_HOVER_EXIT, 180f, 220f))
+                assertFalse(view.hoverPreviewVisible)
+            }
+        }
+
+        assertTrue(finished.isEmpty())
+    }
+
+    @Test
+    fun fingerHoverNeverShowsStylusPreview() {
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+
+                view.onHoverEvent(
+                    stylusHoverEvent(
+                        MotionEvent.ACTION_HOVER_ENTER,
+                        100f,
+                        120f,
+                        MotionEvent.TOOL_TYPE_FINGER,
+                    ),
+                )
+
+                assertFalse(view.hoverPreviewVisible)
+            }
+        }
+    }
+
+    @Test
+    fun fingerDownClearsStylusHoverWhenFingerDrawingIsOff() {
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                activity.setContentView(view)
+                view.measure(exactly(500), exactly(500))
+                view.layout(0, 0, 500, 500)
+                view.onHoverEvent(stylusHoverEvent(MotionEvent.ACTION_HOVER_ENTER, 100f, 120f))
+                assertTrue(view.hoverPreviewVisible)
+
+                val now = android.os.SystemClock.uptimeMillis()
+                view.dispatchTouchEvent(fingerEvent(now, now, MotionEvent.ACTION_DOWN, 100f, 120f))
+
+                assertFalse(view.hoverPreviewVisible)
+            }
+        }
+    }
+
     @Test
     fun reattachedCanvasStillCommitsStylusStroke() {
         val committed = CountDownLatch(1)
@@ -67,7 +139,7 @@ class StylusRoutingTest {
     }
 
     @Test
-    fun completedStylusStrokePreservesPressureTiltAndOrientation() {
+    fun deviceLessSyntheticStylusDoesNotInventOptionalAxes() {
         val committed = CountDownLatch(1)
         val finished = AtomicReference<Stroke>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -102,16 +174,9 @@ class StylusRoutingTest {
         }
 
         val stroke = requireNotNull(finished.get())
-        val pressures = (0 until stroke.inputs.size).map { stroke.inputs[it].pressure }
-        val tilts = (0 until stroke.inputs.size).map { stroke.inputs[it].tiltRadians }
-        val orientations = (0 until stroke.inputs.size).map { stroke.inputs[it].orientationRadians }
-        assertTrue(pressures.min() <= 0.2f)
-        assertTrue(pressures.max() >= 0.85f)
-        assertTrue(pressures.max() <= 1f)
-        assertTrue(stroke.inputs.hasTilt())
-        assertTrue(stroke.inputs.hasOrientation())
-        assertEquals(0.4f, tilts.last(), 0.01f)
-        assertEquals(0.3f + (PI / 2f).toFloat(), orientations.last(), 0.01f)
+        assertFalse(stroke.inputs.hasPressure())
+        assertFalse(stroke.inputs.hasTilt())
+        assertFalse(stroke.inputs.hasOrientation())
         assertEquals(
             StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1),
             stroke.brush.family,
@@ -119,7 +184,7 @@ class StylusRoutingTest {
     }
 
     @Test
-    fun pencilUsesInitialTiltForWiderLighterStroke() {
+    fun pencilKeepsOneDynamicBrushAcrossInputTilt() {
         val committed = CountDownLatch(2)
         val finished = mutableListOf<Stroke>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -127,7 +192,7 @@ class StylusRoutingTest {
                 val view = InkCanvasView(activity)
                 activity.setContentView(view)
                 view.tool = EditorTool.PENCIL
-                view.brush = InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 2.2f)
+                view.brush = InkCodec.createBrush(BrushKind.PENCIL, 0xFF202124.toInt(), 2.2f)
                 view.listener =
                     object : InkCanvasView.Listener {
                         override fun onStrokeFinished(stroke: Stroke) {
@@ -179,13 +244,10 @@ class StylusRoutingTest {
 
         val upright = finished.first().brush
         val tilted = finished.last().brush
-        assertTrue(tilted.size > upright.size)
-        assertTrue(tilted.colorIntArgb ushr 24 < upright.colorIntArgb ushr 24)
-        assertEquals(1.2f, finished.last().inputs[0].tiltRadians, 0.01f)
-        assertEquals(
-            StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1),
-            tilted.family,
-        )
+        assertEquals(SeliaInkBrushes.pencil, upright.family)
+        assertEquals(SeliaInkBrushes.pencil, tilted.family)
+        assertEquals(upright.size, tilted.size, 0.001f)
+        assertEquals(upright.colorIntArgb, tilted.colorIntArgb)
     }
 
     @Test
@@ -380,6 +442,52 @@ class StylusRoutingTest {
 
         assertTrue(canceled == listOf(0))
         assertTrue(finished.size == 1)
+    }
+
+    @Test
+    fun palmDownBeforeStylusStillDeliversThePenStroke() {
+        val committed = CountDownLatch(1)
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val parent = FrameLayout(activity)
+                val view = InkCanvasView(activity)
+                parent.addView(view, FrameLayout.LayoutParams(500, 500))
+                activity.setContentView(parent)
+                view.fingerDrawing = false
+                view.listener =
+                    object : InkCanvasView.Listener {
+                        override fun onStrokeFinished(stroke: Stroke) {
+                            committed.countDown()
+                        }
+
+                        override fun onStrokeCanceled(pointerId: Int) = Unit
+                    }
+                parent.measure(exactly(500), exactly(500))
+                parent.layout(0, 0, 500, 500)
+                view.postWhenReady {
+                    val downTime = android.os.SystemClock.uptimeMillis()
+                    parent.dispatchTouchEvent(fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 90f, 100f))
+                    parent.dispatchTouchEvent(
+                        stylusAndFingerEvent(
+                            downTime,
+                            downTime + 16,
+                            pointerAction(MotionEvent.ACTION_POINTER_DOWN, 1),
+                            stylusPointerIndex = 1,
+                        ),
+                    )
+                    parent.dispatchTouchEvent(
+                        stylusAndFingerEvent(
+                            downTime,
+                            downTime + 32,
+                            pointerAction(MotionEvent.ACTION_POINTER_UP, 1),
+                            stylusPointerIndex = 1,
+                        ),
+                    )
+                    parent.dispatchTouchEvent(fingerEvent(downTime, downTime + 48, MotionEvent.ACTION_UP, 90f, 100f))
+                }
+            }
+            assertTrue(committed.await(3, TimeUnit.SECONDS))
+        }
     }
 
     @Test
@@ -579,7 +687,7 @@ class StylusRoutingTest {
     }
 
     @Test
-    fun zoomedLassoReturnsTransformedPageCoordinates() {
+    fun enlargedCanvasLassoReturnsPageCoordinates() {
         val lasso = mutableListOf<CanvasPoint>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -587,7 +695,6 @@ class StylusRoutingTest {
                 activity.setContentView(view)
                 view.tool = EditorTool.LASSO
                 view.setPageSize(1_000, 1_000)
-                view.setViewportTransform(zoom = 2f)
                 view.listener =
                     object : InkCanvasView.Listener {
                         override fun onStrokeFinished(stroke: Stroke) = Unit
@@ -598,8 +705,8 @@ class StylusRoutingTest {
                             lasso += points
                         }
                     }
-                view.measure(exactly(500), exactly(500))
-                view.layout(0, 0, 500, 500)
+                view.measure(exactly(1_000), exactly(1_000))
+                view.layout(0, 0, 1_000, 1_000)
                 val downTime = android.os.SystemClock.uptimeMillis()
                 view.dispatchTouchEvent(
                     stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
@@ -614,17 +721,15 @@ class StylusRoutingTest {
     }
 
     @Test
-    fun zoomedStylusStrokeUsesTransformedPageCoordinates() {
+    fun enlargedCanvasStylusStrokeUsesPageCoordinates() {
         val committed = CountDownLatch(1)
         val finished = AtomicReference<Stroke>()
-        val expected = AtomicReference<CanvasPoint>()
         val viewRef = AtomicReference<InkCanvasView>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
-                activity.setContentView(view)
+                activity.setContentView(view, android.view.ViewGroup.LayoutParams(1_000, 1_000))
                 view.setPageSize(1_000, 1_000)
-                view.setViewportTransform(zoom = 2f)
                 view.listener =
                     object : InkCanvasView.Listener {
                         override fun onStrokeFinished(stroke: Stroke) {
@@ -634,21 +739,17 @@ class StylusRoutingTest {
 
                         override fun onStrokeCanceled(pointerId: Int) = Unit
                     }
-                view.measure(exactly(500), exactly(500))
-                view.layout(0, 0, 500, 500)
+                view.measure(exactly(1_000), exactly(1_000))
+                view.layout(0, 0, 1_000, 1_000)
                 viewRef.set(view)
             }
             scenario.onActivity {
                 val view = requireNotNull(viewRef.get())
                 assertTrue(view.isAttachedToWindow)
                 view.postWhenReady {
+                    assertEquals(1_000, view.width)
+                    assertEquals(1_000, view.height)
                     val downTime = android.os.SystemClock.uptimeMillis()
-                    expected.set(
-                        CanvasPoint(
-                            300f / 2f * 1_000f / view.width,
-                            200f / 2f * 1_000f / view.height,
-                        ),
-                    )
                     view.dispatchTouchEvent(
                         stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 300f, 200f),
                     )
@@ -661,8 +762,8 @@ class StylusRoutingTest {
         }
 
         val first = requireNotNull(finished.get()).inputs[0]
-        assertEquals(requireNotNull(expected.get()).x, first.x, 0.001f)
-        assertEquals(requireNotNull(expected.get()).y, first.y, 0.001f)
+        assertEquals(300f, first.x, 0.001f)
+        assertEquals(200f, first.y, 0.001f)
     }
 
     @Test
@@ -983,6 +1084,45 @@ class StylusRoutingTest {
                 }
             },
             250L,
+        )
+    }
+
+    private fun stylusHoverEvent(
+        action: Int,
+        x: Float,
+        y: Float,
+        toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
+    ): MotionEvent {
+        val now = android.os.SystemClock.uptimeMillis()
+        return MotionEvent.obtain(
+            now,
+            now,
+            action,
+            1,
+            arrayOf(
+                MotionEvent.PointerProperties().apply {
+                    id = 0
+                    this.toolType = toolType
+                },
+            ),
+            arrayOf(
+                MotionEvent.PointerCoords().apply {
+                    this.x = x
+                    this.y = y
+                },
+            ),
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            if (toolType == MotionEvent.TOOL_TYPE_FINGER) {
+                InputDevice.SOURCE_TOUCHSCREEN
+            } else {
+                InputDevice.SOURCE_STYLUS
+            },
+            0,
         )
     }
 }

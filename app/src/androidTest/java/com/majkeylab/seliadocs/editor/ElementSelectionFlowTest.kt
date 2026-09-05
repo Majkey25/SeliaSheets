@@ -32,6 +32,7 @@ import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -111,6 +112,46 @@ class ElementSelectionFlowTest {
         rule.runOnIdle {
             assertTrue(duplicated)
             assertTrue(broughtForward)
+            assertTrue(deleted)
+        }
+    }
+
+    @Test
+    fun inkContextBarExposesSelectionActions() {
+        var duplicated = false
+        var deleted = false
+        var color = 0
+        var scale = 1f
+        var rotation = 0f
+        rule.setContent {
+            MaterialTheme {
+                InkContextBar(
+                    count = 2,
+                    onDuplicate = { duplicated = true },
+                    onColorChange = { color = it },
+                    onTransform = { requestedScale, requestedRotation ->
+                        scale = requestedScale
+                        rotation = requestedRotation
+                    },
+                    onDelete = { deleted = true },
+                )
+            }
+        }
+
+        rule.onNodeWithTag("ink-context-bar").assertIsDisplayed()
+        rule.onNodeWithText("2 selected").assertIsDisplayed()
+        rule.onNodeWithText("Duplicate").performClick()
+        rule.onNodeWithText("Color").performClick()
+        rule.onNodeWithText("Blue").performClick()
+        rule.onNodeWithText("Transform").performClick()
+        rule.onNodeWithText("Scale up").performClick()
+        rule.onNodeWithText("Delete selection").performClick()
+
+        rule.runOnIdle {
+            assertTrue(duplicated)
+            assertEquals(0xFF3156D9.toInt(), color)
+            assertEquals(1.1f, scale)
+            assertEquals(0f, rotation)
             assertTrue(deleted)
         }
     }
@@ -214,6 +255,68 @@ class ElementSelectionFlowTest {
     fun pointerDeltasUseDpAtDensityAboveOne() {
         assertEquals(20f, pointerDeltaToPage(80f, density = 2f, scale = 2f), 0.001f)
         assertEquals(40f, pointerDeltaToPage(80f, density = 2f, scale = 1f), 0.001f)
+    }
+
+    @Test
+    fun multilineTextHeightAccountsForExplicitLines() {
+        val transform =
+            requireNotNull(
+                initialTextElementTransform(
+                    pageWidth = 595f,
+                    pageHeight = 842f,
+                    origin = CanvasPoint(120f, 180f),
+                    text = "First\nSecond\nThird",
+                ),
+            )
+
+        assertEquals(112f, transform.height, 0.001f)
+    }
+
+    @Test
+    fun narrowTextHeightAccountsForWrappedLines() {
+        val transform =
+            requireNotNull(
+                resizedTextElementTransform(
+                    current = ElementTransform(120f, 180f, 96f, 64f, 0f),
+                    pageWidth = 595f,
+                    pageHeight = 842f,
+                    text = "A narrow text block wraps early",
+                ),
+            )
+
+        assertTrue(transform.height > 64f)
+    }
+
+    @Test
+    fun wideGlyphsWrapBeforeNarrowGlyphsAtTheSameWidth() {
+        assertTrue(
+            textElementHeight("W".repeat(40), 180f) >
+                textElementHeight("i".repeat(40), 180f),
+        )
+    }
+
+    @Test
+    fun newTextIsRejectedWhenItsMeasuredHeightDoesNotFitBelowTheTap() {
+        assertNull(
+            initialTextElementTransform(
+                pageWidth = 595f,
+                pageHeight = 842f,
+                origin = CanvasPoint(120f, 790f),
+                text = "Wide WWW text ".repeat(20),
+            ),
+        )
+    }
+
+    @Test
+    fun rotatedTextResizeIsRejectedInsteadOfShrinkingTheMeasuredTextBox() {
+        assertNull(
+            resizedTextElementTransform(
+                current = ElementTransform(200f, 300f, 180f, 64f, 90f),
+                pageWidth = 595f,
+                pageHeight = 842f,
+                text = "Wide WWW text ".repeat(100),
+            ),
+        )
     }
 
     @Test

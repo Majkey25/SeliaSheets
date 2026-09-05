@@ -1,16 +1,21 @@
 package com.majkeylab.seliadocs.editor
 
+import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.ink.brush.InputToolType
+import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.activity.ComponentActivity
@@ -21,9 +26,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -45,7 +52,15 @@ class PageViewportFlowTest {
             initialViewport = PageViewport(zoom = 2f),
             onStrokeFinished = finished::set,
         )
-        Log.i("SeliaSheetsStylusQA", "READY")
+        logInputMarker(
+            "READY_PRESSURE",
+            "pen",
+            listOf(
+                screenPaperPoint(0.5f, 0.5f),
+                screenPaperPoint(0.55f, 0.5f),
+                screenPaperPoint(0.6f, 0.5f),
+            ),
+        )
 
         compose.waitUntil(30_000) { finished.get() != null }
 
@@ -66,7 +81,28 @@ class PageViewportFlowTest {
         val finished = AtomicReference<Stroke>()
         renderPage(EditorTool.PEN, onStrokeFinished = finished::set)
         val viewport = compose.onNodeWithTag("page-viewport")
-        Log.i("SeliaSheetsStylusQA", "READY_PINCH")
+        logInputMarker(
+            "READY_PINCH",
+            "touch",
+            listOf(
+                screenPaperPoint(0.46f, 0.5f),
+                screenPaperPoint(0.54f, 0.5f),
+                screenPaperPoint(0.3f, 0.5f),
+                screenPaperPoint(0.7f, 0.5f),
+            ),
+        )
+        compose.waitUntil(30_000) {
+            zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100
+        }
+        logInputMarker(
+            "READY_AFTER_PINCH",
+            "pen",
+            listOf(
+                screenPaperPoint(0.5f, 0.5f),
+                screenPaperPoint(0.55f, 0.5f),
+                screenPaperPoint(0.6f, 0.5f),
+            ),
+        )
 
         compose.waitUntil(30_000) { finished.get() != null }
 
@@ -122,6 +158,77 @@ class PageViewportFlowTest {
         compose.waitUntil(3_000) { zoomDescription(viewport) != "Zoom 100%" }
 
         assertTrue(zoomDescription(viewport).removePrefix("Zoom ").removeSuffix("%").toInt() > 100)
+    }
+
+    @Test
+    fun failedPdfRenderRetriesWithSameRequest() {
+        val calls = AtomicInteger()
+        val firstRequest = AtomicReference<Triple<String, Int, Int>>()
+        val retryRequest = AtomicReference<Triple<String, Int, Int>>()
+        val page =
+            PageEntity(
+                "pdf-page",
+                "notebook",
+                0,
+                PaperTemplate.BLANK.name,
+                595,
+                842,
+                pdfSourceId = "source",
+                pdfPageIndex = 0,
+            )
+        renderPage(
+            EditorTool.TYPE,
+            page = page,
+            loadPdfPage = { pageId, width, height ->
+                val request = Triple(pageId, width, height)
+                if (calls.getAndIncrement() == 0) {
+                    firstRequest.set(request)
+                    null
+                } else {
+                    retryRequest.set(request)
+                    Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
+                }
+            },
+        )
+
+        compose.onNodeWithTag("pdf-render-error").assertExists()
+        assertEquals(1, calls.get())
+        compose.onNodeWithTag("pdf-render-retry").performClick()
+        compose.waitUntil(3_000) { calls.get() == 2 }
+
+        compose.onNodeWithTag("pdf-rendered-page").assertExists()
+        assertEquals(firstRequest.get(), retryRequest.get())
+    }
+
+    @Test
+    fun pinchingPdfDoesNotRenderAgain() {
+        val calls = AtomicInteger()
+        val page =
+            PageEntity(
+                "pdf-page",
+                "notebook",
+                0,
+                PaperTemplate.BLANK.name,
+                595,
+                842,
+                pdfSourceId = "source",
+                pdfPageIndex = 0,
+            )
+        renderPage(
+            EditorTool.TYPE,
+            page = page,
+            loadPdfPage = { _, _, _ ->
+                calls.incrementAndGet()
+                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
+            },
+        )
+        compose.onNodeWithTag("pdf-rendered-page").assertExists()
+        assertEquals(1, calls.get())
+
+        pinchToMaximumZoom()
+        compose.waitForIdle()
+
+        assertEquals(1, calls.get())
     }
 
     @Test
@@ -353,6 +460,57 @@ class PageViewportFlowTest {
     }
 
     @Test
+    fun selectedInkHandlesDoNotBlockStylusErasers() {
+        val erased = AtomicInteger()
+        val committed = AtomicReference<InkSelectionTransform>()
+        renderSelectedInk(
+            onEraseFinished = { if (it.isNotEmpty()) erased.incrementAndGet() },
+            onCommit = committed::set,
+        )
+        val handle = compose.onNodeWithTag("ink-resize-handle").fetchSemanticsNode().boundsInRoot.center
+        val start = rootPoint(handle)
+
+        listOf(
+            MotionEvent.TOOL_TYPE_ERASER to 0,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_PRIMARY,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_SECONDARY,
+        ).forEach { (toolType, buttonState) ->
+            dispatchStylusGesture(start, start + Offset(80f, 0f), toolType, buttonState)
+        }
+        compose.waitForIdle()
+
+        assertEquals(3, erased.get())
+        assertEquals(null, committed.get())
+    }
+
+    @Test
+    fun selectedInkCanStillResizeWithARegularStylus() {
+        val committed = AtomicReference<InkSelectionTransform>()
+        renderSelectedInk(onCommit = committed::set)
+        val handle = compose.onNodeWithTag("ink-resize-handle").fetchSemanticsNode().boundsInRoot.center
+        val start = rootPoint(handle)
+
+        dispatchStylusGesture(start, start + Offset(80f, 80f))
+        compose.waitUntil(3_000) { committed.get() != null }
+
+        assertTrue(requireNotNull(committed.get()).scale > 1f)
+    }
+
+    @Test
+    fun selectedInkBodyMovesWithARegularStylus() {
+        val moved = AtomicReference<CanvasPoint>()
+        renderSelectedInk(onMoveSelection = moved::set)
+        val body = compose.onNodeWithTag("ink-move-handle").fetchSemanticsNode().boundsInRoot.center
+        val start = rootPoint(body)
+
+        dispatchStylusGesture(start, start + Offset(80f, 0f))
+        compose.waitUntil(3_000) { moved.get() != null }
+
+        assertTrue(requireNotNull(moved.get()).x > 0f)
+        assertEquals(0f, requireNotNull(moved.get()).y, 1f)
+    }
+
+    @Test
     fun selectedElementCanStillMoveWithStylus() {
         val committed = AtomicReference<ElementTransform>()
         val selections = AtomicInteger()
@@ -502,6 +660,24 @@ class PageViewportFlowTest {
         return requireNotNull(result.get())
     }
 
+    private fun screenPaperPoint(xFraction: Float, yFraction: Float): Offset {
+        val result = AtomicReference<Offset>()
+        compose.runOnUiThread {
+            val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
+            val transform = Matrix()
+            canvas.transformMatrixToGlobal(transform)
+            val point = floatArrayOf(canvas.width * xFraction, canvas.height * yFraction)
+            transform.mapPoints(point)
+            result.set(Offset(point[0], point[1]))
+        }
+        return requireNotNull(result.get())
+    }
+
+    private fun logInputMarker(name: String, kind: String, points: List<Offset>) {
+        val coordinates = points.joinToString(";") { "${it.x.roundToInt()},${it.y.roundToInt()}" }
+        Log.i("SeliaSheetsStylusQA", "$name $kind=$coordinates")
+    }
+
     private fun pinchToMaximumZoom() {
         val viewport = compose.onNodeWithTag("page-viewport")
         viewport.performTouchInput {
@@ -567,6 +743,42 @@ class PageViewportFlowTest {
         awaitInkReady()
     }
 
+    private fun renderSelectedInk(
+        onEraseFinished: (List<CanvasPoint>) -> Unit = {},
+        onCommit: (InkSelectionTransform) -> Unit = {},
+        onMoveSelection: (CanvasPoint) -> Unit = {},
+    ) {
+        val stroke = strokeEntity()
+        compose.setContent {
+            PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = listOf(stroke),
+                elements = emptyList(),
+                blocks = emptyList(),
+                selectedStrokeIds = setOf(stroke.id),
+                selectedElementId = null,
+                fingerDrawing = false,
+                tool = EditorTool.LASSO,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, _ -> },
+                onEraseFinished = { _, points -> onEraseFinished(points) },
+                onSelectContent = { _, _ -> },
+                onMoveSelection = { _, delta -> onMoveSelection(delta) },
+                onPageTextChanged = { _, _ -> },
+                onCommitElementTransform = {},
+                onCommitInkTransform = onCommit,
+                assetFile = { File(it) },
+            )
+        }
+        awaitInkReady()
+    }
+
     private fun dispatchStylusGesture(
         start: Offset,
         end: Offset,
@@ -613,6 +825,8 @@ class PageViewportFlowTest {
 
     private fun renderPage(
         tool: EditorTool,
+        page: PageEntity = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+        loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _, _ -> null },
         initialViewport: PageViewport = PageViewport(),
         onStrokeFinished: (Stroke) -> Unit = {},
         onLassoFinished: (List<CanvasPoint>) -> Unit = {},
@@ -620,7 +834,7 @@ class PageViewportFlowTest {
     ) {
         compose.setContent {
             PageCanvas(
-                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                page = page,
                 pageNumber = 1,
                 pageCount = 1,
                 strokes = emptyList(),
@@ -642,6 +856,7 @@ class PageViewportFlowTest {
                 onPageTextChanged = { _, _ -> },
                 onCommitElementTransform = {},
                 assetFile = { File(it) },
+                loadPdfPage = loadPdfPage,
                 initialViewport = initialViewport,
             )
         }
@@ -734,4 +949,29 @@ class PageViewportFlowTest {
             expression = null,
             resultText = null,
         )
+
+    private fun strokeEntity(): StrokeEntity {
+        val inputs =
+            MutableStrokeInputBatch().apply {
+                add(InputToolType.STYLUS, 180f, 220f, 0L, 0.01f, 0.5f, 0f, 0f)
+                add(InputToolType.STYLUS, 280f, 280f, 16L, 0.01f, 0.5f, 0f, 0f)
+            }
+        val encoded =
+            InkCodec.encode(
+                Stroke(
+                    InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f),
+                    inputs,
+                ),
+            )
+        return StrokeEntity(
+            "stroke",
+            "page",
+            0,
+            encoded.brushKind.name,
+            encoded.colorArgb,
+            encoded.size,
+            encoded.epsilon,
+            encoded.inputs,
+        )
+    }
 }

@@ -23,6 +23,7 @@ import java.io.Writer
 internal object BackupJson {
     private const val MAX_RECORD_CHARS = 1024 * 1024
     private const val MAX_TEXT_CHARS = 100_000
+    private const val MAX_ELEMENT_TEXT_CHARS = 10_000
     private const val MAX_STROKE_BYTES = 512 * 1024
     private const val MAX_STROKE_BASE64_CHARS = (MAX_STROKE_BYTES + 2) / 3 * 4
     private const val MAX_UNKNOWN_STRING_CHARS = 64 * 1024
@@ -982,16 +983,50 @@ internal object BackupJson {
                     if (decodeImageOcrRegions(it).isEmpty()) throw BackupFailure.Malformed()
                 }
                 when (enumValue<ElementKind>(record.kind)) {
-                    ElementKind.TEXT -> if (record.text == null) throw BackupFailure.Malformed()
-                    ElementKind.IMAGE -> if (record.assetId == null) throw BackupFailure.Malformed()
-                    ElementKind.SHAPE -> requireEnum<ShapeKind>(record.shapeKind ?: throw BackupFailure.Malformed())
-                    ElementKind.MATH ->
-                        if (record.expression == null || record.resultText == null) {
+                    ElementKind.TEXT -> {
+                        if (
+                            record.text == null ||
+                                record.assetId != null ||
+                                record.shapeKind != null ||
+                                record.expression != null ||
+                                record.resultText != null ||
+                                record.ocrRegions != null
+                        ) throw BackupFailure.Malformed()
+                        requireText(record.text, "text", MAX_ELEMENT_TEXT_CHARS)
+                    }
+                    ElementKind.IMAGE -> {
+                        if (
+                            record.assetId == null ||
+                                record.shapeKind != null ||
+                                record.expression != null ||
+                                record.resultText != null
+                        ) throw BackupFailure.Malformed()
+                        record.text?.let { requireSize(it, "text", MAX_ELEMENT_TEXT_CHARS) }
+                    }
+                    ElementKind.SHAPE ->
+                        if (
+                            record.text != null ||
+                                record.assetId != null ||
+                                record.expression != null ||
+                                record.resultText != null ||
+                                record.ocrRegions != null
+                        ) {
                             throw BackupFailure.Malformed()
+                        } else {
+                            requireEnum<ShapeKind>(record.shapeKind ?: throw BackupFailure.Malformed())
                         }
-                }
-                if (record.kind != ElementKind.IMAGE.name && record.ocrRegions != null) {
-                    throw BackupFailure.Malformed()
+                    ElementKind.MATH -> {
+                        if (
+                            record.text != null ||
+                                record.assetId != null ||
+                                record.shapeKind != null ||
+                                record.expression == null ||
+                                record.resultText == null ||
+                                record.ocrRegions != null
+                        ) throw BackupFailure.Malformed()
+                        requireText(record.expression, "expression", MAX_TEXT_CHARS)
+                        requireText(record.resultText, "resultText", MAX_TEXT_CHARS)
+                    }
                 }
             }
             is BackupBlock -> {

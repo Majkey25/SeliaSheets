@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.majkeylab.seliadocs.BuildConfig
@@ -75,10 +76,19 @@ internal class BackupViewModel @JvmOverloads constructor(
     }
 
     fun exportLibrary(uri: Uri) = runOperation("Creating backup…") {
+        val application = getApplication<Application>()
         val summary =
-            exportUserLibrary(exporter) {
-                resolver.openOutputStream(uri, "rwt")
-                    ?: error("Backup destination unavailable")
+            withContext(Dispatchers.IO) {
+                writeBackupToDestination(
+                    cacheDir = application.cacheDir,
+                    export = { output -> exportUserLibrary(exporter) { output } },
+                    openDestination = { resolver.openOutputStream(uri, "rwt") },
+                    deleteDestination = {
+                        check(DocumentsContract.deleteDocument(resolver, uri)) {
+                            "Incomplete backup destination could not be deleted"
+                        }
+                    },
+                )
             }
         "Backup created · ${summary.notebooks} notebooks · ${summary.pages} pages"
     }
@@ -196,6 +206,35 @@ internal suspend fun exportUserLibrary(
     outputFactory: () -> OutputStream,
 ): BackupSummary =
     LibraryMutationGate.withLock { exporter.export(BackupScope.Library, outputFactory) }
+
+internal suspend fun writeBackupToDestination(
+    cacheDir: File,
+    export: suspend (OutputStream) -> BackupSummary,
+    openDestination: () -> OutputStream?,
+    deleteDestination: () -> Unit,
+): BackupSummary {
+    var temporaryBackup: File? = null
+    var destinationOpened = false
+    try {
+        temporaryBackup = File.createTempFile("seliasheets-", ".seliasheets", cacheDir)
+        val summary = temporaryBackup.outputStream().use { export(it) }
+        val destination = openDestination() ?: error("Backup destination unavailable")
+        destinationOpened = true
+        destination.use { output -> temporaryBackup.inputStream().use { it.copyTo(output) } }
+        return summary
+    } catch (failure: Throwable) {
+        if (destinationOpened) {
+            try {
+                deleteDestination()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+        }
+        throw failure
+    } finally {
+        temporaryBackup?.delete()
+    }
+}
 
 private const val REPLACEMENT_PREFERENCES = "backup-replacement-events"
 internal const val REPLACEMENT_PRODUCED = "produced"
