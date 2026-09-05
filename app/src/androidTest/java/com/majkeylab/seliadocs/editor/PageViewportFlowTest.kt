@@ -292,6 +292,47 @@ class PageViewportFlowTest {
     }
 
     @Test
+    fun rootFingerAtFittedZoomCommitsWithoutStylusHoverWarmup() {
+        val finished = AtomicReference<Stroke>()
+        renderPage(
+            EditorTool.PEN,
+            fingerDrawing = true,
+            onStrokeFinished = finished::set,
+        )
+        assertEquals("Zoom 100%", zoomDescription(compose.onNodeWithTag("page-viewport")))
+        compose.runOnUiThread {
+            assertTrue(requireNotNull(findInkCanvas(compose.activity.window.decorView)).fingerDrawing)
+        }
+        val start = visiblePaperPoint(xFraction = 0.35f, yFraction = 0.62f)
+        val end = visiblePaperPoint(xFraction = 0.65f, yFraction = 0.72f)
+
+        dispatchFingerGesture(start, end)
+
+        compose.waitUntil(10_000) { finished.get() != null }
+    }
+
+    @Test
+    fun rootFingerAfterStylusCommitsWithoutStylusHoverWarmup() {
+        val finished = AtomicReference<Stroke>()
+        renderPage(
+            EditorTool.PEN,
+            fingerDrawing = true,
+            onStrokeFinished = finished::set,
+        )
+        val stylusStart = visiblePaperPoint(xFraction = 0.35f, yFraction = 0.48f)
+        val stylusEnd = visiblePaperPoint(xFraction = 0.65f, yFraction = 0.54f)
+        dispatchStylusGesture(stylusStart, stylusEnd)
+        compose.waitUntil(10_000) { finished.get() != null }
+        finished.set(null)
+        val start = visiblePaperPoint(xFraction = 0.35f, yFraction = 0.62f)
+        val end = visiblePaperPoint(xFraction = 0.65f, yFraction = 0.72f)
+
+        dispatchFingerGesture(start, end)
+
+        compose.waitUntil(10_000) { finished.get() != null }
+    }
+
+    @Test
     fun rootLassoAfterPinchReturnsVisiblePaperPoint() {
         val selected = AtomicReference<List<CanvasPoint>>()
         renderPage(EditorTool.LASSO, onLassoFinished = selected::set)
@@ -740,7 +781,7 @@ class PageViewportFlowTest {
                 initialViewport = initialViewport,
             )
         }
-        awaitInkReady()
+        compose.waitForIdle()
     }
 
     private fun renderSelectedInk(
@@ -776,7 +817,7 @@ class PageViewportFlowTest {
                 assetFile = { File(it) },
             )
         }
-        awaitInkReady()
+        compose.waitForIdle()
     }
 
     private fun dispatchStylusGesture(
@@ -793,6 +834,15 @@ class PageViewportFlowTest {
         )
     }
 
+    private fun dispatchFingerGesture(start: Offset, end: Offset) {
+        val downTime = android.os.SystemClock.uptimeMillis()
+        dispatchEvents(
+            fingerEvent(downTime, downTime, MotionEvent.ACTION_DOWN, start.x, start.y),
+            fingerEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, end.x, end.y),
+            fingerEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, end.x, end.y),
+        )
+    }
+
     private fun dispatchEvents(vararg events: MotionEvent) {
         compose.runOnUiThread {
             val decor = compose.activity.window.decorView
@@ -806,28 +856,12 @@ class PageViewportFlowTest {
         }
     }
 
-    private fun awaitInkReady() {
-        compose.waitForIdle()
-        val readyAt = android.os.SystemClock.uptimeMillis() + 250L
-        compose.waitUntil(1_000) { android.os.SystemClock.uptimeMillis() >= readyAt }
-        if (android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q) {
-            compose.runOnUiThread {
-                val canvas = requireNotNull(findInkCanvas(compose.activity.window.decorView))
-                val eventTime = android.os.SystemClock.uptimeMillis()
-                canvas.onHoverEvent(
-                    stylusEvent(eventTime, eventTime, MotionEvent.ACTION_HOVER_ENTER, 1f, 1f),
-                )
-            }
-            val initializedAt = android.os.SystemClock.uptimeMillis() + 1_000L
-            compose.waitUntil(2_000) { android.os.SystemClock.uptimeMillis() >= initializedAt }
-        }
-    }
-
     private fun renderPage(
         tool: EditorTool,
         page: PageEntity = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
         loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _, _ -> null },
         initialViewport: PageViewport = PageViewport(),
+        fingerDrawing: Boolean = false,
         onStrokeFinished: (Stroke) -> Unit = {},
         onLassoFinished: (List<CanvasPoint>) -> Unit = {},
         onEraseFinished: (List<CanvasPoint>) -> Unit = {},
@@ -842,7 +876,7 @@ class PageViewportFlowTest {
                 blocks = emptyList(),
                 selectedStrokeIds = emptySet(),
                 selectedElementId = null,
-                fingerDrawing = false,
+                fingerDrawing = fingerDrawing,
                 tool = tool,
                 penWidth = 4f,
                 highlighterWidth = 16f,
@@ -860,7 +894,7 @@ class PageViewportFlowTest {
                 initialViewport = initialViewport,
             )
         }
-        awaitInkReady()
+        compose.waitForIdle()
     }
 
     private fun stylusEvent(
