@@ -14,12 +14,17 @@ All notable changes to SeliaSheets are documented here.
 
 - Updated AndroidX Ink from `1.0.0` to `1.1.0-alpha07`.
 - Replaced text-heavy phone and tablet toolbars with fixed Material icon palettes and on-demand brush and eraser controls.
+- Editable backups use format 4 for Pencil strokes. Older backups remain readable; new backups require SeliaSheets 0.6 or later.
 - Enabled R8 and resource shrinking, pinned CI actions to reviewed revisions, and made invalid signing paths fail during Gradle configuration.
 
 ### Fixed
 
 - Retained unsaved inline text through Activity recreation and saved it before tool changes or editor exit.
 - Let text fields keep their own Undo, Redo, Page Up, and Page Down keyboard events.
+- Saved pending text before importing or exporting documents; clearing an existing text object can be undone.
+- Validated text against page bounds and kept page typography consistent across system font sizes and PDF export.
+- Moved image OCR and PDF rendering outside the document save lock; added OCR retry and PDF rendering error feedback.
+- Applied image EXIF orientation and preserved recognized image text through Undo/Redo.
 - Bounded backup manifests and checksum data, enforced element and asset relationships, and removed incomplete export destinations after failure.
 - Excluded private app data from Android cloud backup and device transfer.
 
