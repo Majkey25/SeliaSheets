@@ -19,12 +19,14 @@ All notable changes to SeliaSheets are documented here.
 
 ### Fixed
 
+- Initialized the ink engine when the canvas attaches so the first finger or short pen stroke does not depend on a preceding hover event.
 - Retained unsaved inline text through Activity recreation and saved it before tool changes or editor exit.
 - Let text fields keep their own Undo, Redo, Page Up, and Page Down keyboard events.
 - Saved pending text before importing or exporting documents; clearing an existing text object can be undone.
 - Validated text against page bounds and kept page typography consistent across system font sizes and PDF export.
 - Moved image OCR and PDF rendering outside the document save lock; added OCR retry and PDF rendering error feedback.
 - Applied image EXIF orientation and preserved recognized image text through Undo/Redo.
+- Prevented a closed editor's background cleanup from deleting image files still needed by another editor's Undo history. Orphan cleanup now waits for library startup or explicit notebook deletion.
 - Bounded backup manifests and checksum data, enforced element and asset relationships, and removed incomplete export destinations after failure.
 - Excluded private app data from Android cloud backup and device transfer.
 
