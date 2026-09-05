@@ -13,7 +13,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 ## Highlights
 
-- Android 10 through Android 17 (`minSdk 29`, `targetSdk 37`).
+- Android 10 and later (`minSdk 29`; compiled and targeted for API 37).
 - AndroidX Ink with pressure, stylus eraser, palm cancellation, and motion prediction.
 - Pen, pencil, highlighter, segment and whole-stroke erasers, polygon lasso selection, and up to 100-step undo/redo.
 - Multiple notebooks with covers, chapters, page titles, bookmarks, search across stored titles, text, and math, favorites, and trash.
@@ -50,25 +50,25 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 ## Privacy
 
-Notebook content, raw ink, OCR text, and recognition results stay in private app storage. Handwriting recognition is opt-in: its Google ML Kit language model downloads only after an explicit user action, then recognition runs on-device. Image OCR uses a bundled on-device Latin model for user-imported images. Google documents separate SDK data disclosure for device/app information and diagnostics. External privacy, source, and support links open only after a user action in the system browser. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
+Notebook content, raw ink, OCR text, and recognition results stay in private app storage unless the user exports them. Image text recognition is enabled by default for imported images and can be disabled in Settings. Handwriting recognition is off by default and requires an explicit Google model download. Google ML Kit processes recognition input and output on-device but collects SDK metadata and metrics for diagnostics and usage analytics. See the [privacy policy](PRIVACY.md) and [Google Play data-safety notes](docs/play-store/DATA_SAFETY.md).
 
 ## Build
 
 Requirements: JDK 17 and Android SDK platforms 29 and 37.
 
 ```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug bundleRelease
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease bundleRelease
 ```
 
 The default release bundle is unsigned. Publication uses an external upload keystore that is never committed. See [release signing](docs/RELEASE.md).
 
 ## Verification
 
-`0.5.3-beta.1` adds stable per-stroke Pencil tilt shading and routes hardware/button erasers through selected image overlays without breaking normal stylus transforms or delayed two-finger pinch. Huawei synthetic input QA covers pressure normalization, tilt/orientation persistence, zoom, palm rejection, lasso, eraser, and navigation; physical barrel-button reporting still needs a compatible active pen. See the [0.5.3 stylus acceptance report](docs/qa/2026-09-01-seliasheets-tilt-pencil.md). Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.6.0-beta.1` adds a Pencil brush that responds throughout each stroke to pressure, tilt, and orientation. It also adds a non-writing stylus hover preview, direct selected-ink editing, inline text drafts that survive Activity recreation, and backup validation that rejects oversized, malformed, or unreferenced data. The release targets API 37, but current API 37 runtime acceptance and physical active-stylus behavior remain unverified. Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 
-This beta deliberately omits accounts, cloud sync, and collaboration. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific hover and side-button behavior still requires QA on a compatible active-stylus device.
+This beta does not include FLOW pages, Quick Note and Inbox, rich-text styles, tables, graphs, study sets, masking tape, audio, accounts, cloud sync, or collaboration. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific pressure, tilt, hover, eraser, and side-button behavior still requires QA on a compatible active-stylus device.
 
 ## Support
 

@@ -6,4 +6,4 @@ The Android application ID remains `com.majkeylab.seliadocs`. The Room database 
 
 New editable backup files use the `.seliasheets` extension. The importer continues to accept ZIP-compatible backups created under the previous filename.
 
-Earlier design documents use the historical SeliaDocs working name. This amendment overrides only their public-name and repository-name fields. Their product, editor, storage, and safety decisions remain active.
+Earlier design documents use the historical SeliaDocs working name. This amendment overrides their public-name and repository-name fields. Unimplemented capabilities in those documents remain roadmap items. [`README.md`](../../../README.md) and [`CHANGELOG.md`](../../../CHANGELOG.md) define released behavior.

@@ -9,13 +9,13 @@
 </head>
 <body>
   <main>
-    <header><img src="../assets/icon.png" alt=""><div><h1>Privacy</h1><div class="meta">Effective August 31, 2026</div></div></header>
+    <header><img src="../assets/icon.png" alt=""><div><h1>Privacy</h1><div class="meta">Effective September 5, 2026</div></div></header>
     <article class="paper">
       <p class="lede">SeliaSheets is an offline-first Android notebook published by Majkey25.</p>
       <h2>Data collection and sharing</h2>
       <p>SeliaSheets has no first-party ads, accounts, cloud sync, analytics, telemetry, crash reporting, or sale of data. Notebook content is not uploaded or shared.</p>
-      <p>Optional handwriting recognition uses Google ML Kit Digital Ink Recognition. After the user enables recognition and explicitly downloads a language model from Google, recognition runs on-device. Google states that the ML Kit SDK may send device and app information, per-installation identifiers, app interactions, diagnostics, configured language, errors, and performance and usage metrics to Google over encrypted transport. This SDK disclosure does not include notebook content, raw ink, or recognition results. See Google's <a href="https://developers.google.com/ml-kit/android-data-disclosure">ML Kit data disclosure</a> and <a href="https://developers.google.com/ml-kit/terms">ML Kit terms</a>.</p>
-      <p>Image text recognition uses Google ML Kit's bundled Latin model. When enabled, it processes only images the user imports, stores recognized text locally for notebook search, and never blocks image import when recognition fails. Imported images and recognized text are not sent to Google.</p>
+      <p>SeliaSheets uses two Google ML Kit features. Image text recognition is enabled by default and uses the bundled Latin Text Recognition model when the user imports an image. Users can disable <strong>Search text in imported images</strong> in Settings. Handwriting recognition is off by default and requires the user to enable it and download a language model. Both features process their input and output on-device. Notebook content, imported images, raw ink, OCR text, and recognition results are not sent to Google.</p>
+      <p>Google states that ML Kit Android SDKs collect device and app information, per-installation identifiers, performance metrics, API configuration, input and output sizes, event types, and error codes for diagnostics and usage analytics. Digital Ink Recognition also collects the configured language. Google encrypts this data in transit and states that it does not share the data with third parties. See Google's <a href="https://developers.google.com/ml-kit/android-data-disclosure">ML Kit data disclosure</a> and <a href="https://developers.google.com/ml-kit/terms">ML Kit terms</a>.</p>
       <h2>Data stored on the device</h2>
       <p>Notebook titles, pages, settings, raw ink, recognition results, image OCR text, text, shapes, arithmetic blocks, selected images, and selected PDFs are stored only in private Android app storage. Android backup is disabled.</p>
       <h2>User-directed exports and links</h2>

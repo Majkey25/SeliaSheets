@@ -2,6 +2,31 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.6.0-beta.1] - 2026-09-05
+
+### Added
+
+- Added a Pencil brush whose size responds to pressure, whose width and opacity respond to tilt, and whose tip rotation follows orientation. Older stored strokes remain readable.
+- Added a non-writing stylus hover preview.
+- Added scale, rotate, duplicate, recolor, and delete actions for lasso-selected ink.
+
+### Changed
+
+- Updated AndroidX Ink from `1.0.0` to `1.1.0-alpha07`.
+- Replaced text-heavy phone and tablet toolbars with fixed Material icon palettes and on-demand brush and eraser controls.
+- Enabled R8 and resource shrinking, pinned CI actions to reviewed revisions, and made invalid signing paths fail during Gradle configuration.
+
+### Fixed
+
+- Retained unsaved inline text through Activity recreation and saved it before tool changes or editor exit.
+- Let text fields keep their own Undo, Redo, Page Up, and Page Down keyboard events.
+- Bounded backup manifests and checksum data, enforced element and asset relationships, and removed incomplete export destinations after failure.
+- Excluded private app data from Android cloud backup and device transfer.
+
+### Security
+
+- Overrode ML Kit's vulnerable transitive OkHttp `3.12.1` dependency with OkHttp `4.12.0`.
+
 ## [0.5.3-beta.1] - 2026-09-01
 
 ### Added
@@ -128,10 +153,16 @@ All notable changes to SeliaSheets are documented here.
 - English settings, theme and drawing defaults, privacy links, and optional support control.
 - Android 10 through Android 17 support with API 29 and API 37 emulator acceptance evidence.
 
-[0.2.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.0-beta.1
 [0.1.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.1.0-beta.1
+[0.2.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.0-beta.1
 [0.2.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.2.1-beta.1
+[0.3.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.3.0-beta.1
+[0.3.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.3.1-beta.1
+[0.4.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.0-beta.1
+[0.4.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.1-beta.1
 [0.4.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.4.2-beta.1
 [0.5.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.0-beta.1
 [0.5.1-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.1-beta.1
 [0.5.2-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.2-beta.1
+[0.5.3-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.5.3-beta.1
+[0.6.0-beta.1]: https://github.com/Majkey25/SeliaSheets/releases/tag/v0.6.0-beta.1
