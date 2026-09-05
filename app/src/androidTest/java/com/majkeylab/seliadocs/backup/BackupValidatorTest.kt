@@ -83,9 +83,62 @@ class BackupValidatorTest {
     }
 
     @Test
+    fun manifestAndChecksumsHaveDedicatedByteLimits() = runTest {
+        val validator =
+            BackupValidator(
+                stagingRoot,
+                pdfSandbox::inspect,
+                maxEntryBytes = Long.MAX_VALUE,
+                maxExtractedBytes = { Long.MAX_VALUE },
+            )
+
+        assertFailure<BackupFailure.LimitExceeded>(
+            archive(listOf("manifest.json" to ByteArray(1024 * 1024 + 1))),
+            validator,
+        )
+        assertFailure<BackupFailure.LimitExceeded>(
+            archive(listOf("checksums.json" to ByteArray(1024 * 1024 + 1))),
+            validator,
+        )
+    }
+
+    @Test
+    fun unsafeChecksumEntryNameIsRejected() = runTest {
+        val entries = validContent()
+        val checksums = entries.associate { it.first to sha256(it.second) }.toMutableMap()
+        checksums["../outside"] = "0".repeat(64)
+
+        assertFailure<BackupFailure.InvalidPath>(
+            archive(entries + ("checksums.json" to checksumBytes(checksums))),
+        )
+    }
+
+    @Test
+    fun oversizedChecksumEntryNameIsRejected() = runTest {
+        val entries = validContent()
+        val checksums = entries.associate { it.first to sha256(it.second) }.toMutableMap()
+        checksums["x".repeat(1025)] = "0".repeat(64)
+
+        assertFailure<BackupFailure.LimitExceeded>(
+            archive(entries + ("checksums.json" to checksumBytes(checksums))),
+        )
+    }
+
+    @Test
+    fun malformedChecksumHashIsRejected() = runTest {
+        val entries = validContent()
+        val checksums = entries.associate { it.first to sha256(it.second) }.toMutableMap()
+        checksums["records.jsonl"] = "0".repeat(63)
+
+        assertFailure<BackupFailure.Malformed>(
+            archive(entries + ("checksums.json" to checksumBytes(checksums))),
+        )
+    }
+
+    @Test
     fun unsupportedVersionIsRejected() = runTest {
         val manifest =
-            """{"formatVersion":4,"appVersion":"test","exportedAt":1,"notebookCount":1,"pageCount":1,"assetCount":0}"""
+            """{"formatVersion":5,"appVersion":"test","exportedAt":1,"notebookCount":1,"pageCount":1,"assetCount":0}"""
                 .toByteArray()
         val records = validRecords()
 

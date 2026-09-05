@@ -455,6 +455,7 @@ private fun StrokeSliderSetting(
     onChange: (Float) -> Unit,
 ) {
     var sliderValue by remember(value) { mutableFloatStateOf(value) }
+    val valueDescription = stringResource(R.string.brush_width_value, sliderValue.toInt())
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -482,6 +483,11 @@ private fun StrokeSliderSetting(
             onValueChange = { sliderValue = it },
             onValueChangeFinished = { onChange(sliderValue) },
             valueRange = range,
+            modifier =
+                Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = label
+                    stateDescription = valueDescription
+                },
         )
     }
 }

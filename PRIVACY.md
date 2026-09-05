@@ -1,6 +1,6 @@
 # SeliaSheets privacy policy
 
-Effective date: August 31, 2026
+Effective date: September 5, 2026
 
 SeliaSheets is an offline-first Android notebook published by Majkey25. This policy explains what the app processes and how users control their content.
 
@@ -8,9 +8,9 @@ SeliaSheets is an offline-first Android notebook published by Majkey25. This pol
 
 SeliaSheets has no first-party ads, accounts, cloud sync, analytics, telemetry, crash reporting, or sale of data. Notebook content is not uploaded or shared.
 
-Optional handwriting recognition uses Google ML Kit Digital Ink Recognition. After the user enables recognition and explicitly downloads a language model from Google, recognition runs on-device. Google states that the ML Kit SDK may send device and app information, per-installation identifiers, app interactions, diagnostics, configured language, errors, and performance and usage metrics to Google over encrypted transport. This SDK disclosure does not include notebook content, raw ink, or recognition results. See Google's [ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure) and [ML Kit terms](https://developers.google.com/ml-kit/terms).
+SeliaSheets uses two Google ML Kit features. Image text recognition is enabled by default and uses the bundled Latin Text Recognition model when the user imports an image. Users can disable **Search text in imported images** in Settings. Handwriting recognition is off by default and requires the user to enable it and download a language model. Both features process their input and output on-device. Notebook content, imported images, raw ink, OCR text, and recognition results are not sent to Google.
 
-Image text recognition uses Google ML Kit's bundled Latin model. When enabled, it processes only images the user imports, stores recognized text locally for notebook search, and never blocks image import when recognition fails. Imported images and recognized text are not sent to Google.
+Google states that ML Kit Android SDKs collect device and app information, per-installation identifiers, performance metrics, API configuration, input and output sizes, event types, and error codes for diagnostics and usage analytics. Digital Ink Recognition also collects the configured language. Google encrypts this data in transit and states that it does not share the data with third parties. See Google's [ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure) and [ML Kit terms](https://developers.google.com/ml-kit/terms).
 
 ## Data stored on the device
 

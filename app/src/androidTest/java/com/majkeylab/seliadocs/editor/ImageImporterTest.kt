@@ -3,6 +3,7 @@ package com.majkeylab.seliadocs.editor
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -63,5 +64,31 @@ class ImageImporterTest {
         assertTrue(result.isFailure)
         assertTrue(root.listFiles().orEmpty().isEmpty())
         source.delete()
+    }
+
+    @Test
+    fun exifRotationIsAppliedToImportedDimensionsAndPixels() = runTest {
+        val source = File(context.cacheDir, "rotated-${System.nanoTime()}.jpg")
+        Bitmap.createBitmap(32, 24, Bitmap.Config.ARGB_8888).also { bitmap ->
+            bitmap.eraseColor(Color.BLUE)
+            source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 100, it) }
+            bitmap.recycle()
+        }
+        ExifInterface(source).apply {
+            setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+            saveAttributes()
+        }
+
+        val asset = importer.importImage(Uri.fromFile(source)).getOrThrow()
+        val decoded = decodeOrientedImage(asset.file, 1)
+        try {
+            assertEquals(24, asset.width)
+            assertEquals(32, asset.height)
+            assertEquals(24, decoded.width)
+            assertEquals(32, decoded.height)
+        } finally {
+            decoded.recycle()
+            source.delete()
+        }
     }
 }

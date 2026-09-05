@@ -26,6 +26,9 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
+internal const val MAX_BACKUP_MANIFEST_BYTES = 1024 * 1024L
+internal const val MAX_BACKUP_CHECKSUMS_BYTES = 1024 * 1024L
+
 internal data class BackupIndex(
     val notebookIds: Set<String>,
     val chapterIds: Set<String>,
@@ -138,13 +141,19 @@ internal class BackupValidator(
                 if (!parent.mkdirs() && !parent.isDirectory) throw BackupFailure.Malformed()
                 val digest = MessageDigest.getInstance("SHA-256")
                 var entryBytes = 0L
+                val entryLimit =
+                    when (entry.name) {
+                        MANIFEST_ENTRY -> min(maxEntryBytes, MAX_BACKUP_MANIFEST_BYTES)
+                        CHECKSUMS_ENTRY -> min(maxEntryBytes, MAX_BACKUP_CHECKSUMS_BYTES)
+                        else -> maxEntryBytes
+                    }
                 DigestOutputStream(destination.outputStream().buffered(), digest).use { output ->
                     val buffer = ByteArray(COPY_BUFFER_SIZE)
                     while (true) {
                         val read = zip.read(buffer)
                         if (read < 0) break
                         if (read == 0) continue
-                        entryBytes = checkedAdd(entryBytes, read.toLong(), maxEntryBytes, "entry")
+                        entryBytes = checkedAdd(entryBytes, read.toLong(), entryLimit, "entry")
                         totalBytes =
                             checkedAdd(
                                 totalBytes,
@@ -164,6 +173,15 @@ internal class BackupValidator(
     }
 
     private fun resolveEntry(directory: File, name: String): File {
+        validateArchivePath(name)
+        val destination = File(directory, name).canonicalFile
+        val prefix = directory.canonicalPath + File.separator
+        if (!destination.path.startsWith(prefix)) throw BackupFailure.InvalidPath(name)
+        return destination
+    }
+
+    private fun validateArchivePath(name: String) {
+        if (name.length > MAX_ENTRY_NAME_CHARS) throw BackupFailure.LimitExceeded("entryName")
         if (
             name.isBlank() ||
             name.indexOf('\u0000') >= 0 ||
@@ -171,14 +189,11 @@ internal class BackupValidator(
             name.startsWith('\\') ||
             DRIVE_PATH.matches(name) ||
             '\\' in name ||
+            ':' in name ||
             name.split('/').any { it == "." || it == ".." }
         ) {
             throw BackupFailure.InvalidPath(name)
         }
-        val destination = File(directory, name).canonicalFile
-        val prefix = directory.canonicalPath + File.separator
-        if (!destination.path.startsWith(prefix)) throw BackupFailure.InvalidPath(name)
-        return destination
     }
 
     private fun verifyChecksums(extracted: ExtractedArchive) {
@@ -215,7 +230,10 @@ internal class BackupValidator(
                                 throw BackupFailure.LimitExceeded("checksumCount")
                             }
                             val name = reader.nextName()
-                            if (entries.put(name, reader.nextString()) != null) {
+                            validateArchivePath(name)
+                            val hash = reader.nextString()
+                            if (!SHA_256.matches(hash)) throw BackupFailure.Malformed()
+                            if (entries.put(name, hash) != null) {
                                 throw BackupFailure.DuplicateEntry(name)
                             }
                         }
@@ -555,6 +573,7 @@ internal class BackupValidator(
         const val ASSET_PREFIX = "assets/"
         const val COPY_BUFFER_SIZE = 64 * 1024
         const val MAX_ENTRIES = 100_000
+        const val MAX_ENTRY_NAME_CHARS = 1024
         const val MAX_IMAGE_DIMENSION = 16_384
         const val MAX_IMAGE_BYTES = 128L * 1024 * 1024
         const val MAX_PDF_BYTES = 256L * 1024 * 1024
@@ -566,5 +585,6 @@ internal class BackupValidator(
         val IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/heif", "image/heic")
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
         val ASSET_ID = Regex("[A-Za-z0-9._-]+")
+        val SHA_256 = Regex("[0-9a-fA-F]{64}")
     }
 }

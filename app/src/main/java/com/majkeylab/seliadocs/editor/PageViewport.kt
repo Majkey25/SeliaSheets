@@ -62,8 +62,7 @@ internal fun viewportCoordinateToPage(
     coordinate: Float,
     viewSize: Float,
     pageSize: Float,
-    zoom: Float,
-): Float = coordinate / zoom * pageSize / viewSize
+): Float = coordinate * pageSize / viewSize
 
 private fun maxPan(pageSize: Float, zoom: Float, viewportSize: Float): Float =
     ((pageSize * zoom - viewportSize) / 2f).coerceAtLeast(0f)

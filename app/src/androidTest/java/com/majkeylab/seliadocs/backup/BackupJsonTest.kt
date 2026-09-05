@@ -5,6 +5,7 @@ import java.io.StringReader
 import java.io.StringWriter
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -118,9 +119,43 @@ class BackupJsonTest {
     fun unsupportedVersionReturnsTypedFailure() {
         assertThrows(BackupFailure.UnsupportedVersion::class.java) {
             BackupJson.readManifest(
-                StringReader("""{"formatVersion":4,"appVersion":"x","exportedAt":1}"""),
+                StringReader("""{"formatVersion":5,"appVersion":"x","exportedAt":1}"""),
             )
         }
+    }
+
+    @Test
+    fun formatFourIsOutsideReleasedV053ReaderRange() {
+        // v0.5.3 validates formatVersion in 1..3 before reading records.
+        assertFalse(BACKUP_FORMAT_VERSION in 1..3)
+    }
+
+    @Test
+    fun pencilStrokeRoundTripsWithFormatFour() {
+        val manifest = BackupManifest(BACKUP_FORMAT_VERSION, "test", 1L)
+        val stroke =
+            BackupStroke(
+                "pencil",
+                "page",
+                0,
+                "PENCIL",
+                0xFF000000.toInt(),
+                3f,
+                0.1f,
+                byteArrayOf(1, 2, 3),
+            )
+        val manifestOutput = StringWriter()
+        val recordOutput = StringWriter()
+
+        BackupJson.writeManifest(manifestOutput, manifest)
+        BackupJson.writeRecord(recordOutput, stroke)
+        val records = mutableListOf<BackupRecord>()
+        BackupJson.readRecords(StringReader(recordOutput.toString()), records::add)
+        val decoded = records.single() as BackupStroke
+
+        assertEquals(manifest, BackupJson.readManifest(StringReader(manifestOutput.toString())))
+        assertEquals(stroke.copy(inputs = decoded.inputs), decoded)
+        assertArrayEquals(stroke.inputs, decoded.inputs)
     }
 
     @Test
@@ -158,6 +193,60 @@ class BackupJsonTest {
             BackupJson.readRecords(
                 StringReader(
                     """{"kind":"element","id":"e","pageId":"p","zIndex":0,"elementKind":"IMAGE","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"OCR","assetId":"asset.png","ocrRegions":"broken"}""",
+                ),
+            ) {}
+        }
+    }
+
+    @Test
+    fun elementKindsRejectFieldsOwnedByAnotherKind() {
+        listOf(
+            """{"kind":"element","id":"text","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note","assetId":"asset.png"}""",
+            """{"kind":"element","id":"image","pageId":"p","zIndex":0,"elementKind":"IMAGE","x":0,"y":0,"width":1,"height":1,"rotation":0,"assetId":"asset.png","shapeKind":"RECTANGLE"}""",
+            """{"kind":"element","id":"shape","pageId":"p","zIndex":0,"elementKind":"SHAPE","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"Note","shapeKind":"RECTANGLE"}""",
+            """{"kind":"element","id":"math","pageId":"p","zIndex":0,"elementKind":"MATH","x":0,"y":0,"width":1,"height":1,"rotation":0,"assetId":"asset.png","expression":"1+1=","resultText":"1 + 1 = 2"}""",
+        ).forEach { record ->
+            assertThrows(BackupFailure.Malformed::class.java) {
+                BackupJson.readRecords(StringReader(record)) {}
+            }
+        }
+    }
+
+    @Test
+    fun elementsRejectBlankAndOversizedKindSpecificFields() {
+        val oversized = "x".repeat(10_001)
+        assertThrows(BackupFailure.Malformed::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"text","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":" "}""",
+                ),
+            ) {}
+        }
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"text","pageId":"p","zIndex":0,"elementKind":"TEXT","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"$oversized"}""",
+                ),
+            ) {}
+        }
+        assertThrows(BackupFailure.LimitExceeded::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"image","pageId":"p","zIndex":0,"elementKind":"IMAGE","x":0,"y":0,"width":1,"height":1,"rotation":0,"text":"$oversized","assetId":"asset.png"}""",
+                ),
+            ) {}
+        }
+        assertThrows(BackupFailure.Malformed::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"math","pageId":"p","zIndex":0,"elementKind":"MATH","x":0,"y":0,"width":1,"height":1,"rotation":0,"expression":" ","resultText":"2"}""",
+                ),
+            ) {}
+        }
+        assertThrows(BackupFailure.Malformed::class.java) {
+            BackupJson.readRecords(
+                StringReader(
+                    """{"kind":"element","id":"math","pageId":"p","zIndex":0,"elementKind":"MATH","x":0,"y":0,"width":1,"height":1,"rotation":0,"expression":"1+1=","resultText":" "}""",
                 ),
             ) {}
         }

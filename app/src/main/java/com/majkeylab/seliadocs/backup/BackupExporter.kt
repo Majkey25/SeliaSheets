@@ -21,6 +21,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.min
 
 internal class BackupExporter(
     private val repository: SeliaDocsRepository,
@@ -28,15 +29,19 @@ internal class BackupExporter(
     private val appVersion: String,
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxRecords: Int = MAX_BACKUP_RECORDS,
+    private val maxChecksumBytes: Long = MAX_BACKUP_CHECKSUMS_BYTES,
 ) {
     suspend fun export(scope: BackupScope, output: OutputStream): BackupSummary =
         withContext(Dispatchers.IO) {
-            writePlan(createPlan(scope), output)
+            val plan = createPlan(scope)
+            validateChecksumMetadata(plan)
+            writePlan(plan, output)
         }
 
     suspend fun export(scope: BackupScope, outputFactory: () -> OutputStream): BackupSummary =
         withContext(Dispatchers.IO) {
             val plan = createPlan(scope)
+            validateChecksumMetadata(plan)
             outputFactory().use { output -> writePlan(plan, output) }
         }
 
@@ -208,6 +213,19 @@ internal class BackupExporter(
         }
     }
 
+    private fun validateChecksumMetadata(plan: ExportPlan) {
+        val checksums =
+            buildMap {
+                put(RECORDS_ENTRY, CHECKSUM_PLACEHOLDER)
+                put(MANIFEST_ENTRY, CHECKSUM_PLACEHOLDER)
+                plan.assetFiles.keys.forEach { put("assets/$it", CHECKSUM_PLACEHOLDER) }
+            }
+        writeChecksums(
+            BoundedOutputStream(min(maxChecksumBytes, MAX_BACKUP_CHECKSUMS_BYTES)),
+            checksums,
+        )
+    }
+
     private fun NotebookEntity.toBackup() =
         BackupNotebook(
             id = id,
@@ -303,6 +321,19 @@ internal class BackupExporter(
         override fun flush() = output.flush()
     }
 
+    private class BoundedOutputStream(private val limit: Long) : OutputStream() {
+        private var count = 0L
+
+        override fun write(value: Int) = add(1)
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) = add(length.toLong())
+
+        private fun add(size: Long) {
+            if (limit < 0 || size > limit - count) throw BackupFailure.LimitExceeded("checksums")
+            count += size
+        }
+    }
+
     private fun ByteArray.toHex(): String {
         val output = CharArray(size * 2)
         forEachIndexed { index, byte ->
@@ -319,5 +350,6 @@ internal class BackupExporter(
         const val CHECKSUMS_ENTRY = "checksums.json"
         const val COPY_BUFFER_SIZE = 64 * 1024
         const val HEX = "0123456789abcdef"
+        val CHECKSUM_PLACEHOLDER = "0".repeat(64)
     }
 }

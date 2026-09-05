@@ -15,6 +15,29 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class InkCodecTest {
     @Test
+    fun pencilRoundTripKeepsDynamicFamilyAndInputs() {
+        val inputs =
+            MutableStrokeInputBatch()
+                .add(InputToolType.STYLUS, 10f, 20f, 0L, 0.01f, 0.2f, 0.1f, 0f)
+                .add(InputToolType.STYLUS, 30f, 40f, 16L, 0.01f, 0.9f, 1.1f, 1.4f)
+                .toImmutable()
+        val original =
+            Stroke(
+                InkCodec.createBrush(BrushKind.PENCIL, 0xFF202124.toInt(), 4f),
+                inputs,
+            )
+
+        val restored = InkCodec.decode(InkCodec.encode(original))
+
+        assertEquals(BrushKind.PENCIL, InkCodec.encode(restored).brushKind)
+        assertEquals(SeliaInkBrushes.pencil, restored.brush.family)
+        assertEquals(0.2f, restored.inputs[0].pressure, 0.01f)
+        assertEquals(0.9f, restored.inputs[1].pressure, 0.01f)
+        assertEquals(1.1f, restored.inputs[1].tiltRadians, 0.01f)
+        assertEquals(1.4f, restored.inputs[1].orientationRadians, 0.01f)
+    }
+
+    @Test
     fun encodedStrokeRoundTripsBrushAndInputs() {
         val inputs =
             MutableStrokeInputBatch()

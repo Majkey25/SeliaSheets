@@ -213,6 +213,8 @@ internal data class StrokePayload(
 
 internal enum class ElementKind { TEXT, IMAGE, SHAPE, MATH }
 
+internal const val TEXT_ELEMENT_MAX_LENGTH = 10_000
+
 internal data class ElementDraft(
     val kind: ElementKind,
     val x: Float,

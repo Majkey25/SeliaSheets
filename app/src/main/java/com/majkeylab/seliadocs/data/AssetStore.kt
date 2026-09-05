@@ -20,4 +20,14 @@ internal class AssetStore(private val root: File) {
         file(id).takeIf(File::isFile) ?: throw FileNotFoundException(id)
 
     fun files(): List<File> = root.listFiles().orEmpty().filter(File::isFile).sortedBy(File::getName)
+
+    fun deleteUnreferenced(
+        referencedAssetIds: Set<String>,
+        candidateAssetIds: Iterable<String> = files().map(File::getName),
+    ) {
+        candidateAssetIds.filterNot(referencedAssetIds::contains).forEach { assetId ->
+            val file = file(assetId)
+            check(!file.exists() || file.delete()) { "Asset could not be deleted" }
+        }
+    }
 }

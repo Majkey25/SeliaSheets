@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.majkeylab.seliadocs.editor.decodeOrientedImage
 import java.io.File
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
@@ -106,9 +107,7 @@ private fun decodeForOcr(file: File): Bitmap {
     while (bounds.outWidth / sample > MAX_OCR_DIMENSION || bounds.outHeight / sample > MAX_OCR_DIMENSION) {
         sample *= 2
     }
-    return requireNotNull(
-        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }),
-    )
+    return decodeOrientedImage(file, sample)
 }
 
 private const val MAX_OCR_DIMENSION = 2_048

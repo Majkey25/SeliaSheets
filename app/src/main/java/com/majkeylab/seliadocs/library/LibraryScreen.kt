@@ -142,7 +142,7 @@ internal fun LibraryScreen(
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 if (state.notebooks.isEmpty()) {
-                    EmptyLibrary(modifier = Modifier.align(Alignment.Center))
+                    EmptyLibrary(state, modifier = Modifier.align(Alignment.Center))
                 } else {
                     val columns =
                         if (LocalDensity.current.fontScale >= 1.5f) {
@@ -242,15 +242,25 @@ private fun LibraryTopBar(
 }
 
 @Composable
-private fun EmptyLibrary(modifier: Modifier = Modifier) {
+private fun EmptyLibrary(state: LibraryUiState, modifier: Modifier = Modifier) {
+    val title = when {
+        state.query.isNotBlank() -> R.string.no_matching_notebooks
+        state.trash -> R.string.trash_empty
+        else -> R.string.no_notebooks
+    }
+    val hint = when {
+        state.query.isNotBlank() -> R.string.no_matching_notebooks_hint
+        state.trash -> R.string.trash_empty_hint
+        else -> R.string.no_notebooks_hint
+    }
     Column(
         modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(stringResource(R.string.no_notebooks), style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(title), style = MaterialTheme.typography.titleLarge)
         Text(
-            stringResource(R.string.no_notebooks_hint),
+            stringResource(hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -338,6 +348,7 @@ private fun NotebookActionSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        modifier = Modifier.testTag("notebook-actions-sheet"),
     ) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
             Text(

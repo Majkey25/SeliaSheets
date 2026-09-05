@@ -16,6 +16,7 @@ import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.NotebookContent
 import com.majkeylab.seliadocs.data.NotebookEntity
 import com.majkeylab.seliadocs.data.PageEntity
@@ -24,8 +25,11 @@ import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.File
+import java.io.FileNotFoundException
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -39,6 +43,9 @@ class PdfExporterTest {
     fun backgroundFailureIsNotMaskedByUnfinishedPageCleanup() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val assetStore = AssetStore(File(context.cacheDir, "pdf-assets-${System.nanoTime()}"))
+        val exportCache = File(context.cacheDir, "pdf-export-test-${System.nanoTime()}").apply { mkdirs() }
+        assetStore.prepare()
+        assetStore.file("source.pdf").writeText("original PDF")
         val output = File(context.cacheDir, "seliadocs-${System.nanoTime()}.pdf")
         val page =
             PageEntity(
@@ -89,8 +96,10 @@ class PdfExporterTest {
         try {
             var actual: IllegalStateException? = null
             try {
-                output.outputStream().use { stream ->
-                    PdfExporter(assetStore).write(content, stream) { _, _, _, _ -> throw expected }
+                withPdfExportSnapshot(exportCache, assetStore, { content }) { snapshot, exportAssets ->
+                    output.outputStream().use { stream ->
+                        PdfExporter(exportAssets).write(snapshot, stream) { _, _, _, _ -> throw expected }
+                    }
                 }
                 fail("Expected background failure")
             } catch (failure: IllegalStateException) {
@@ -98,20 +107,45 @@ class PdfExporterTest {
             }
 
             assertSame(expected, actual)
+            assertTrue(exportCache.listFiles().orEmpty().isEmpty())
+
+            assertTrue(assetStore.file("source.pdf").delete())
+            try {
+                withPdfExportSnapshot(exportCache, assetStore, { content }) { _, _ ->
+                    fail("Missing asset must prevent rendering")
+                }
+                fail("Expected missing asset failure")
+            } catch (_: FileNotFoundException) {
+                assertTrue(exportCache.listFiles().orEmpty().isEmpty())
+            }
+
+            assetStore.file("source.pdf").writeText("original PDF")
+            val cancellation = CancellationException("export cancelled")
+            try {
+                withPdfExportSnapshot(exportCache, assetStore, { content }) { _, _ -> throw cancellation }
+                fail("Expected export cancellation")
+            } catch (failure: CancellationException) {
+                assertSame(cancellation, failure)
+                assertTrue(exportCache.listFiles().orEmpty().isEmpty())
+            }
         } finally {
             output.delete()
             assetStore.file("unused").parentFile?.deleteRecursively()
+            exportCache.deleteRecursively()
         }
     }
 
     @Test
-    fun everyPageAndInkIsWritten() = runTest {
+    fun everyPageAndInkIsWrittenAfterLiveAssetsChangeOutsideExportGate() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val output = File(context.cacheDir, "seliadocs-${System.nanoTime()}.pdf")
         val assetRoot = File(context.cacheDir, "pdf-assets-${System.nanoTime()}")
         val assetStore = AssetStore(assetRoot)
+        val exportCache = File(context.cacheDir, "pdf-export-test-${System.nanoTime()}").apply { mkdirs() }
         val imageFile = assetStore.file("image.png")
         assetStore.prepare()
+        assetStore.file("source.pdf").writeText("original PDF")
+        assetStore.file("unreferenced.png").writeText("Do not copy")
         Bitmap.createBitmap(32, 24, Bitmap.Config.ARGB_8888).also { bitmap ->
             bitmap.eraseColor(Color.BLUE)
             imageFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -225,21 +259,43 @@ class PdfExporterTest {
                     ),
             )
         val renderedPdfBackground = AtomicBoolean(false)
-        output.outputStream().use { stream ->
-            PdfExporter(assetStore).write(content, stream) { _, _, width, height ->
-                renderedPdfBackground.set(true)
-                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.LTGRAY) }
+        withPdfExportSnapshot(exportCache, assetStore, { content }) { snapshot, exportAssets ->
+            assertEquals(setOf("image.png", "source.pdf"), exportAssets.files().map(File::getName).toSet())
+            withTimeout(5_000) {
+                LibraryMutationGate.withLock {
+                    assertTrue(assetRoot.deleteRecursively())
+                    assetStore.prepare()
+                    assetStore.file("source.pdf").writeText("replacement PDF")
+                }
+            }
+            output.outputStream().use { stream ->
+                PdfExporter(exportAssets).write(snapshot, stream) { source, _, width, height ->
+                    assertEquals("original PDF", exportAssets.requireFile(source.assetId).readText())
+                    renderedPdfBackground.set(true)
+                    Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.LTGRAY) }
+                }
             }
         }
+        assertTrue(exportCache.listFiles().orEmpty().isEmpty())
 
         ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
             PdfRenderer(descriptor).use { renderer ->
                 assertEquals(2, renderer.pageCount)
                 assertTrue(output.length() > 2_000)
                 assertTrue(renderedPdfBackground.get())
+                renderer.openPage(1).use { renderedPage ->
+                    val bitmap = Bitmap.createBitmap(renderedPage.width, renderedPage.height, Bitmap.Config.ARGB_8888)
+                    try {
+                        renderedPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        assertEquals(Color.BLUE, bitmap.getPixel(100, 200))
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
             }
         }
         output.delete()
         assetRoot.deleteRecursively()
+        exportCache.deleteRecursively()
     }
 }

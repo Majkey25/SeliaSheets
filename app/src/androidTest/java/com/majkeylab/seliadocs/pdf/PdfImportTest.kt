@@ -1,6 +1,11 @@
 package com.majkeylab.seliadocs.pdf
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
@@ -18,6 +23,8 @@ import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -105,6 +112,33 @@ class PdfImportTest {
         } finally {
             source.delete()
         }
+    }
+
+    @Test
+    fun bindingDeathFailsPendingClientAndUnbinds() = runBlocking {
+        val unbound = AtomicBoolean()
+        val context =
+            object : ContextWrapper(application) {
+                override fun getApplicationContext(): Context = this
+
+                override fun bindService(service: Intent, connection: ServiceConnection, flags: Int): Boolean {
+                    connection.onBindingDied(ComponentName(packageName, PdfRenderService::class.java.name))
+                    return true
+                }
+
+                override fun unbindService(connection: ServiceConnection) {
+                    unbound.set(true)
+                }
+            }
+
+        val failure =
+            runCatching {
+                PdfSandboxClient(context).inspect(File(application.cacheDir, "unused.pdf"))
+            }.exceptionOrNull()
+
+        assertTrue(failure is IOException)
+        assertEquals("PDF sandbox binding died while connecting", failure?.message)
+        assertTrue(unbound.get())
     }
 
     private fun createPdf(file: File) {

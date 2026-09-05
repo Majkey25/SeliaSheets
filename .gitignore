@@ -7,6 +7,8 @@
 *.jks
 *.keystore
 *.p12
+keystore.properties
+*.keystore.properties
 *.apk
 *.aab
 .DS_Store

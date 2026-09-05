@@ -17,6 +17,7 @@ import com.majkeylab.seliadocs.data.AssetStore
 import com.majkeylab.seliadocs.data.BlockEntity
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.NotebookContent
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PAGE_TEXT_BOTTOM
@@ -28,9 +29,12 @@ import com.majkeylab.seliadocs.data.pageTextLayout
 import com.majkeylab.seliadocs.pdf.fitPdfRenderSize
 import java.io.File
 import java.io.OutputStream
+import java.nio.file.Files
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 private const val MAX_IMAGE_DECODE_DIMENSION = 4_096
 private const val MAX_IMAGE_DECODE_PIXELS = 16L * 1_024 * 1_024
@@ -46,6 +50,33 @@ internal fun imageSampleSize(width: Int, height: Int, targetWidth: Int, targetHe
         sample *= 2
     }
     return sample
+}
+
+internal suspend fun withPdfExportSnapshot(
+    cacheDir: File,
+    assets: AssetStore,
+    loadContent: suspend () -> NotebookContent,
+    export: suspend (NotebookContent, AssetStore) -> Unit,
+) {
+    val directory = Files.createTempDirectory(cacheDir.toPath(), "pdf-export-").toFile()
+    try {
+        val exportAssets = AssetStore(directory)
+        val content = LibraryMutationGate.withLock {
+            val snapshot = loadContent()
+            val pdfSourceIds = snapshot.pages.mapNotNull(PageEntity::pdfSourceId).toSet()
+            val assetIds = snapshot.elements.mapNotNull(ElementEntity::assetId).toSet() +
+                snapshot.pdfSources.filter { it.id in pdfSourceIds }.map(PdfSourceEntity::assetId)
+            assetIds.forEach { id ->
+                currentCoroutineContext().ensureActive()
+                assets.requireFile(id).copyTo(exportAssets.file(id))
+            }
+            snapshot
+        }
+        currentCoroutineContext().ensureActive()
+        export(content, exportAssets)
+    } finally {
+        directory.deleteRecursively()
+    }
 }
 
 internal suspend fun writePdfToDestination(
@@ -227,17 +258,17 @@ internal class PdfExporter(private val assets: AssetStore) {
             element.y + element.height / 2f,
         )
         when (kind) {
-            ElementKind.TEXT -> drawText(canvas, element.text.orEmpty(), element)
-            ElementKind.MATH -> drawText(canvas, element.resultText.orEmpty(), element)
+            ElementKind.TEXT -> drawText(canvas, element.text.orEmpty(), element, 0f)
+            ElementKind.MATH -> drawText(canvas, element.resultText.orEmpty(), element, 8f)
             ElementKind.IMAGE -> drawImage(canvas, element)
             ElementKind.SHAPE -> drawShape(canvas, element)
         }
         canvas.restoreToCount(saved)
     }
 
-    private fun drawText(canvas: Canvas, text: String, element: ElementEntity) {
+    private fun drawText(canvas: Canvas, text: String, element: ElementEntity, inset: Float) {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(32, 33, 36); textSize = 18f }
-        val width = (element.width - 16f).toInt().coerceAtLeast(1)
+        val width = (element.width - inset * 2f).toInt().coerceAtLeast(1)
         val layout =
             StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
@@ -246,7 +277,7 @@ internal class PdfExporter(private val assets: AssetStore) {
                 .setMaxLines((element.height / 22f).toInt().coerceAtLeast(1))
                 .build()
         val saved = canvas.save()
-        canvas.translate(element.x + 8f, element.y + 8f)
+        canvas.translate(element.x + inset, element.y + inset)
         layout.draw(canvas)
         canvas.restoreToCount(saved)
     }
@@ -270,17 +301,14 @@ internal class PdfExporter(private val assets: AssetStore) {
                 canvas.height.coerceAtLeast(1),
                 MAX_IMAGE_DECODE_DIMENSION,
             )
-        val options =
-            BitmapFactory.Options().apply {
-                inSampleSize =
-                    imageSampleSize(
-                        bounds.outWidth,
-                        bounds.outHeight,
-                        targetWidth,
-                        targetHeight,
-                    )
-            }
-        val bitmap = BitmapFactory.decodeFile(file.path, options) ?: error("Image asset is corrupt")
+        val sample =
+            imageSampleSize(
+                bounds.outWidth,
+                bounds.outHeight,
+                targetWidth,
+                targetHeight,
+            )
+        val bitmap = decodeOrientedImage(file, sample)
         try {
             canvas.drawBitmap(
                 bitmap,

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.pressBack
@@ -56,7 +57,7 @@ class BackupFlowTest {
 
         rule.onNodeWithText("Export library").assertIsDisplayed()
         rule.onNodeWithText("Merge backup").assertIsDisplayed()
-        rule.onNodeWithText("Replace library").performClick()
+        rule.onNodeWithText("Replace library").performScrollTo().performClick()
 
         rule.onNodeWithText("Replace entire library?").assertIsDisplayed()
         rule.onNodeWithText("Keep existing library").assertIsDisplayed()

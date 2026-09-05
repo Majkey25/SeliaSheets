@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -58,6 +59,30 @@ class SettingsFlowTest {
         rule.onNodeWithText("Drawing").performClick()
         rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Pen sample"))
         rule.onNodeWithText("Pen sample").assertIsDisplayed()
+    }
+
+    @Test
+    fun drawingWidthSlidersExposeLabelsAndValues() {
+        rule.activity.setContent {
+            SeliaDocsTheme(darkTheme = false) {
+                SettingsScreen(
+                    settings = AppSettings(penWidth = 7f, highlighterWidth = 31f),
+                    onUpdate = {},
+                    onBackup = {},
+                    onClose = {},
+                )
+            }
+        }
+        rule.onNodeWithText("Drawing").performClick()
+
+        listOf("Pen width" to "7 pt", "Highlighter width" to "31 pt").forEach { (label, value) ->
+            val slider =
+                hasContentDescription(label) and
+                    hasStateDescription(value) and
+                    SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)
+            rule.onNodeWithTag("settings-list").performScrollToNode(slider)
+            rule.onNode(slider).assertIsDisplayed()
+        }
     }
 
     @Test

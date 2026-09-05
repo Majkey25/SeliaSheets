@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -152,7 +153,12 @@ internal fun CreateNotebookDialog(
                             )
                         }
                     } else {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .testTag("notebook-dialog-scroll")
+                                .verticalScroll(rememberScrollState()),
+                        ) {
                             PreviewPane(
                                 title,
                                 coverColor,
@@ -348,7 +354,11 @@ private fun ConfigurationPane(
             }
         }
         SectionTitle(stringResource(R.string.orientation))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().testTag("notebook-orientation-options"),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             PageOrientation.entries.forEach { value ->
                 OrientationPreview(
                     orientation = value,

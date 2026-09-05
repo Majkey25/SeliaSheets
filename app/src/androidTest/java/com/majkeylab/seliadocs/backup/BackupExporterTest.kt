@@ -141,6 +141,7 @@ class BackupExporterTest {
         assertArrayEquals(assetBytes, entries.getValue("assets/asset.png"))
         assertEquals(sha256(assetBytes), readChecksums(entries.getValue("checksums.json")).getValue("assets/asset.png"))
         assertEquals(1, manifest.notebookCount)
+        assertEquals(BACKUP_FORMAT_VERSION, manifest.formatVersion)
         assertEquals(2, manifest.pageCount)
         assertEquals(1, manifest.assetCount)
         assertTrue("page-text" in manifest.featureFlags)
@@ -322,6 +323,56 @@ class BackupExporterTest {
         assertEquals(8, records.size)
     }
 
+    @Test
+    fun checksumMetadataOverBudgetFailsBeforeOpeningDestination() = runTest {
+        val notebookId = createImageNotebook()
+        val limitedExporter =
+            BackupExporter(
+                repository = repository,
+                assets = assets,
+                appVersion = "test",
+                clock = { 42L },
+                maxChecksumBytes = 1,
+            )
+        val output = ByteArrayOutputStream()
+        val factoryOpened = AtomicBoolean(false)
+
+        val failure =
+            runCatching {
+                    limitedExporter.export(BackupScope.Notebook(notebookId)) {
+                        factoryOpened.set(true)
+                        output
+                    }
+                }
+                .exceptionOrNull()
+
+        assertTrue(failure is BackupFailure.LimitExceeded)
+        assertEquals("checksums", (failure as BackupFailure.LimitExceeded).field)
+        assertFalse(factoryOpened.get())
+        assertEquals(0, output.size())
+    }
+
+    @Test
+    fun checksumMetadataAtExactBudgetExports() = runTest {
+        val notebookId = createImageNotebook()
+        val baseline = ByteArrayOutputStream()
+        exporter.export(BackupScope.Notebook(notebookId), baseline)
+        val budget = readZip(baseline.toByteArray()).getValue("checksums.json").size.toLong()
+        val exactExporter =
+            BackupExporter(
+                repository = repository,
+                assets = assets,
+                appVersion = "test",
+                clock = { 42L },
+                maxChecksumBytes = budget,
+            )
+        val output = ByteArrayOutputStream()
+
+        exactExporter.export(BackupScope.Notebook(notebookId), output)
+
+        assertEquals(budget, readZip(output.toByteArray()).getValue("checksums.json").size.toLong())
+    }
+
     private suspend fun createEightRecordNotebook() {
         val notebookId = repository.createNotebook(request("Eight records"))
         val page = repository.getPages(notebookId).single()
@@ -343,6 +394,18 @@ class BackupExporterTest {
             sha256(pdfBytes),
             listOf(PdfPageSpec(595, 842)),
         )
+    }
+
+    private suspend fun createImageNotebook(): String {
+        val notebookId = repository.createNotebook(request("Checksum budget"))
+        val page = repository.getPages(notebookId).single()
+        assets.prepare()
+        assets.file("asset.png").writeBytes(testPng(0xFF0000FF.toInt()))
+        repository.addElement(
+            page.id,
+            ElementDraft(ElementKind.IMAGE, 0f, 0f, 20f, 20f, assetId = "asset.png"),
+        )
+        return notebookId
     }
 
     private fun request(title: String) =

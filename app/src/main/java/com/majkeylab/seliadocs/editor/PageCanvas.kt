@@ -21,8 +21,11 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +63,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
@@ -72,11 +77,13 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,6 +104,7 @@ import com.majkeylab.seliadocs.data.PAGE_TEXT_MAX_LENGTH
 import com.majkeylab.seliadocs.data.PAGE_TEXT_TOP
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.StrokeEntity
+import com.majkeylab.seliadocs.data.TEXT_ELEMENT_MAX_LENGTH
 import com.majkeylab.seliadocs.data.pageTextFits
 import com.majkeylab.seliadocs.recognition.ImageOcrRegion
 import com.majkeylab.seliadocs.recognition.matchingImageOcrRegions
@@ -105,6 +113,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -150,8 +159,15 @@ internal fun PageCanvas(
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean = { _, _ -> true },
     initialPageTextDraft: TextFieldValue? = null,
     pageTextInputEnabled: Boolean = true,
+    textPlacementEnabled: Boolean = false,
+    textPlacementInputEnabled: Boolean = true,
+    textEditingElement: ElementEntity? = null,
+    initialInlineTextDraft: InlineTextDraft? = null,
+    onTextPlacementDraftChanged: (String, String?, CanvasPoint, String) -> Boolean = { _, _, _, _ -> true },
+    onTextPlacementFinished: () -> Unit = {},
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = { _, _, _ -> null },
     initialViewport: PageViewport = PageViewport(),
+    onCommitInkTransform: (InkSelectionTransform) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight)
@@ -200,8 +216,15 @@ internal fun PageCanvas(
                     onPageTextDraftChanged,
                     initialPageTextDraft,
                     pageTextInputEnabled,
+                    textPlacementEnabled,
+                    textPlacementInputEnabled,
+                    textEditingElement,
+                    initialInlineTextDraft,
+                    onTextPlacementDraftChanged,
+                    onTextPlacementFinished,
                     loadPdfPage,
                     initialViewport,
+                    onCommitInkTransform,
                 )
             }
         }
@@ -250,11 +273,35 @@ private fun Paper(
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean,
     initialPageTextDraft: TextFieldValue?,
     pageTextInputEnabled: Boolean,
+    textPlacementEnabled: Boolean,
+    textPlacementInputEnabled: Boolean,
+    textEditingElement: ElementEntity?,
+    initialInlineTextDraft: InlineTextDraft?,
+    onTextPlacementDraftChanged: (String, String?, CanvasPoint, String) -> Boolean,
+    onTextPlacementFinished: () -> Unit,
     loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap?,
     initialViewport: PageViewport,
+    onCommitInkTransform: (InkSelectionTransform) -> Unit,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
-    val decodedStrokes = remember(strokes) { strokes.map(StrokeEntity::toInkStroke) }
+    var inkPreview by
+        remember(page.id, selectedStrokeIds, tool) {
+            mutableStateOf<InkSelectionTransform?>(null)
+        }
+    val renderedStrokes =
+        remember(strokes, selectedStrokeIds, inkPreview, page.widthPoints, page.heightPoints) {
+            inkPreview?.let { transform ->
+                transformStrokeSelection(
+                    strokes,
+                    selectedStrokeIds,
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    transform.scale,
+                    transform.rotationDegrees,
+                )
+            } ?: strokes
+        }
+    val decodedStrokes = remember(renderedStrokes) { renderedStrokes.map(StrokeEntity::toInkStroke) }
     val selected =
         remember(strokes, selectedStrokeIds) {
             strokes.mapIndexedNotNull { index, stroke -> index.takeIf { stroke.id in selectedStrokeIds } }.toSet()
@@ -264,6 +311,10 @@ private fun Paper(
             brushFor(tool, penWidth, highlighterWidth, penColorArgb, highlighterColorArgb)
         }
     val selectedElement = elements.firstOrNull { it.id == selectedElementId }
+    val selectedInkBounds =
+        remember(strokes, selectedStrokeIds) {
+            strokeSelectionBounds(strokes, selectedStrokeIds)
+        }
     var viewportZoom by remember(page.id) { mutableFloatStateOf(initialViewport.zoom) }
     var viewportPanX by remember(page.id) { mutableFloatStateOf(initialViewport.panX) }
     var viewportPanY by remember(page.id) { mutableFloatStateOf(initialViewport.panY) }
@@ -495,8 +546,39 @@ private fun Paper(
                 BoxWithConstraints {
                 val scaleX = maxWidth.value / page.widthPoints
                 val scaleY = maxHeight.value / page.heightPoints
+                val isPdfPage = page.pdfSourceId != null && page.pdfPageIndex != null
+                val pdfWidth = paperWidthPx.roundToInt().coerceIn(1, 4_096)
+                val pdfHeight = paperHeightPx.roundToInt().coerceIn(1, 4_096)
+                var pdfRenderAttempt by remember(page.id) { mutableStateOf(0) }
+                val pdfRender =
+                    if (isPdfPage) {
+                        val result by
+                            produceState<Result<androidx.compose.ui.graphics.ImageBitmap>?>(
+                                null,
+                                page.id,
+                                pdfWidth,
+                                pdfHeight,
+                                pdfRenderAttempt,
+                            ) {
+                                value = null
+                                value =
+                                    runCatching {
+                                        requireNotNull(loadPdfPage(page.id, pdfWidth, pdfHeight))
+                                    }.onFailure { if (it is CancellationException) throw it }
+                            }
+                        result
+                    } else {
+                        null
+                    }
                 PaperPattern(page.paper, Modifier.fillMaxSize())
-                PdfPageLayer(page, loadPdfPage)
+                pdfRender?.getOrNull()?.let { image ->
+                    Image(
+                        bitmap = image,
+                        contentDescription = stringResource(R.string.imported_pdf_page, page.pageIndex + 1),
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.fillMaxSize().testTag("pdf-rendered-page"),
+                    )
+                }
                 PageTextLayer(
                     page = page,
                     blocks = blocks,
@@ -517,6 +599,7 @@ private fun Paper(
                     previewTransform,
                     assetFile,
                     onSelectElement,
+                    textEditingElement?.id,
                 )
                 AndroidView(
                     factory = { context -> InkCanvasView(context).also(inkCanvas::set) },
@@ -549,7 +632,18 @@ private fun Paper(
                     },
                     modifier = Modifier.fillMaxSize().zIndex(2f),
                 )
-                if (tool == EditorTool.LASSO && selectedElement != null) {
+                InlineTextPlacementLayer(
+                    page = page,
+                    enabled = textPlacementEnabled && initialInlineTextDraft?.pageId == page.id,
+                    inputEnabled = textPlacementInputEnabled,
+                    editingElement = textEditingElement,
+                    initialDraft = initialInlineTextDraft,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    onDraftChanged = onTextPlacementDraftChanged,
+                    onFinished = onTextPlacementFinished,
+                )
+                if (!textPlacementEnabled && tool == EditorTool.LASSO && selectedElement != null) {
                     ElementSelectionOverlay(
                         page = page,
                         element = selectedElement,
@@ -561,6 +655,42 @@ private fun Paper(
                         eraserPointerId = eraserPointerId,
                         onBoundsChanged = selectionBounds::set,
                     )
+                } else if (tool == EditorTool.LASSO && selectedInkBounds != null) {
+                    InkSelectionOverlay(
+                        bounds = selectedInkBounds,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        onPreview = { inkPreview = it },
+                        onCommit = { transform ->
+                            inkPreview = null
+                            onCommitInkTransform(transform)
+                        },
+                        onMove = { delta -> onMoveSelection(page.id, delta) },
+                        onGestureOwnershipChange = { overlayGestureOwned = it },
+                        eraserPointerId = eraserPointerId,
+                        onBoundsChanged = selectionBounds::set,
+                    )
+                }
+                when {
+                    isPdfPage && pdfRender == null ->
+                        Text(
+                            text = stringResource(R.string.pdf_render_loading),
+                            color = Color(0xFF202124),
+                            modifier = Modifier.align(Alignment.Center).zIndex(6f).testTag("pdf-render-loading"),
+                        )
+                    pdfRender?.isFailure == true ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.align(Alignment.Center).zIndex(6f).testTag("pdf-render-error"),
+                        ) {
+                            Text(stringResource(R.string.pdf_render_error), color = Color(0xFF202124))
+                            TextButton(
+                                onClick = { pdfRenderAttempt++ },
+                                modifier = Modifier.testTag("pdf-render-retry"),
+                            ) {
+                                Text(stringResource(R.string.retry))
+                            }
+                        }
                 }
                 Text(
                     text = stringResource(R.string.page_number, pageNumber),
@@ -576,26 +706,172 @@ private fun Paper(
 }
 
 @Composable
-private fun PdfPageLayer(
+private fun InlineTextPlacementLayer(
     page: PageEntity,
-    loadPdfPage: suspend (String, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap?,
+    enabled: Boolean,
+    inputEnabled: Boolean,
+    editingElement: ElementEntity?,
+    initialDraft: InlineTextDraft?,
+    scaleX: Float,
+    scaleY: Float,
+    onDraftChanged: (String, String?, CanvasPoint, String) -> Boolean,
+    onFinished: () -> Unit,
 ) {
-    if (page.pdfSourceId == null || page.pdfPageIndex == null) return
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val width = with(density) { maxWidth.roundToPx() }.coerceIn(1, 4_096)
-        val height = with(density) { maxHeight.roundToPx() }.coerceIn(1, 4_096)
-        val bitmap by
-            produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, page.id, width, height) {
-                value = runCatching { loadPdfPage(page.id, width, height) }.getOrNull()
-            }
-        bitmap?.let { image ->
-            Image(
-                bitmap = image,
-                contentDescription = stringResource(R.string.imported_pdf_page, page.pageIndex + 1),
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize(),
+    if (!enabled) return
+    var origin by
+        remember(page.id, enabled, editingElement?.id, initialDraft?.origin) {
+            mutableStateOf(initialDraft?.origin ?: editingElement?.let { CanvasPoint(it.x, it.y) })
+        }
+    var draft by
+        remember(page.id, origin, editingElement?.id) {
+            val text = initialDraft?.text ?: editingElement?.text.orEmpty()
+            mutableStateOf(TextFieldValue(text, TextRange(text.length)))
+        }
+    var focusedOnce by remember(page.id, origin) { mutableStateOf(false) }
+    var validationError by remember(page.id, editingElement?.id) { mutableStateOf<Int?>(null) }
+    val focusRequester = remember(page.id, origin) { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val placementDescription = stringResource(R.string.place_text)
+    val point = origin
+
+    Box(Modifier.fillMaxSize().zIndex(4f)) {
+        if (point == null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .testTag("inline-text-placement")
+                    .pointerInput(page.id) {
+                        detectTapGestures { offset ->
+                            val selected =
+                                CanvasPoint(
+                                    offset.x / size.width * page.widthPoints,
+                                    offset.y / size.height * page.heightPoints,
+                                )
+                            if (onDraftChanged(page.id, null, selected, "")) origin = selected
+                        }
+                    }
+                    .semantics {
+                        contentDescription = placementDescription
+                        onClick {
+                            val selected = CanvasPoint(page.widthPoints / 2f, page.heightPoints / 3f)
+                            onDraftChanged(page.id, null, selected, "").also { accepted ->
+                                if (accepted) origin = selected
+                            }
+                        }
+                    },
             )
+            return@Box
+        }
+        val textTransform: (String) -> ElementTransform? = { text ->
+            if (editingElement == null) {
+                initialTextElementTransform(
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    point,
+                    text,
+                )
+            } else {
+                resizedTextElementTransform(
+                    editingElement.transform(),
+                    page.widthPoints.toFloat(),
+                    page.heightPoints.toFloat(),
+                    text,
+                )
+            }
+        }
+        val transform =
+            if (editingElement != null && draft.text.isEmpty()) {
+                editingElement.transform()
+            } else {
+                textTransform(draft.text) ?: editingElement?.transform() ?: return@Box
+            }
+        val finish = {
+            if (inputEnabled) onFinished()
+        }
+        val textStyle = pageTextStyle(scaleY)
+        LaunchedEffect(point) {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(page.id, point, inputEnabled) { detectTapGestures { finish() } },
+        )
+        BasicTextField(
+            value = draft,
+            onValueChange = { value ->
+                if (value.text == draft.text) {
+                    draft = value
+                } else {
+                    val error =
+                        when {
+                            value.text.length > TEXT_ELEMENT_MAX_LENGTH -> R.string.inline_text_too_long
+                            editingElement != null && value.text.isEmpty() -> null
+                            textTransform(value.text) == null -> R.string.inline_text_does_not_fit
+                            else -> null
+                        }
+                    if (error != null) {
+                        validationError = error
+                    } else if (onDraftChanged(page.id, editingElement?.id, point, value.text)) {
+                        draft = value
+                        validationError = null
+                    }
+                }
+            },
+            enabled = inputEnabled,
+            textStyle = textStyle,
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { finish() }),
+            modifier =
+                Modifier
+                    .offset((transform.x * scaleX).dp, (transform.y * scaleY).dp)
+                    .width((transform.width * scaleX).dp)
+                    .height((transform.height * scaleY).dp)
+                    .rotate(transform.rotation)
+                    .zIndex(1f)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            focusedOnce = true
+                        } else if (focusedOnce) {
+                            finish()
+                        }
+                    }
+                    .testTag("inline-text-editor"),
+            decorationBox = { field ->
+                Box {
+                    if (draft.text.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.inline_text_hint),
+                            color = Color(0xFF8A8780),
+                            style = textStyle,
+                        )
+                    }
+                    field()
+                }
+            },
+        )
+        validationError?.let { message ->
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                shape = RoundedCornerShape(4.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(12.dp)
+                        .zIndex(2f),
+            ) {
+                Text(
+                    stringResource(message),
+                    modifier =
+                        Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .testTag("inline-text-error"),
+                )
+            }
         }
     }
 }
@@ -636,12 +912,7 @@ private fun PageTextLayer(
             )
             .testTag("page-text")
             .semantics { contentDescription = description }
-    val textStyle =
-        TextStyle(
-            color = Color(0xFF202124),
-            fontSize = (18f * scaleY).coerceAtLeast(10f).sp,
-            lineHeight = (26f * scaleY).coerceAtLeast(14f).sp,
-        )
+    val textStyle = pageTextStyle(scaleY, 26f)
 
     LaunchedEffect(storedText) {
         val previousStoredText = lastObservedStoredText
@@ -755,12 +1026,14 @@ private fun ElementLayer(
     previewTransform: ElementTransform?,
     assetFile: (String) -> File,
     onSelectElement: (String) -> Unit,
+    editingElementId: String?,
 ) {
     val selectElement = stringResource(R.string.select_element)
     BoxWithConstraints(Modifier.fillMaxSize().zIndex(1f)) {
         val scaleX = maxWidth.value / page.widthPoints
         val scaleY = maxHeight.value / page.heightPoints
-        elements.forEach { element ->
+        val textStyle = pageTextStyle(scaleY)
+        elements.filterNot { it.id == editingElementId }.forEach { element ->
             key(element.id) {
                 val transform =
                     previewTransform?.takeIf { element.id == selectedElementId }
@@ -795,9 +1068,14 @@ private fun ElementLayer(
                         )
                         .rotate(transform.rotation)
                 when (runCatching { ElementKind.valueOf(element.kind) }.getOrNull()) {
-                    ElementKind.TEXT,
-                    ElementKind.MATH,
-                    -> Surface(
+                    ElementKind.TEXT ->
+                        Text(
+                            text = element.text.orEmpty(),
+                            color = Color(0xFF202124),
+                            style = textStyle,
+                            modifier = modifier,
+                        )
+                    ElementKind.MATH -> Surface(
                         color = Color(0xE6FFFEFA),
                         shape = RoundedCornerShape(4.dp),
                         modifier = modifier,
@@ -805,7 +1083,7 @@ private fun ElementLayer(
                         Text(
                             text = element.resultText ?: element.text.orEmpty(),
                             color = Color(0xFF202124),
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = textStyle,
                             modifier = Modifier.padding(8.dp),
                         )
                     }
@@ -826,6 +1104,17 @@ private fun ElementLayer(
             }
         }
     }
+}
+
+@Composable
+private fun pageTextStyle(scaleY: Float, lineHeight: Float = 24f): TextStyle {
+    val density = LocalDensity.current
+    return MaterialTheme.typography.bodyLarge.copy(
+        color = Color(0xFF202124),
+        fontSize = with(density) { (18f * scaleY).dp.toSp() },
+        lineHeight = with(density) { (lineHeight * scaleY).dp.toSp() },
+        letterSpacing = 0.sp,
+    )
 }
 
 @Composable
@@ -887,11 +1176,19 @@ private fun StoredImage(
     highlightedRegions: List<ImageOcrRegion>,
     elementId: String,
 ) {
-    val bitmap by
-        produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file.path, file.lastModified()) {
-            value = withContext(Dispatchers.IO) { decodePreview(file)?.asImageBitmap() }
+    val bitmapResult by
+        produceState<Result<androidx.compose.ui.graphics.ImageBitmap>?>(
+            null,
+            file.path,
+            file.lastModified(),
+        ) {
+            value =
+                runCatching {
+                    withContext(Dispatchers.IO) { decodePreview(file).asImageBitmap() }
+                }.onFailure { if (it is CancellationException) throw it }
         }
-    bitmap?.let { image ->
+    val image = bitmapResult?.getOrNull()
+    if (image != null) {
         Box(modifier.clip(RoundedCornerShape(4.dp))) {
             Image(
                 bitmap = image,
@@ -926,6 +1223,12 @@ private fun StoredImage(
                 }
             }
         }
+    } else if (bitmapResult?.isFailure == true) {
+        Text(
+            text = stringResource(R.string.image_render_error),
+            color = Color(0xFF202124),
+            modifier = modifier.testTag("image-render-error"),
+        )
     }
 }
 
@@ -950,12 +1253,12 @@ internal fun fittedImageRegionRect(
     )
 }
 
-private fun decodePreview(file: File): android.graphics.Bitmap? {
+private fun decodePreview(file: File): android.graphics.Bitmap {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.path, bounds)
     var sample = 1
     while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
-    return BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+    return decodeOrientedImage(file, sample)
 }
 
 private fun brushFor(
@@ -969,7 +1272,7 @@ private fun brushFor(
         EditorTool.TYPE,
         EditorTool.PEN -> InkCodec.createBrush(BrushKind.PRESSURE_PEN, penColorArgb, penWidth)
         EditorTool.PENCIL ->
-            InkCodec.createBrush(BrushKind.PRESSURE_PEN, penColorArgb, penWidth * 0.55f)
+            InkCodec.createBrush(BrushKind.PENCIL, penColorArgb, penWidth * 0.55f)
         EditorTool.HIGHLIGHTER ->
             InkCodec.createBrush(BrushKind.HIGHLIGHTER, highlighterColorArgb, highlighterWidth)
         EditorTool.ERASER,

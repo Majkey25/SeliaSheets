@@ -25,7 +25,9 @@ Privacy is the default:
 - private on-device notebook storage;
 - user-controlled PDF export.
 
-Optional handwriting recognition is enabled by the user and downloads a Google language model. After download, it runs on-device and offers only simple single-line arithmetic candidates. It does not provide general two-dimensional math or LaTeX recognition. See the privacy policy for Google ML Kit SDK data disclosure.
+Image text recognition is on by default for imported images and can be disabled in Settings. It uses a bundled on-device Latin model.
+
+Optional handwriting recognition is enabled by the user and downloads a Google language model. After download, it runs on-device and offers only simple single-line arithmetic candidates. It does not provide general two-dimensional math or LaTeX recognition. Recognition input and output stay on-device. Google ML Kit collects SDK metadata and metrics for diagnostics and usage analytics; see the privacy policy.
 
 SeliaSheets supports Android 10 and newer and adapts to phones and large tablet canvases.
 
@@ -51,4 +53,4 @@ This is a beta release. Accounts, collaboration, and cloud sync are not included
 
 ## Release notes
 
-Closed beta: the installed launcher artwork is larger while preserving its centered layout and original colors.
+0.6 beta 1 improves writing and editing. Pencil strokes now react to pressure, tilt, and orientation throughout each stroke. The editor now has a stylus hover preview and direct scale, rotate, duplicate, recolor, and delete actions for selected ink. Inline text drafts now survive rotation and save before tool changes or Back. Phone and tablet toolbars now use fixed icon palettes with brush controls on demand. Backups now reject oversized, malformed, or unreferenced data.

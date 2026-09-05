@@ -7,17 +7,20 @@ import androidx.ink.brush.StockBrushes
 import androidx.ink.storage.decode
 import androidx.ink.storage.encode
 import androidx.ink.strokes.Stroke
+import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInputBatch
 import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.math.ceil
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToLong
+import kotlin.math.sin
 
-internal enum class BrushKind { PRESSURE_PEN, MARKER, HIGHLIGHTER }
+internal enum class BrushKind { PRESSURE_PEN, PENCIL, MARKER, HIGHLIGHTER }
 
 internal data class EncodedStroke(
     val brushKind: BrushKind,
@@ -67,6 +70,7 @@ internal object InkCodec {
         when (kind) {
             BrushKind.PRESSURE_PEN ->
                 StockBrushes.pressurePen(StockBrushes.PressurePenVersion.V1)
+            BrushKind.PENCIL -> SeliaInkBrushes.pencil
             BrushKind.MARKER -> StockBrushes.marker(StockBrushes.MarkerVersion.V1)
             BrushKind.HIGHLIGHTER ->
                 StockBrushes.highlighter(
@@ -113,6 +117,126 @@ internal fun StrokeEntity.translated(dx: Float, dy: Float): StrokeEntity {
     val encoded = InkCodec.encode(Stroke(stroke.brush, movedInputs))
     return copy(inputs = encoded.inputs)
 }
+
+internal fun StrokeEntity.transformed(
+    center: CanvasPoint,
+    scale: Float,
+    rotationRadians: Float,
+): StrokeEntity {
+    require(center.x.isFinite() && center.y.isFinite())
+    require(scale > 0f && scale.isFinite() && rotationRadians.isFinite())
+    val stroke = toInkStroke()
+    val cosine = cos(rotationRadians)
+    val sine = sin(rotationRadians)
+    val transformedInputs =
+        MutableStrokeInputBatch().apply {
+            repeat(stroke.inputs.size) { index ->
+                val input = stroke.inputs[index]
+                val dx = (input.x - center.x) * scale
+                val dy = (input.y - center.y) * scale
+                val orientation =
+                    if (input.hasOrientation) {
+                        (input.orientationRadians + rotationRadians).normalizedOrientation()
+                    } else {
+                        StrokeInput.NO_ORIENTATION
+                    }
+                add(
+                    input.toolType,
+                    center.x + dx * cosine - dy * sine,
+                    center.y + dx * sine + dy * cosine,
+                    input.elapsedTimeMillis,
+                    input.strokeUnitLengthCm.takeIf { it > 0f }?.div(scale)
+                        ?: input.strokeUnitLengthCm,
+                    input.pressure,
+                    input.tiltRadians,
+                    orientation,
+                )
+            }
+        }
+    val brush = InkCodec.createBrush(BrushKind.valueOf(brushKind), colorArgb, size * scale, epsilon)
+    val encoded = InkCodec.encode(Stroke(brush, transformedInputs))
+    return copy(size = encoded.size, inputs = encoded.inputs)
+}
+
+private fun Float.normalizedOrientation(): Float {
+    val wrapped = this % TWO_PI
+    return if (wrapped < 0f) wrapped + TWO_PI else wrapped
+}
+
+private const val TWO_PI = 6.2831855f
+
+internal fun transformStrokeSelection(
+    strokes: List<StrokeEntity>,
+    selectedIds: Set<String>,
+    pageWidth: Float,
+    pageHeight: Float,
+    scale: Float,
+    rotationDegrees: Float,
+): List<StrokeEntity>? {
+    if (
+        selectedIds.isEmpty() || scale <= 0f || !scale.isFinite() ||
+            !rotationDegrees.isFinite() || pageWidth <= 0f || pageHeight <= 0f
+    ) {
+        return null
+    }
+    val rotation = rotationDegrees % 360f
+    if (scale == 1f && rotation == 0f) return strokes
+    val selected = strokes.filter { it.id in selectedIds }
+    val points = selected.flatMap { it.toStrokePath().points }
+    if (
+        points.isEmpty() ||
+            selected.any { it.size * scale !in MIN_TRANSFORMED_BRUSH_SIZE..MAX_TRANSFORMED_BRUSH_SIZE }
+    ) {
+        return null
+    }
+    val center =
+        CanvasPoint(
+            (points.minOf { it.x } + points.maxOf { it.x }) / 2f,
+            (points.minOf { it.y } + points.maxOf { it.y }) / 2f,
+        )
+    var transformed =
+        selected.map { stroke ->
+            stroke.transformed(center, scale, Math.toRadians(rotation.toDouble()).toFloat())
+        }
+    val transformedPoints = transformed.flatMap { it.toStrokePath().points }
+    val minX = transformedPoints.minOf { it.x }
+    val maxX = transformedPoints.maxOf { it.x }
+    val minY = transformedPoints.minOf { it.y }
+    val maxY = transformedPoints.maxOf { it.y }
+    if (maxX - minX > pageWidth || maxY - minY > pageHeight) return null
+    val dx = when {
+        minX < 0f -> -minX
+        maxX > pageWidth -> pageWidth - maxX
+        else -> 0f
+    }
+    val dy = when {
+        minY < 0f -> -minY
+        maxY > pageHeight -> pageHeight - maxY
+        else -> 0f
+    }
+    if (dx != 0f || dy != 0f) transformed = transformed.map { it.translated(dx, dy) }
+    val transformedById = transformed.associateBy(StrokeEntity::id)
+    return strokes.map { stroke -> transformedById[stroke.id] ?: stroke }
+}
+
+internal fun strokeSelectionBounds(
+    strokes: List<StrokeEntity>,
+    selectedIds: Set<String>,
+): androidx.compose.ui.geometry.Rect? {
+    val selected = strokes.filter { it.id in selectedIds }
+    val points = selected.flatMap { it.toStrokePath().points }
+    if (points.isEmpty()) return null
+    val margin = selected.maxOf(StrokeEntity::size) / 2f
+    return androidx.compose.ui.geometry.Rect(
+        points.minOf { it.x } - margin,
+        points.minOf { it.y } - margin,
+        points.maxOf { it.x } + margin,
+        points.maxOf { it.y } + margin,
+    )
+}
+
+private const val MIN_TRANSFORMED_BRUSH_SIZE = 0.5f
+private const val MAX_TRANSFORMED_BRUSH_SIZE = 128f
 
 internal fun StrokeEntity.eraseSegments(
     eraser: List<CanvasPoint>,

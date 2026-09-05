@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import android.app.Application
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,6 +77,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -102,6 +107,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.majkeylab.seliadocs.R
+import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.PageTextMatch
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkTextRecognizer
@@ -127,7 +133,42 @@ internal fun seliaWindowClass(widthDp: Int): SeliaWindowClass =
 
 internal data class PageTextDraft(val pageId: String, val value: TextFieldValue)
 
+internal data class InlineTextDraft(
+    val pageId: String,
+    val elementId: String?,
+    val origin: CanvasPoint?,
+    val text: String,
+)
+
 internal enum class EditorCloseIntent { BACK, SETTINGS }
+
+internal sealed interface EditorAction {
+    data class Close(val intent: EditorCloseIntent) : EditorAction
+    data class SelectTool(val tool: EditorTool) : EditorAction
+    data class EditText(val draft: InlineTextDraft) : EditorAction
+    data class SelectPage(val pageId: String) : EditorAction
+    data class DuplicatePage(val pageId: String) : EditorAction
+    data class DeletePage(val pageId: String) : EditorAction
+    data class ImportPdf(val uri: Uri) : EditorAction
+    data class ExportPdf(val uri: Uri) : EditorAction
+    data class ImportImage(val pageId: String, val uri: Uri, val ocr: Boolean) : EditorAction
+    data object AddText : EditorAction
+    data object FinishText : EditorAction
+    data object Search : EditorAction
+    data object AddPage : EditorAction
+    data object PreviousPage : EditorAction
+    data object NextPage : EditorAction
+}
+
+internal data class EditorActionState(
+    val pending: EditorAction? = null,
+    val saving: Boolean = false,
+    val ready: Boolean = false,
+    val executing: EditorAction? = null,
+) {
+    val busy: Boolean
+        get() = pending != null || executing != null
+}
 
 internal data class EditorCloseState(
     val intent: EditorCloseIntent? = null,
@@ -140,7 +181,13 @@ internal data class EditorCloseState(
 internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     override val viewModelStore = ViewModelStore()
     private var sessionKey: String? = null
+    var sessionEpoch = 0L
+        private set
     private var draft: PageTextDraft? = null
+    private val mutableActionState = MutableStateFlow(EditorActionState())
+    val actionState = mutableActionState.asStateFlow()
+    private val mutableInlineTextDraft = MutableStateFlow<InlineTextDraft?>(null)
+    val inlineTextDraft = mutableInlineTextDraft.asStateFlow()
     private val mutableCloseState = MutableStateFlow(EditorCloseState())
     val closeState = mutableCloseState.asStateFlow()
 
@@ -151,15 +198,18 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
             return
         }
         if (sessionKey == key) return
+        sessionEpoch++
         viewModelStore.clear()
         sessionKey = key
         draft = null
+        mutableActionState.value = EditorActionState()
+        mutableInlineTextDraft.value = null
         mutableCloseState.value = EditorCloseState()
     }
 
     @Synchronized
     fun acceptDraft(pageId: String, value: TextFieldValue): Boolean {
-        if (mutableCloseState.value.closing) return false
+        if (mutableCloseState.value.closing || mutableActionState.value.busy) return false
         draft = PageTextDraft(pageId, value)
         return true
     }
@@ -183,10 +233,67 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     fun draftFor(pageId: String?): TextFieldValue? = draft?.takeIf { it.pageId == pageId }?.value
 
     @Synchronized
+    fun beginInlineText(draft: InlineTextDraft): Boolean {
+        if (mutableCloseState.value.closing || mutableActionState.value.busy) return false
+        mutableInlineTextDraft.value = draft
+        return true
+    }
+
+    @Synchronized
+    fun clearInlineText(epoch: Long = sessionEpoch): Boolean {
+        if (epoch != sessionEpoch) return false
+        mutableInlineTextDraft.value = null
+        return true
+    }
+
+    @Synchronized
+    fun requestAction(action: EditorAction) {
+        if (mutableCloseState.value.closing) return
+        val current = mutableActionState.value
+        if (current.pending is EditorAction.Close) return
+        if (action == EditorAction.FinishText && current.busy) return
+        mutableActionState.value = current.copy(pending = action)
+    }
+
+    @Synchronized
+    fun beginActionSave(): Long? {
+        val current = mutableActionState.value
+        if (current.pending == null || current.saving || current.ready || current.executing != null) return null
+        mutableActionState.value = current.copy(saving = true)
+        return sessionEpoch
+    }
+
+    @Synchronized
+    fun completeActionSave(epoch: Long, saved: Boolean) {
+        if (epoch != sessionEpoch) return
+        mutableActionState.value =
+            if (saved) mutableActionState.value.copy(saving = false, ready = true) else EditorActionState()
+    }
+
+    @Synchronized
+    fun takeReadyAction(): EditorAction? {
+        val current = mutableActionState.value
+        if (!current.ready) return null
+        val action = current.pending
+        mutableActionState.value = EditorActionState(
+            executing = action?.takeIf { it is EditorAction.ImportPdf || it is EditorAction.ImportImage },
+        )
+        return action
+    }
+
+    @Synchronized
+    fun completeExecutingAction(epoch: Long, action: EditorAction) {
+        val current = mutableActionState.value
+        if (epoch != sessionEpoch || current.executing != action) return
+        mutableActionState.value = current.copy(executing = null)
+    }
+
+    @Synchronized
     fun mutationsAllowed(): Boolean = !mutableCloseState.value.closing
 
     @Synchronized
-    fun completeClose(saved: Boolean) {
+    fun completeClose(saved: Boolean, epoch: Long = sessionEpoch) {
+        if (epoch != sessionEpoch) return
         val current = mutableCloseState.value
         if (!current.closing) return
         mutableCloseState.value = if (saved) current.copy(completed = true) else EditorCloseState()
@@ -196,12 +303,16 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     fun consumeCompletedClose() {
         val completed = mutableCloseState.value
         check(completed.completed)
+        sessionEpoch++
         if (completed.intent == EditorCloseIntent.BACK) viewModelStore.clear()
         draft = null
+        mutableActionState.value = EditorActionState()
+        mutableInlineTextDraft.value = null
         mutableCloseState.value = EditorCloseState()
     }
 
     override fun onCleared() {
+        sessionEpoch++
         viewModelStore.clear()
     }
 }
@@ -270,26 +381,107 @@ private fun EditorScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val closeState by sessionHolder.closeState.collectAsStateWithLifecycle()
-    var textPageId by remember { mutableStateOf<String?>(null) }
-    var imagePageId by remember { mutableStateOf<String?>(null) }
+    val inlineTextDraft by sessionHolder.inlineTextDraft.collectAsStateWithLifecycle()
+    val textPlacementPageId = inlineTextDraft?.pageId
+    val editingTextElementId = inlineTextDraft?.elementId
+    val actionState by sessionHolder.actionState.collectAsStateWithLifecycle()
+    val inputEnabled = !actionState.busy && !closeState.closing
+    val contextActionsEnabled = inputEnabled && inlineTextDraft == null
+    val toolbarState =
+        if (state.tool == EditorTool.TYPE || inlineTextDraft != null || !inputEnabled) {
+            state.copy(canUndo = false, canRedo = false)
+        } else {
+            state
+        }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    var imagePageId by rememberSaveable { mutableStateOf<String?>(null) }
     var shapeDialogOpen by remember { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var contentsOpen by rememberSaveable { mutableStateOf(false) }
-    val requestSearch: () -> Unit = {
-        val draft = sessionHolder.latestDraft(state.pages.mapTo(mutableSetOf()) { it.id })
-        viewModel.flushPageTextBeforeSearch(draft?.pageId, draft?.value?.text) { saved ->
-            if (saved && sessionHolder.mutationsAllowed()) searchOpen = true
+    LaunchedEffect(actionState, state.selectedPage?.id) {
+        if (state.selectedPage == null) return@LaunchedEffect
+        val saveEpoch = sessionHolder.beginActionSave()
+        if (saveEpoch != null) {
+            val inline = sessionHolder.inlineTextDraft.value
+            val draft = sessionHolder.latestDraft(state.pages.mapTo(mutableSetOf()) { it.id })
+            val afterInlineSave: (Boolean) -> Unit = afterSave@{ saved ->
+                if (saved) {
+                    if (!sessionHolder.clearInlineText(saveEpoch)) return@afterSave
+                    viewModel.flushPageTextBeforeAction(
+                        draft?.pageId,
+                        draft?.value?.text,
+                    ) { pageSaved -> sessionHolder.completeActionSave(saveEpoch, pageSaved) }
+                } else {
+                    sessionHolder.completeActionSave(saveEpoch, false)
+                }
+            }
+            if (inline == null || (inline.elementId == null && inline.text.isBlank())) {
+                afterInlineSave(true)
+            } else if (inline.elementId == null) {
+                viewModel.addText(inline.pageId, inline.text, inline.origin, afterInlineSave)
+            } else {
+                viewModel.updateTextElement(inline.elementId, inline.text, afterInlineSave)
+            }
+        }
+        if (!sessionHolder.actionState.value.ready) return@LaunchedEffect
+        keyboard?.hide()
+        focusManager.clearFocus()
+        val action = sessionHolder.takeReadyAction() ?: return@LaunchedEffect
+        val actionEpoch = sessionHolder.sessionEpoch
+        when (action) {
+            is EditorAction.Close -> {
+                if (sessionHolder.beginClose(action.intent)) {
+                    val closeEpoch = sessionHolder.sessionEpoch
+                    viewModel.flushPageTextBeforeClose(null, null) { saved ->
+                        sessionHolder.completeClose(saved, closeEpoch)
+                    }
+                }
+            }
+            is EditorAction.SelectTool -> viewModel.selectTool(action.tool)
+            is EditorAction.EditText -> sessionHolder.beginInlineText(action.draft)
+            is EditorAction.SelectPage -> viewModel.selectPage(action.pageId)
+            is EditorAction.DuplicatePage -> viewModel.duplicatePage(action.pageId)
+            is EditorAction.DeletePage -> viewModel.deletePage(action.pageId)
+            is EditorAction.ImportPdf -> viewModel.importPdf(action.uri) {
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+            }
+            is EditorAction.ExportPdf -> viewModel.exportPdf(action.uri)
+            is EditorAction.ImportImage -> viewModel.importImage(action.pageId, action.uri, action.ocr) {
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+            }
+            EditorAction.AddText -> state.selectedPage?.id?.let { pageId ->
+                viewModel.selectTool(EditorTool.LASSO)
+                viewModel.selectElement(null)
+                sessionHolder.beginInlineText(InlineTextDraft(pageId, null, null, ""))
+            }
+            EditorAction.Search -> searchOpen = true
+            EditorAction.AddPage -> viewModel.addPage()
+            EditorAction.PreviousPage -> viewModel.selectPreviousPage()
+            EditorAction.NextPage -> viewModel.selectNextPage()
+            EditorAction.FinishText -> Unit
         }
     }
+    val beginTextPlacement: () -> Unit = { sessionHolder.requestAction(EditorAction.AddText) }
+    val finishInlineText: () -> Unit = { sessionHolder.requestAction(EditorAction.FinishText) }
     val requestClose: (EditorCloseIntent) -> Unit = { intent ->
-        if (sessionHolder.beginClose(intent)) {
-            val draft = sessionHolder.latestDraft(state.pages.mapTo(mutableSetOf()) { it.id })
-            viewModel.flushPageTextBeforeClose(
-                draft?.pageId,
-                draft?.value?.text,
-                sessionHolder::completeClose,
-            )
-        }
+        sessionHolder.requestAction(EditorAction.Close(intent))
+    }
+    val selectTool: (EditorTool) -> Unit = { tool ->
+        sessionHolder.requestAction(EditorAction.SelectTool(tool))
+    }
+    val requestSearch: () -> Unit = { sessionHolder.requestAction(EditorAction.Search) }
+    val addPage: () -> Unit = { sessionHolder.requestAction(EditorAction.AddPage) }
+    val selectPreviousPage: () -> Unit = { sessionHolder.requestAction(EditorAction.PreviousPage) }
+    val selectNextPage: () -> Unit = { sessionHolder.requestAction(EditorAction.NextPage) }
+    val selectPage: (String) -> Unit = { pageId ->
+        sessionHolder.requestAction(EditorAction.SelectPage(pageId))
+    }
+    val duplicatePage: (String) -> Unit = { pageId ->
+        sessionHolder.requestAction(EditorAction.DuplicatePage(pageId))
+    }
+    val deletePage: (String) -> Unit = { pageId ->
+        sessionHolder.requestAction(EditorAction.DeletePage(pageId))
     }
     LaunchedEffect(closeState.intent, closeState.completed) {
         val intent = closeState.intent
@@ -305,24 +497,23 @@ private fun EditorScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             val pageId = imagePageId
             imagePageId = null
-            if (uri != null && pageId != null) viewModel.importImage(pageId, uri, settings.imageOcr)
+            if (uri != null && pageId != null) {
+                sessionHolder.requestAction(EditorAction.ImportImage(pageId, uri, settings.imageOcr))
+            }
         }
     val pdfPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) viewModel.importPdf(uri)
+            if (uri != null) sessionHolder.requestAction(EditorAction.ImportPdf(uri))
         }
     val pdfExporter =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-            if (uri != null) viewModel.exportPdf(uri)
+            if (uri != null) sessionHolder.requestAction(EditorAction.ExportPdf(uri))
         }
-    textPageId?.let { pageId ->
-        TextElementDialog(
-            onDismiss = { textPageId = null },
-            onSave = { text ->
-                viewModel.addText(pageId, text)
-                textPageId = null
-            },
-        )
+    LaunchedEffect(state.selectedPage?.id) {
+        val selectedPageId = state.selectedPage?.id ?: return@LaunchedEffect
+        if (textPlacementPageId != null && textPlacementPageId != selectedPageId) {
+            sessionHolder.clearInlineText()
+        }
     }
     if (shapeDialogOpen) {
         ShapeDialog(
@@ -369,7 +560,7 @@ private fun EditorScreen(
             ContentsPanel(
                 state = state,
                 onSelectPage = {
-                    viewModel.selectPage(it)
+                    selectPage(it)
                     contentsOpen = false
                 },
                 onCreateChapter = viewModel::createChapter,
@@ -377,8 +568,8 @@ private fun EditorScreen(
                 onRenamePage = viewModel::renamePage,
                 onBookmarkPage = viewModel::setPageBookmarked,
                 onAssignPage = viewModel::assignPageToChapter,
-                onDuplicatePage = viewModel::duplicatePage,
-                onDeletePage = viewModel::deletePage,
+                onDuplicatePage = duplicatePage,
+                onDeletePage = deletePage,
                 loadPagePreview = viewModel::loadPagePreview,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 420.dp, max = 720.dp),
             )
@@ -403,6 +594,14 @@ private fun EditorScreen(
             modifier =
                 Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    if (
+                        !inputEnabled ||
+                        state.tool == EditorTool.TYPE ||
+                        textPlacementPageId != null ||
+                        editingTextElementId != null
+                    ) {
+                        return@onPreviewKeyEvent false
+                    }
                     when {
                         event.isCtrlPressed && event.key == Key.Z && event.isShiftPressed -> {
                             viewModel.redo()
@@ -428,14 +627,13 @@ private fun EditorScreen(
                 Column {
                     if (compact) {
                         CompactEditorTopBar(
-                            state = state,
+                            state = toolbarState,
                             onBack = { requestClose(EditorCloseIntent.BACK) },
                             onOpenContents = { contentsOpen = true },
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
-                            onAddPage = viewModel::addPage,
+                            onAddPage = addPage,
                             onSearch = requestSearch,
-                            onSelectPencil = { viewModel.selectTool(EditorTool.PENCIL) },
                             onFingerDrawing = viewModel::setFingerDrawing,
                             onExport = onExport,
                             onSettings = { requestClose(EditorCloseIntent.SETTINGS) },
@@ -445,19 +643,19 @@ private fun EditorScreen(
                             title = state.notebook?.title.orEmpty(),
                             failed = state.failed,
                             onBack = { requestClose(EditorCloseIntent.BACK) },
-                            onAddPage = viewModel::addPage,
+                            onAddPage = addPage,
                             onSettings = { requestClose(EditorCloseIntent.SETTINGS) },
                             onExport = onExport,
                         )
                         HorizontalDivider()
                         EditorToolBar(
-                            state = state,
-                            onSelectTool = viewModel::selectTool,
+                            state = toolbarState,
+                            onSelectTool = selectTool,
                             onEraserMode = viewModel::setEraserMode,
                             onUndo = viewModel::undo,
                             onRedo = viewModel::redo,
                             onSearch = requestSearch,
-                            onAddText = { textPageId = state.selectedPage?.id },
+                            onAddText = beginTextPlacement,
                             onAddImage = onAddImage,
                             onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                             onCleanShape = { shapeDialogOpen = true },
@@ -468,12 +666,46 @@ private fun EditorScreen(
                             onUpdateSettings = onUpdateSettings,
                         )
                     }
-                    if (state.selectedElement != null) {
+                    if (contextActionsEnabled && state.selectedElement != null) {
                         HorizontalDivider()
                         ElementContextBar(
+                            onRecognizeText =
+                                if (state.selectedElement?.kind == ElementKind.IMAGE.name) {
+                                    viewModel::recognizeSelectedImage
+                                } else {
+                                    null
+                                },
+                            onEdit =
+                                state.selectedElement
+                                    ?.takeIf { it.kind == ElementKind.TEXT.name }
+                                    ?.let { element ->
+                                        {
+                                            if (editingTextElementId != element.id) {
+                                                sessionHolder.requestAction(
+                                                    EditorAction.EditText(
+                                                        InlineTextDraft(
+                                                            element.pageId,
+                                                            element.id,
+                                                            CanvasPoint(element.x, element.y),
+                                                            element.text.orEmpty(),
+                                                        ),
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    },
                             onDuplicate = viewModel::duplicateSelectedElement,
                             onBringForward = viewModel::bringSelectedElementForward,
                             onDelete = viewModel::deleteSelectedElement,
+                        )
+                    } else if (contextActionsEnabled && state.selectedStrokeIds.isNotEmpty()) {
+                        HorizontalDivider()
+                        InkContextBar(
+                            count = state.selectedStrokeIds.size,
+                            onDuplicate = viewModel::duplicateSelectedStrokes,
+                            onColorChange = viewModel::recolorSelectedStrokes,
+                            onTransform = viewModel::transformSelectedStrokes,
+                            onDelete = viewModel::deleteSelectedStrokes,
                         )
                     }
                     state.recognitionMessage?.let { message ->
@@ -493,9 +725,9 @@ private fun EditorScreen(
                 if (compact) {
                     CompactEditorPalette(
                         state = state,
-                        onSelectTool = viewModel::selectTool,
+                        onSelectTool = selectTool,
                         onEraserMode = viewModel::setEraserMode,
-                        onAddText = { textPageId = state.selectedPage?.id },
+                        onAddText = beginTextPlacement,
                         onAddImage = onAddImage,
                         onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                         onCleanShape = { shapeDialogOpen = true },
@@ -521,16 +753,16 @@ private fun EditorScreen(
                     Row(Modifier.fillMaxSize().padding(padding)) {
                         ContentsPanel(
                             state = state,
-                            onSelectPage = viewModel::selectPage,
+                            onSelectPage = selectPage,
                             onCreateChapter = viewModel::createChapter,
                             onDeleteChapter = viewModel::deleteChapter,
                             onRenamePage = viewModel::renamePage,
                             onBookmarkPage = viewModel::setPageBookmarked,
                             onAssignPage = viewModel::assignPageToChapter,
-                            onDuplicatePage = viewModel::duplicatePage,
-                            onDeletePage = viewModel::deletePage,
+                            onDuplicatePage = duplicatePage,
+                            onDeletePage = deletePage,
                             loadPagePreview = viewModel::loadPagePreview,
-                            modifier = Modifier.width(244.dp).fillMaxHeight(),
+                            modifier = Modifier.width(320.dp).fillMaxHeight(),
                         )
                         VerticalDivider()
                         PageCanvas(
@@ -551,8 +783,8 @@ private fun EditorScreen(
                             penColorArgb = settings.penColorArgb,
                             highlighterColorArgb = settings.highlighterColorArgb,
                             pageTransitionEnabled = settings.pageTransition,
-                            onPreviousPage = viewModel::selectPreviousPage,
-                            onNextPage = viewModel::selectNextPage,
+                            onPreviousPage = selectPreviousPage,
+                            onNextPage = selectNextPage,
                             onStrokeFinished = { pageId, stroke ->
                                 viewModel.addStroke(
                                     pageId,
@@ -571,8 +803,26 @@ private fun EditorScreen(
                             assetFile = viewModel::assetFile,
                             onPageTextDraftChanged = sessionHolder::acceptDraft,
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
-                            pageTextInputEnabled = !closeState.closing,
+                            pageTextInputEnabled = inputEnabled,
+                            textPlacementEnabled =
+                                textPlacementPageId == state.selectedPage?.id ||
+                                    (editingTextElementId != null &&
+                                        editingTextElementId == state.selectedElement?.id),
+                            textPlacementInputEnabled = inputEnabled,
+                            textEditingElement =
+                                state.selectedElement?.takeIf { it.id == editingTextElementId },
+                            initialInlineTextDraft = inlineTextDraft,
+                            onTextPlacementDraftChanged = { pageId, elementId, point, text ->
+                                sessionHolder.beginInlineText(InlineTextDraft(pageId, elementId, point, text))
+                            },
+                            onTextPlacementFinished = finishInlineText,
                             loadPdfPage = viewModel::renderPdfPage,
+                            onCommitInkTransform = { transform ->
+                                viewModel.transformSelectedStrokes(
+                                    transform.scale,
+                                    transform.rotationDegrees,
+                                )
+                            },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
@@ -606,8 +856,8 @@ private fun EditorScreen(
                             penColorArgb = settings.penColorArgb,
                             highlighterColorArgb = settings.highlighterColorArgb,
                             pageTransitionEnabled = settings.pageTransition,
-                            onPreviousPage = viewModel::selectPreviousPage,
-                            onNextPage = viewModel::selectNextPage,
+                            onPreviousPage = selectPreviousPage,
+                            onNextPage = selectNextPage,
                             onStrokeFinished = { pageId, stroke ->
                                 viewModel.addStroke(
                                     pageId,
@@ -626,8 +876,26 @@ private fun EditorScreen(
                             assetFile = viewModel::assetFile,
                             onPageTextDraftChanged = sessionHolder::acceptDraft,
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
-                            pageTextInputEnabled = !closeState.closing,
+                            pageTextInputEnabled = inputEnabled,
+                            textPlacementEnabled =
+                                textPlacementPageId == state.selectedPage?.id ||
+                                    (editingTextElementId != null &&
+                                        editingTextElementId == state.selectedElement?.id),
+                            textPlacementInputEnabled = inputEnabled,
+                            textEditingElement =
+                                state.selectedElement?.takeIf { it.id == editingTextElementId },
+                            initialInlineTextDraft = inlineTextDraft,
+                            onTextPlacementDraftChanged = { pageId, elementId, point, text ->
+                                sessionHolder.beginInlineText(InlineTextDraft(pageId, elementId, point, text))
+                            },
+                            onTextPlacementFinished = finishInlineText,
                             loadPdfPage = viewModel::renderPdfPage,
+                            onCommitInkTransform = { transform ->
+                                viewModel.transformSelectedStrokes(
+                                    transform.scale,
+                                    transform.rotationDegrees,
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth().weight(1f),
                         )
                     }
@@ -647,7 +915,6 @@ private fun CompactEditorTopBar(
     onRedo: () -> Unit,
     onAddPage: () -> Unit,
     onSearch: () -> Unit,
-    onSelectPencil: () -> Unit,
     onFingerDrawing: (Boolean) -> Unit,
     onExport: () -> Unit,
     onSettings: () -> Unit,
@@ -765,10 +1032,6 @@ private fun CompactEditorTopBar(
                             menuOpen = false
                             onSearch()
                         }
-                        CompactMenuItem(stringResource(R.string.tool_pencil), "compact-more-pencil") {
-                            menuOpen = false
-                            onSelectPencil()
-                        }
                         val fingerDrawing = state.notebook?.fingerDrawing == true
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.draw_with_finger)) },
@@ -827,12 +1090,14 @@ internal fun CompactEditorPalette(
 ) {
     var insertOpen by rememberSaveable { mutableStateOf(false) }
     var eraserMenuOpen by rememberSaveable { mutableStateOf(false) }
-    val selectedState = stringResource(R.string.selected)
-    val notSelectedState = stringResource(R.string.not_selected)
+    var optionsTool by remember { mutableStateOf<EditorTool?>(null) }
+    val selectedState = stringResource(R.string.selection_state_selected)
+    val notSelectedState = stringResource(R.string.selection_state_not_selected)
     val tools =
         listOf(
             EditorTool.TYPE to "type",
             EditorTool.PEN to "pen",
+            EditorTool.PENCIL to "pencil",
             EditorTool.HIGHLIGHTER to "highlighter",
             EditorTool.ERASER to "eraser",
             EditorTool.LASSO to "lasso",
@@ -840,9 +1105,9 @@ internal fun CompactEditorPalette(
     Surface(Modifier.testTag("compact-palette")) {
         Column {
             HorizontalDivider()
-            if (state.tool == EditorTool.PEN || state.tool == EditorTool.PENCIL || state.tool == EditorTool.HIGHLIGHTER) {
+            if (optionsTool != null) {
                 BrushOptions(
-                    tool = state.tool,
+                    tool = requireNotNull(optionsTool),
                     settings = settings,
                     onUpdate = onUpdateSettings,
                     modifier =
@@ -853,25 +1118,26 @@ internal fun CompactEditorPalette(
                 )
                 HorizontalDivider()
             }
-            Row(
+            FlowRow(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(contentInsets),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
                 tools.forEach { (tool, tag) ->
-                    val selectedTool =
-                        state.tool == tool ||
-                            (tool == EditorTool.PEN && state.tool == EditorTool.PENCIL)
+                    val selectedTool = state.tool == tool
+                    val configurable = tool in CONFIGURABLE_EDITOR_TOOLS
                     val eraserState =
                         if (tool == EditorTool.ERASER) eraserModeLabel(state.eraserMode) else null
-                    Box(Modifier.weight(1f)) {
+                    Box(Modifier.weight(1f).widthIn(min = 48.dp)) {
                         Surface(
                             onClick = {
                                 if (tool == EditorTool.ERASER) {
                                     eraserMenuOpen = true
+                                } else if (selectedTool && configurable) {
+                                    optionsTool = if (optionsTool == tool) null else tool
                                 } else {
+                                    optionsTool = null
                                     onSelectTool(tool)
                                 }
                             },
@@ -937,7 +1203,7 @@ internal fun CompactEditorPalette(
                         }
                     }
                 }
-                Box(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).widthIn(min = 48.dp)) {
                     Surface(
                         onClick = { insertOpen = true },
                         color = Color.Transparent,
@@ -1024,12 +1290,7 @@ private fun BrushOptions(
                 Triple("blue", R.string.brush_color_blue, 0x6664B5F6),
             )
         } else {
-            listOf(
-                Triple("black", R.string.brush_color_black, 0xFF202124.toInt()),
-                Triple("blue", R.string.brush_color_blue, 0xFF3156D9.toInt()),
-                Triple("red", R.string.brush_color_red, 0xFFD93F3F.toInt()),
-                Triple("green", R.string.brush_color_green, 0xFF2E7D32.toInt()),
-            )
+            PEN_COLOR_OPTIONS
         }
     Row(
         modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1161,121 +1422,172 @@ internal fun EditorToolBar(
     settings: AppSettings,
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onUndo, enabled = state.canUndo) { Text(stringResource(R.string.undo)) }
-        TextButton(onClick = onRedo, enabled = state.canRedo) { Text(stringResource(R.string.redo)) }
-        TextButton(onClick = onSearch) { Text(stringResource(R.string.search)) }
-        VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
-        EditorTool.entries.forEach { tool ->
-            Surface(
-                color =
-                    if (state.tool == tool) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        Color.Transparent
-                },
-                shape = RoundedCornerShape(10.dp),
-                modifier =
-                    Modifier
-                        .testTag("toolbar-tool-${tool.name.lowercase()}")
-                        .selectable(
-                            selected = state.tool == tool,
-                            onClick = { onSelectTool(tool) },
-                            role = Role.RadioButton,
-                        ),
-            ) {
-                Text(
-                    text = toolLabel(tool),
-                    color =
-                        if (state.tool == tool) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                )
-            }
-        }
-        if (state.tool == EditorTool.PEN || state.tool == EditorTool.PENCIL || state.tool == EditorTool.HIGHLIGHTER) {
+    var optionsTool by remember { mutableStateOf<EditorTool?>(null) }
+    var insertOpen by rememberSaveable { mutableStateOf(false) }
+    Surface(modifier = Modifier.fillMaxWidth().testTag("editor-tool-bar")) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ToolbarIconAction(R.drawable.ic_undo, R.string.undo, "toolbar-undo", state.canUndo, onUndo)
+            ToolbarIconAction(R.drawable.ic_redo, R.string.redo, "toolbar-redo", state.canRedo, onRedo)
+            ToolbarIconAction(R.drawable.ic_search, R.string.search, "toolbar-search", onClick = onSearch)
             VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
-            BrushOptions(state.tool, settings, onUpdateSettings)
-        }
-        if (state.tool == EditorTool.ERASER) {
-            VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
-            EraserMode.entries.forEach { mode ->
-                Surface(
-                    color =
-                        if (state.eraserMode == mode) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            Color.Transparent
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier =
-                        Modifier
-                            .testTag(
-                                if (mode == EraserMode.SEGMENT) {
-                                    "toolbar-eraser-segment"
-                                } else {
-                                    "toolbar-eraser-stroke"
-                                },
+            EditorTool.entries.forEach { tool ->
+                val selected = state.tool == tool
+                val configurable = tool in CONFIGURABLE_EDITOR_TOOLS
+                val label = toolLabel(tool)
+                Box {
+                    Surface(
+                        color =
+                            if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                Color.Transparent
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier =
+                            Modifier
+                                .size(48.dp)
+                                .testTag("toolbar-tool-${tool.name.lowercase()}")
+                                .selectable(
+                                    selected = selected,
+                                    onClick = {
+                                        if (selected && configurable) {
+                                            optionsTool = if (optionsTool == tool) null else tool
+                                        } else {
+                                            optionsTool = null
+                                            onSelectTool(tool)
+                                        }
+                                    },
+                                    role = Role.RadioButton,
+                                ),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(toolIcon(tool)),
+                                contentDescription = label,
+                                tint = toolbarToolTint(tool, selected, settings),
                             )
-                            .selectable(
-                                selected = state.eraserMode == mode,
-                                onClick = { onEraserMode(mode) },
-                                role = Role.RadioButton,
-                            ),
-                ) {
-                    Text(
-                        eraserModeLabel(mode),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                    )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = optionsTool == tool,
+                        onDismissRequest = { optionsTool = null },
+                    ) {
+                        when (tool) {
+                            EditorTool.PEN,
+                            EditorTool.PENCIL,
+                            EditorTool.HIGHLIGHTER,
+                            -> BrushOptions(
+                                tool,
+                                settings,
+                                onUpdateSettings,
+                                Modifier.width(520.dp).horizontalScroll(rememberScrollState()),
+                            )
+                            EditorTool.ERASER ->
+                                EraserMode.entries.forEach { mode ->
+                                    val selectedMode = state.eraserMode == mode
+                                    DropdownMenuItem(
+                                        text = { Text(eraserModeLabel(mode)) },
+                                        onClick = {
+                                            optionsTool = null
+                                            onEraserMode(mode)
+                                        },
+                                        modifier =
+                                            Modifier
+                                                .testTag(
+                                                    if (mode == EraserMode.SEGMENT) {
+                                                        "toolbar-eraser-segment"
+                                                    } else {
+                                                        "toolbar-eraser-stroke"
+                                                    },
+                                                )
+                                                .semantics { this.selected = selectedMode },
+                                    )
+                                }
+                            else -> Unit
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Box {
+                ToolbarIconAction(
+                    R.drawable.ic_add,
+                    R.string.insert,
+                    "toolbar-insert",
+                    onClick = { insertOpen = true },
+                )
+                DropdownMenu(expanded = insertOpen, onDismissRequest = { insertOpen = false }) {
+                    CompactMenuItem(stringResource(R.string.tool_text_box), "toolbar-insert-text") {
+                        insertOpen = false
+                        onAddText()
+                    }
+                    CompactMenuItem(stringResource(R.string.tool_image), "toolbar-insert-image") {
+                        insertOpen = false
+                        onAddImage()
+                    }
+                    CompactMenuItem(stringResource(R.string.import_pdf), "toolbar-insert-pdf") {
+                        insertOpen = false
+                        onImportPdf()
+                    }
+                    if (state.selectedStrokeIds.isNotEmpty()) {
+                        CompactMenuItem(stringResource(R.string.tool_shape), "toolbar-insert-shape") {
+                            insertOpen = false
+                            onCleanShape()
+                        }
+                        CompactMenuItem(
+                            stringResource(R.string.convert_handwriting),
+                            "toolbar-insert-convert",
+                        ) {
+                            insertOpen = false
+                            onConvertHandwriting()
+                        }
+                    }
                 }
             }
         }
-        Surface(onClick = onAddText, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
-            Text(
-                stringResource(R.string.tool_text_box),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
-        }
-        Surface(onClick = onAddImage, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
-            Text(
-                stringResource(R.string.tool_image),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
-        }
-        Surface(onClick = onImportPdf, color = Color.Transparent, shape = RoundedCornerShape(10.dp)) {
-            Text(
-                stringResource(R.string.import_pdf),
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            )
-        }
-        TextButton(onClick = onCleanShape, enabled = state.selectedStrokeIds.isNotEmpty()) {
-            Text(stringResource(R.string.tool_shape))
-        }
-        TextButton(onClick = onConvertHandwriting, enabled = state.selectedStrokeIds.isNotEmpty()) {
-            Text(stringResource(R.string.convert_handwriting))
-        }
-        if (state.selectedStrokeIds.isNotEmpty()) {
-            Text(
-                stringResource(R.string.selected_strokes, state.selectedStrokeIds.size),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-        }
     }
 }
+
+@Composable
+private fun ToolbarIconAction(
+    icon: Int,
+    label: Int,
+    tag: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(48.dp).testTag(tag),
+    ) {
+        Icon(painterResource(icon), stringResource(label))
+    }
+}
+
+@Composable
+private fun toolbarToolTint(tool: EditorTool, selected: Boolean, settings: AppSettings): Color =
+    when {
+        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        tool == EditorTool.HIGHLIGHTER -> Color(settings.highlighterColorArgb).copy(alpha = 1f)
+        tool == EditorTool.PEN || tool == EditorTool.PENCIL -> Color(settings.penColorArgb)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+private val CONFIGURABLE_EDITOR_TOOLS =
+    setOf(EditorTool.PEN, EditorTool.PENCIL, EditorTool.HIGHLIGHTER, EditorTool.ERASER)
+
+internal val PEN_COLOR_OPTIONS =
+    listOf(
+        Triple("black", R.string.brush_color_black, 0xFF202124.toInt()),
+        Triple("blue", R.string.brush_color_blue, 0xFF3156D9.toInt()),
+        Triple("red", R.string.brush_color_red, 0xFFD93F3F.toInt()),
+        Triple("green", R.string.brush_color_green, 0xFF2E7D32.toInt()),
+    )
 
 @Composable
 private fun SearchDialog(
@@ -1466,31 +1778,6 @@ private fun shapeLabel(kind: ShapeKind): String =
     )
 
 @Composable
-private fun TextElementDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.add_text)) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it.take(10_000) },
-                label = { Text(stringResource(R.string.text_content)) },
-                minLines = 3,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(text) }, enabled = text.isNotBlank()) {
-                Text(stringResource(R.string.add))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
-}
-
-@Composable
 private fun toolLabel(tool: EditorTool): String =
     stringResource(
         when (tool) {
@@ -1506,7 +1793,8 @@ private fun toolLabel(tool: EditorTool): String =
 private fun toolIcon(tool: EditorTool): Int =
     when (tool) {
         EditorTool.TYPE -> R.drawable.ic_text_fields
-        EditorTool.PEN, EditorTool.PENCIL -> R.drawable.ic_stylus
+        EditorTool.PEN -> R.drawable.ic_stylus
+        EditorTool.PENCIL -> R.drawable.ic_pencil
         EditorTool.HIGHLIGHTER -> R.drawable.ic_highlighter
         EditorTool.ERASER -> R.drawable.ic_eraser
         EditorTool.LASSO -> R.drawable.ic_lasso_select

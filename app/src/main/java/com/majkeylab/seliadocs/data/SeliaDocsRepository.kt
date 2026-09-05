@@ -627,7 +627,8 @@ internal class SeliaDocsRepository(
                 draft.height > 0f,
         )
         when (draft.kind) {
-            ElementKind.TEXT -> require(!draft.text.isNullOrBlank() && draft.text.length <= 10_000)
+            ElementKind.TEXT ->
+                require(!draft.text.isNullOrBlank() && draft.text.length <= TEXT_ELEMENT_MAX_LENGTH)
             ElementKind.IMAGE ->
                 require(
                     !draft.assetId.isNullOrBlank() &&
