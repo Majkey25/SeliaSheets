@@ -94,7 +94,7 @@ jobs:
           profile: pixel_4
           ram-size: 4096
           disk-size: 8G
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -partition-size 4096 -grpc-use-token
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -partition-size 4096 -grpc 8556 -grpc-use-token
           script: sh .github/scripts/run_android37_ci.sh
       - name: Upload Android 17 diagnostics
         if: failure()
