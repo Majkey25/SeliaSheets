@@ -9,7 +9,7 @@ Huawei USB test runs on September 5 used an exclusive device window. No app data
 - The broad instrumentation run at 18:52 reported `OK (311 tests)`, with one external-stylus assumption skip.
 - The separate viewport/input run at 18:57 reported `OK (40 tests)`, with three API/hardware assumption skips.
 - These runs cover inline text persistence and recreation, backup validation and migrations, image transforms and OCR history, PDF retry, ink selection, pressure-event routing, palm/eraser transitions, and zoomed coordinates.
-- Those results precede the subsequent same-text input callback fix and ink-duplicate test synchronization change. Their rerun is pending.
+- Those results precede the subsequent same-text input callback fix and ink-duplicate test synchronization change. Their targeted Huawei rerun at 19:29 passed all 10 tests.
 
 Injected Android `MotionEvent` tests verify application routing. They do not verify a physical pen digitizer. The attached phone has no detected active stylus, so hardware pressure, tilt, hover, barrel buttons, and palm rejection remain unverified.
 
@@ -27,3 +27,11 @@ The live Play Console still serves code 12 in closed `alpha`. Its saved data-saf
 - Android 17 could not resolve the test activity and then reported `INSTRUMENTATION_ABORTED: System has crashed` after 11 of 311 tests. The native emulator pressure/pinch stage did not run.
 
 The release remains gated on corrected runtime checks, signed release smoke testing, artifact verification, and Play acceptance. A green local build is not release acceptance.
+
+## Follow-up runtime checks
+
+[CI run 33980852841](https://github.com/Majkey25/SeliaSheets/actions/runs/33980852841) passed the build and Android 10 jobs. Both Android 17 instrumentation stages completed without failures: the runner reported 312 and 42 tests, with expected external-input assumption skips. Guest storage was healthy and the diagnostics contained no system-server crash. The final native pressure/pinch stage could not start because the emulator's gRPC service was not enabled. The next run explicitly enables the authenticated loopback service with `-grpc 8556 -grpc-use-token`.
+
+The signed, minified code-13 APK installed and cold-launched on Huawei in 308 ms. Manual checks covered notebook creation, full-page typing, persistence after reopening, adding a page, selecting pages through Contents, and opening Settings. The app's memory snapshot after this sequence was 73,598 KB PSS with one Activity. The mixed interaction sequence reported 580 rendered frames, 78 janky frames, and 8/20/32/77 ms at the 50th/90th/95th/99th percentiles. This is a smoke-test observation, not a controlled performance comparison.
+
+Android 10's `adb input touchscreen swipe` produced `TOOL_TYPE_UNKNOWN`, not finger or stylus input. The opt-in input diagnostic confirmed `tool=0`, `source=4098`; its stylus assertion failed as expected. These swipes cannot establish drawing acceptance because the editor deliberately accepts only identified finger/stylus/eraser tools. The signed-release drawing check therefore uses explicit stylus `PointerProperties` through `UiAutomation.injectInputEvent`, with screenshot assertions near the requested stroke. That check remains pending.
