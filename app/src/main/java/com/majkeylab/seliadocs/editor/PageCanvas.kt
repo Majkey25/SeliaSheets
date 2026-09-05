@@ -801,18 +801,22 @@ private fun InlineTextPlacementLayer(
         BasicTextField(
             value = draft,
             onValueChange = { value ->
-                val error =
-                    when {
-                        value.text.length > TEXT_ELEMENT_MAX_LENGTH -> R.string.inline_text_too_long
-                        editingElement != null && value.text.isEmpty() -> null
-                        textTransform(value.text) == null -> R.string.inline_text_does_not_fit
-                        else -> null
-                    }
-                if (error != null) {
-                    validationError = error
-                } else if (onDraftChanged(page.id, editingElement?.id, point, value.text)) {
+                if (value.text == draft.text) {
                     draft = value
-                    validationError = null
+                } else {
+                    val error =
+                        when {
+                            value.text.length > TEXT_ELEMENT_MAX_LENGTH -> R.string.inline_text_too_long
+                            editingElement != null && value.text.isEmpty() -> null
+                            textTransform(value.text) == null -> R.string.inline_text_does_not_fit
+                            else -> null
+                        }
+                    if (error != null) {
+                        validationError = error
+                    } else if (onDraftChanged(page.id, editingElement?.id, point, value.text)) {
+                        draft = value
+                        validationError = null
+                    }
                 }
             },
             enabled = inputEnabled,

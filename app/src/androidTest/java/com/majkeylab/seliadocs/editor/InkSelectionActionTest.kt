@@ -46,7 +46,10 @@ class InkSelectionActionTest {
 
             onMain(viewModel::duplicateSelectedStrokes)
 
-            val duplicated = viewModel.awaitState("duplicated ink") { it.selectedStrokes.size == 3 }
+            val duplicated = viewModel.awaitState("duplicated ink selected and undoable") {
+                it.selectedStrokes.size == 3 && it.canUndo &&
+                    it.selectedStrokeIds.size == 1 && selectedId !in it.selectedStrokeIds
+            }
             val copyId = duplicated.selectedStrokeIds.single()
             val source = duplicated.selectedStrokes.single { it.id == selectedId }
             val copy = duplicated.selectedStrokes.single { it.id == copyId }
@@ -57,6 +60,12 @@ class InkSelectionActionTest {
             assertEquals(source.zIndex + 2, copy.zIndex)
             assertEquals(CanvasPoint(62f, 62f), copy.toStrokePath().points.first())
             assertTrue(duplicated.canUndo)
+
+            onMain(viewModel::undo)
+
+            val restored = viewModel.awaitState("ink duplicate undo") { it.selectedStrokes.size == 2 }
+            assertTrue(restored.selectedStrokes.any { it.id == selectedId })
+            assertFalse(restored.selectedStrokes.any { it.id == copyId })
         }
     }
 
