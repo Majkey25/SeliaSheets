@@ -2,6 +2,12 @@
 
 Candidate: version code 13, `0.6.0-beta.1`, package `com.majkeylab.seliadocs`.
 
+## Accepted application code
+
+[CI run 33986844413](https://github.com/Majkey25/SeliaSheets/actions/runs/33986844413) passed all jobs at `8e32934`, merged unchanged into `main` through PR #23. Android 17's native gRPC pressure/pinch stage passed two tests with no skips; both full and scoped instrumentation stages passed. Android 10 instrumentation and the build job passed too.
+
+Final Huawei runs reported `OK (312 tests)` with two expected opt-in skips and `OK (42 tests)` with three expected API/external-input skips. Signed-APK checks verified the first finger stroke from a fresh editor, stylus drawing after a native pinch, typing with visible ink, persistence, and a rendered two-page PDF export. The investigation below records earlier candidates and failures, not the final acceptance status.
+
 ## Physical Android 10
 
 Huawei USB test runs on September 5 used an exclusive device window. No app data was cleared.
@@ -19,14 +25,14 @@ The local gate passed again after the same-text callback and ink-duplicate test 
 
 The candidate APK passes APK v2 signature verification with one expected RSA-4096 signer and 16 KB ZIP alignment. The AAB reports `jar verified`, with self-signed/no-timestamp and JAR stream-order warnings. These are candidate checks; final release hashes must be taken from the merged commit's signed build.
 
-The live Play Console still serves code 12 in closed `alpha`. Its saved data-safety preview declares Diagnostics, App interactions, and Device or other IDs; no sharing, encrypted transit, no publisher deletion request, and the expected GitHub Pages privacy URL. No declaration was changed during this check.
+Before upload, Play Console served code 12 in closed `alpha`. Its saved data-safety preview declared Diagnostics, App interactions, and Device or other IDs; no sharing, encrypted transit, no publisher deletion request, and the expected GitHub Pages privacy URL. No declaration was changed during this check.
 
 [CI run 33978858120](https://github.com/Majkey25/SeliaSheets/actions/runs/33978858120) passed the build job but failed runtime checks:
 
 - Android 10 completed the broad suite with three failures. Two rejected-paste tests exposed same-text focus/selection callbacks being forwarded as draft changes. The ink-copy test inspected Undo before the combined state finished updating.
 - Android 17 could not resolve the test activity and then reported `INSTRUMENTATION_ABORTED: System has crashed` after 11 of 311 tests. The native emulator pressure/pinch stage did not run.
 
-The release remains gated on corrected runtime checks, signed release smoke testing, artifact verification, and Play acceptance. A green local build is not release acceptance.
+The following reruns addressed those failures.
 
 ## Follow-up runtime checks
 
@@ -42,4 +48,4 @@ Native finger testing found a separate reproducible first-input failure: the fir
 
 Moving ink initialization earlier with `InProgressStrokesView.eagerInit()` in `InkCanvasView.onAttachedToWindow()` made both tests pass unchanged. The obsolete synthetic hover and fixed readiness delays were then removed. The full viewport/stylus group reported `OK (42 tests)`, including three expected API/external-input skips. Six targeted text, shape, and deferred-cleanup regressions passed. The new signed APK also passed the first-finger pixel check immediately after a fresh process/editor launch, followed by a native pinch and stylus pixel check. JVM tests, lint, and signed APK/AAB builds passed, 102 tasks in 1m 15s.
 
-Review of [run 33982362074](https://github.com/Majkey25/SeliaSheets/actions/runs/33982362074) also found an unsafe cleanup path. A closed editor's detached global sweep could delete files held only in another editor's Undo history. The sweep was removed. Orphan images remain until the next library startup; explicit notebook deletion still cleans its unreferenced files. The regression test verifies preservation after editor close and cleanup at fresh library startup. The local build, 97 JVM tests, lint, and signed artifact build passed after this removal, 150 tasks in 2m 38s. Physical reruns remain pending.
+Review of [run 33982362074](https://github.com/Majkey25/SeliaSheets/actions/runs/33982362074) also found an unsafe cleanup path. A closed editor's detached global sweep could delete files held only in another editor's Undo history. The sweep was removed. Orphan images remain until the next library startup; explicit notebook deletion still cleans its unreferenced files. The regression test verifies preservation after editor close and cleanup at fresh library startup. The local build, 97 JVM tests, lint, and signed artifact build passed after this removal, 150 tasks in 2m 38s.

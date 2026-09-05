@@ -32,21 +32,9 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 ## Screenshots
 
-| Notebook editor | Lasso selection |
+| Phone editor | Settings |
 | --- | --- |
-| ![Tablet editor](docs/qa/screenshots/tablet-editor.png) | ![Lasso selection](docs/qa/screenshots/tablet-lasso.png) |
-
-| Text and image | Shape cleanup |
-| --- | --- |
-| ![Text and image](docs/qa/screenshots/tablet-text-image.png) | ![Shape cleanup](docs/qa/screenshots/tablet-shape-cleanup.png) |
-
-| Local math | App details |
-| --- | --- |
-| ![Local math](docs/qa/screenshots/tablet-math.png) | ![App details](docs/qa/screenshots/tablet-app-details.png) |
-
-| Visual notebook creator | Visual defaults |
-| --- | --- |
-| ![Notebook creator](docs/qa/screenshots/tablet-new-notebook.png) | ![Visual settings](docs/qa/screenshots/tablet-settings-defaults.png) |
+| ![Phone editor](docs/qa/screenshots/2026-09-05-phone-editor.png) | ![Settings](docs/qa/screenshots/2026-09-05-phone-settings.png) |
 
 ## Privacy
 
@@ -64,7 +52,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-`0.6.0-beta.1` adds a Pencil brush that responds throughout each stroke to pressure, tilt, and orientation. It also adds a non-writing stylus hover preview, direct selected-ink editing, inline text drafts that survive Activity recreation, and backup validation that rejects oversized, malformed, or unreferenced data. The release targets API 37, but current API 37 runtime acceptance and physical active-stylus behavior remain unverified. Default release builds remain unsigned unless the external upload keystore is supplied.
+`0.6.0-beta.1` adds a Pencil brush that responds throughout each stroke to pressure, tilt, and orientation. It also adds a non-writing stylus hover preview, direct selected-ink editing, inline text drafts that survive Activity recreation, and stricter backup validation. Android 10/17 CI suites and native emulator pressure/pinch checks passed, alongside physical Huawei and signed-APK screenshot checks. See the [verification record](docs/qa/2026-09-05-production-finish.md). Physical active-pen hardware still requires a compatible test device. Default release builds remain unsigned unless the external upload keystore is supplied.
 
 ## Scope
 
