@@ -67,6 +67,11 @@ jobs:
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
           cmdline-tools-version: "16111833" # SDK command-line tools 23
+      - name: Select command-line tools 23
+        run: |
+          mv "$ANDROID_HOME/cmdline-tools/latest" "$ANDROID_HOME/cmdline-tools/preinstalled"
+          ln -s "$ANDROID_HOME/cmdline-tools/16111833" "$ANDROID_HOME/cmdline-tools/latest"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -90,7 +95,17 @@ jobs:
           ram-size: 4096
           disk-size: 8G
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -partition-size 4096 -grpc-use-token
-          script: |
-            ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.notClass=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
-            ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
-            python .github/scripts/run_emulator_stylus_ci.py
+          script: sh .github/scripts/run_android37_ci.sh
+      - name: Upload Android 17 diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: SeliaSheets-api37-diagnostics
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            ${{ runner.temp }}/seliasheets-api37/
+            /tmp/android-runner/emu-crash-*.db
+            /home/runner/.android/avd/test.avd/config.ini
