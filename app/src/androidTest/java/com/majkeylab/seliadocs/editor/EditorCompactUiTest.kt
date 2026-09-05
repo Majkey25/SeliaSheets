@@ -301,9 +301,13 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
         rule.onNodeWithTag("inline-text-editor").performTextInput(original)
         rule.onNodeWithTag("inline-text-editor").performImeAction()
-        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText(original).fetchSemanticsNode() }.isSuccess }
+        rule.waitUntil(5_000) {
+            rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                .fetchSemanticsNodes().isEmpty() &&
+                runCatching { rule.onNodeWithTag("element-context-bar").fetchSemanticsNode() }.isSuccess
+        }
 
-        rule.onNodeWithText("Edit text").performClick()
+        rule.onNodeWithText("Edit text", useUnmergedTree = true).performClick()
         val editor = rule.onNodeWithTag("inline-text-editor").assertTextContains(original)
         rule.onNodeWithTag("element-context-bar").assertDoesNotExist()
         rule.onNodeWithText("Delete").assertDoesNotExist()
@@ -396,7 +400,10 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("inline-text-editor").performTextInput(draft)
 
         rule.onNodeWithTag("compact-tool-pencil").performClick()
-        rule.waitUntil(5_000) { runCatching { rule.onNodeWithText(draft).fetchSemanticsNode() }.isSuccess }
+        rule.waitUntil(5_000) {
+            rule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "inline-text-editor"))
+                .fetchSemanticsNodes().isEmpty()
+        }
 
         rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
         rule.onNodeWithTag("compact-tool-pencil").assertIsSelected()

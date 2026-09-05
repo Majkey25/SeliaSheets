@@ -111,7 +111,7 @@ class SmartShapeFlowTest {
                 viewModel.addStroke(pageId, heldLine(), shapeAssist = true)
             }
 
-            val converted = await(viewModel, "delayed pen shape") { it.elements.size == 1 }
+            val converted = await(viewModel, "delayed pen shape") { it.elements.size == 1 && it.strokes.isEmpty() }
             assertEquals(ShapeKind.LINE.name, converted.elements.single().shapeKind)
             assertEquals(0, converted.strokes.size)
         } finally {
