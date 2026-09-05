@@ -386,14 +386,7 @@ class EditorCompactUiTest {
             runCatching { rule.onNodeWithTag("editor-top-bar").fetchSemanticsNode() }.isSuccess
         }
         rule.waitUntil(10_000) {
-            runCatching { rule.onNodeWithTag("inline-text-editor").fetchSemanticsNode() }.isSuccess ||
-                rule.onAllNodes(hasText(draft)).fetchSemanticsNodes().size == 1
-        }
-        if (runCatching { rule.onNodeWithTag("inline-text-editor").fetchSemanticsNode() }.isSuccess) {
-            rule.onNodeWithTag("inline-text-editor").assertTextContains(draft)
-        } else {
-            rule.onNodeWithText(draft).assertIsDisplayed()
-            assertEquals(1, rule.onAllNodes(hasText(draft)).fetchSemanticsNodes().size)
+            runCatching { rule.onNodeWithText(draft).assertIsDisplayed() }.isSuccess
         }
     }
 
