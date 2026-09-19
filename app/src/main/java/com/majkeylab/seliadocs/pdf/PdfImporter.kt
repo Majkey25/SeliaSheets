@@ -28,7 +28,7 @@ internal class PdfImporter(
     private val sandbox: PdfSandboxClient,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
-    suspend fun import(notebookId: String, uri: Uri): ImportedPdf =
+    suspend fun import(notebookId: String, uri: Uri, afterPageId: String? = null): ImportedPdf =
         withContext(Dispatchers.IO) {
             assets.prepare()
             val token = idFactory()
@@ -49,6 +49,7 @@ internal class PdfImporter(
                         byteSize = byteSize,
                         sha256 = digest.digest().toHex(),
                         pages = info.pages.map { PdfPageSpec(it.width, it.height) },
+                        afterPageId = afterPageId,
                     )
                 committed = true
                 ImportedPdf(result.sourceId, result.pageIds, info.pages.size)

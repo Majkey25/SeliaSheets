@@ -7,6 +7,26 @@ import org.junit.Test
 
 class PageViewportTest {
     @Test
+    fun revealMatchKeepsZoomAndClampsPageEdges() {
+        val middle = revealPagePoint(PageViewport(2f, 200f, 300f), 0.6f, 0.4f, 500f, 700f, 500f, 700f)
+        assertEquals(2f, middle.zoom)
+        assertEquals(-100f, middle.panX, 0.001f)
+        assertEquals(140f, middle.panY, 0.001f)
+        val corner = revealPagePoint(PageViewport(2f), 1f, 1f, 500f, 700f, 500f, 700f)
+        assertEquals(-250f, corner.panX, 0.001f)
+        assertEquals(-350f, corner.panY, 0.001f)
+        val fitted = revealPagePoint(PageViewport(), 1f, 1f, 500f, 700f, 500f, 700f)
+        assertEquals(1f, fitted.zoom, 0f)
+        assertEquals(0f, fitted.panX, 0f)
+        assertEquals(0f, fitted.panY, 0f)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun revealRejectsNonFinitePoint() {
+        revealPagePoint(PageViewport(), Float.NaN, 0.5f, 500f, 700f, 500f, 700f)
+    }
+
+    @Test
     fun zoomKeepsGestureFocusStable() {
         val result =
             updatePageViewport(

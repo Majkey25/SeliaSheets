@@ -51,6 +51,32 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HandwrittenMathFlowTest {
     @Test
+    fun workspaceSaveBarrierDiscardsLateRecognitionWithoutChangingTheTool() = runBlocking {
+        val provider = ControlledProvider()
+        val invocation = provider.enqueue()
+        withEditor(provider::create) { viewModel, pageId ->
+            addRecognizedStroke(viewModel, pageId, rawStroke())
+            invocation.awaitStarted()
+            val tool = viewModel.state.value.tool
+            try {
+                val saved = CompletableDeferred<Boolean>()
+                onMain { viewModel.flushPageTextBeforeClose(null, null) { saved.complete(it) } }
+                assertTrue(withTimeout(5_000) { saved.await() })
+                assertEquals(tool, viewModel.state.value.tool)
+            } finally {
+                invocation.complete(listOf(RecognitionCandidate("2+3=")))
+            }
+            invocation.awaitClosed()
+            drainMutationGate()
+            val application = ApplicationProvider.getApplicationContext<Application>()
+            val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+            assertTrue("A pane becoming read-only must not receive late math output", repository.getElements(pageId).isEmpty())
+            assertEquals(1, repository.getStrokes(pageId).size)
+            assertEquals(tool, viewModel.state.value.tool)
+        }
+    }
+
+    @Test
     fun selectedHandwritingRecognitionDoesNotBlockPageTextWrites() = runBlocking {
         val provider = ControlledProvider()
         val invocation = provider.enqueue()

@@ -137,6 +137,7 @@ internal class SeliaDocsRepository(
         byteSize: Long,
         sha256: String,
         pages: List<PdfPageSpec>,
+        afterPageId: String? = null,
     ): PdfImportResult {
         require(assetId.isNotBlank() && displayName.isNotBlank() && byteSize > 0L)
         require(sha256.matches(Regex("[0-9a-f]{64}")))
@@ -147,6 +148,9 @@ internal class SeliaDocsRepository(
         val now = clock()
         database.withTransaction {
             val notebook = getNotebook(notebookId)
+            val anchor = makeRoomAfterPage(notebookId, afterPageId, pages.size)
+            val firstIndex = anchor?.let { it.pageIndex + 1 }
+                ?: ((notebooks.getMaxPageIndex(notebookId) ?: -1) + 1)
             notebooks.insertPdfSource(
                 PdfSourceEntity(
                     id = sourceId,
@@ -159,7 +163,6 @@ internal class SeliaDocsRepository(
                     createdAt = now,
                 ),
             )
-            val firstIndex = (notebooks.getMaxPageIndex(notebookId) ?: -1) + 1
             pages.forEachIndexed { index, spec ->
                 notebooks.insertPage(
                     PageEntity(
@@ -169,6 +172,7 @@ internal class SeliaDocsRepository(
                         paper = PaperTemplate.BLANK.name,
                         widthPoints = spec.widthPoints,
                         heightPoints = spec.heightPoints,
+                        chapterId = anchor?.chapterId,
                         title = displayName.substringBeforeLast('.').take(160).takeIf(String::isNotBlank),
                         pageMode = PageMode.PDF.name,
                         createdAt = now,
@@ -478,21 +482,23 @@ internal class SeliaDocsRepository(
         }
     }
 
-    suspend fun addPage(notebookId: String): String {
-        val notebook = getNotebook(notebookId)
+    suspend fun addPage(notebookId: String, afterPageId: String? = null): String {
         val id = idFactory()
-        val orientation = PageOrientation.valueOf(notebook.orientation)
-        val (width, height) = pageSize(orientation)
         database.withTransaction {
-            val index = (notebooks.getMaxPageIndex(notebookId) ?: -1) + 1
+            val notebook = getNotebook(notebookId)
+            val anchor = makeRoomAfterPage(notebookId, afterPageId, 1)
+            val (width, height) = pageSize(PageOrientation.valueOf(notebook.orientation))
+            val index = anchor?.let { it.pageIndex + 1 }
+                ?: ((notebooks.getMaxPageIndex(notebookId) ?: -1) + 1)
             notebooks.insertPage(
                 PageEntity(
                     id = id,
                     notebookId = notebookId,
                     pageIndex = index,
-                    paper = notebook.defaultPaper,
-                    widthPoints = width,
-                    heightPoints = height,
+                    paper = anchor?.paper ?: notebook.defaultPaper,
+                    widthPoints = anchor?.widthPoints ?: width,
+                    heightPoints = anchor?.heightPoints ?: height,
+                    chapterId = anchor?.chapterId,
                     createdAt = clock(),
                     updatedAt = clock(),
                 ),
@@ -500,6 +506,17 @@ internal class SeliaDocsRepository(
             touch(notebook)
         }
         return id
+    }
+
+    private suspend fun makeRoomAfterPage(notebookId: String, afterPageId: String?, count: Int): PageEntity? {
+        if (afterPageId == null) return null
+        val anchor = requireNotNull(notebooks.getPage(afterPageId)) { "Page not found" }
+        require(anchor.notebookId == notebookId) { "Page belongs to another notebook" }
+        // Move from the end so the unique page-index constraint stays valid throughout the transaction.
+        notebooks.getPages(notebookId).asReversed().takeWhile { it.pageIndex > anchor.pageIndex }.forEach { page ->
+            notebooks.updatePageIndex(page.id, page.pageIndex + count)
+        }
+        return anchor
     }
 
     suspend fun movePage(notebookId: String, fromIndex: Int, toIndex: Int) {

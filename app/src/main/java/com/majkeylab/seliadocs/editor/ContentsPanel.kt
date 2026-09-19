@@ -14,18 +14,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -45,6 +58,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.majkeylab.seliadocs.R
@@ -52,6 +67,7 @@ import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
+import kotlin.math.roundToInt
 
 @Composable
 internal fun PageLocationBar(
@@ -117,12 +133,24 @@ internal fun ContentsPanel(
     var movePage by remember { mutableStateOf<PageEntity?>(null) }
     var deleteChapter by remember { mutableStateOf<ChapterEntity?>(null) }
     var deletePage by remember { mutableStateOf<PageEntity?>(null) }
+    var bookmarksOnly by rememberSaveable { mutableStateOf(false) }
+    var jumpOpen by rememberSaveable { mutableStateOf(false) }
+    val pageCount = state.pages.size
+    var previewPage by remember(state.selectedPage?.id, state.selectedPage?.pageIndex, pageCount) {
+        mutableFloatStateOf(((state.selectedPage?.pageIndex ?: 0) + 1).toFloat())
+    }
+    val previewNumber = previewPage.roundToInt().coerceIn(1, maxOf(1, pageCount))
+    val visiblePages = if (bookmarksOnly) state.pages.filter(PageEntity::bookmarked) else state.pages
+    if (jumpOpen) {
+        PageJumpDialog(state.pages, previewNumber, onSelectPage) { jumpOpen = false }
+    }
 
     if (createChapter) {
         NameDialog(
             title = stringResource(R.string.add_chapter),
             initial = "",
             allowEmpty = false,
+            maxLength = 120,
             onDismiss = { createChapter = false },
             onSave = {
                 onCreateChapter(it)
@@ -203,9 +231,51 @@ internal fun ContentsPanel(
                 )
                 TextButton(onClick = { createChapter = true }) { Text(stringResource(R.string.add_chapter)) }
             }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilterChip(
+                    selected = bookmarksOnly,
+                    onClick = { bookmarksOnly = !bookmarksOnly },
+                    label = { Text(stringResource(R.string.contents_bookmarks_filter)) },
+                    modifier = Modifier.testTag("contents-bookmarks-filter"),
+                )
+                val jumpDescription = stringResource(R.string.contents_go_to_page)
+                val currentPosition = stringResource(R.string.page_of_pages, previewNumber, pageCount)
+                TextButton(onClick = { jumpOpen = true }, enabled = pageCount > 0,
+                    modifier = Modifier.weight(1f).testTag("contents-jump-page").semantics {
+                        contentDescription = jumpDescription
+                        stateDescription = currentPosition
+                    }) {
+                    Text(if (pageCount > 0) stringResource(R.string.contents_page_counter, previewNumber, pageCount)
+                        else stringResource(R.string.contents_go_to_page), maxLines = 1)
+                }
+            }
+            if (pageCount > 1) {
+                val sliderDescription = stringResource(R.string.contents_page_slider)
+                val positionDescription = stringResource(R.string.page_of_pages, previewNumber, pageCount)
+                Slider(
+                    value = previewPage.coerceIn(1f, pageCount.toFloat()),
+                    onValueChange = { previewPage = it },
+                    onValueChangeFinished = {
+                        val number = previewPage.roundToInt().coerceIn(1, pageCount)
+                        state.pages.firstOrNull { it.pageIndex == number - 1 }?.let { onSelectPage(it.id) }
+                    },
+                    valueRange = 1f..pageCount.toFloat(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("contents-page-slider").semantics {
+                        contentDescription = sliderDescription
+                        stateDescription = positionDescription
+                    },
+                )
+            }
             HorizontalDivider()
         }
-        val unfiled = state.pages.filter { it.chapterId == null }
+        if (bookmarksOnly && visiblePages.isEmpty()) {
+            item { Text(stringResource(R.string.contents_no_bookmarks), modifier = Modifier.padding(16.dp).testTag("contents-no-bookmarks")) }
+        }
+        val unfiled = visiblePages.filter { it.chapterId == null }
         if (unfiled.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.unfiled), null) }
             items(unfiled, key = PageEntity::id) { page ->
@@ -213,14 +283,55 @@ internal fun ContentsPanel(
             }
         }
         state.chapters.forEach { chapter ->
+            val chapterPages = visiblePages.filter { it.chapterId == chapter.id }
+            if (bookmarksOnly && chapterPages.isEmpty()) return@forEach
             item {
                 SectionHeader(chapter.title, Color(chapter.colorArgb), onDelete = { deleteChapter = chapter })
             }
-            items(state.pages.filter { it.chapterId == chapter.id }, key = PageEntity::id) { page ->
+            items(chapterPages, key = PageEntity::id) { page ->
                 ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview)
             }
         }
     }
+}
+
+@Composable
+private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPage: (String) -> Unit, onDismiss: () -> Unit) {
+    var input by rememberSaveable { mutableStateOf(initialPage.toString()) }
+    val number = input.toIntOrNull()?.takeIf { it in 1..pages.size }
+    val target = number?.let { value -> pages.firstOrNull { it.pageIndex == value - 1 } }
+    val focus = remember { FocusRequester() }
+    val go: () -> Unit = {
+        val latestNumber = input.toIntOrNull()?.takeIf { it in 1..pages.size }
+        pages.firstOrNull { latestNumber != null && it.pageIndex == latestNumber - 1 }?.let { page ->
+            onDismiss()
+            onSelectPage(page.id)
+        }
+    }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.contents_go_to_page)) },
+        text = {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it.take(10) },
+                label = { Text(stringResource(R.string.contents_page_number)) },
+                supportingText = { Text(stringResource(R.string.contents_page_range, pages.size)) },
+                isError = input.isNotEmpty() && target == null,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { go() }),
+                modifier = Modifier.fillMaxWidth().testTag("contents-page-number").focusRequester(focus),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = go, enabled = target != null, modifier = Modifier.testTag("contents-go-page")) {
+                Text(stringResource(R.string.contents_go))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable
@@ -445,28 +556,35 @@ private fun ContentsPageRow(
 }
 
 @Composable
-private fun NameDialog(
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun NameDialog(
     title: String,
     initial: String,
     allowEmpty: Boolean,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
+    maxLength: Int = 160,
 ) {
-    var value by rememberSaveable(initial) { mutableStateOf(initial) }
+    val value = rememberTextFieldState(initial)
+    val focusRequester = remember { FocusRequester() }
+    val canSave = allowEmpty || value.text.isNotBlank()
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             OutlinedTextField(
-                value = value,
-                onValueChange = { value = it.take(160) },
+                state = value,
+                inputTransformation = InputTransformation.maxLength(maxLength),
                 label = { Text(title) },
-                singleLine = true,
-                modifier = Modifier.testTag("name-dialog-input"),
+                lineLimits = TextFieldLineLimits.SingleLine,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                onKeyboardAction = { if (canSave) onSave(value.text.toString()) },
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).testTag("name-dialog-input"),
             )
         },
         confirmButton = {
-            TextButton(onClick = { onSave(value) }, enabled = allowEmpty || value.isNotBlank()) {
+            TextButton(onClick = { onSave(value.text.toString()) }, enabled = canSave) {
                 Text(stringResource(R.string.save))
             }
         },

@@ -110,6 +110,37 @@ class PdfStudyEditorFlowTest {
     }
 
     @Test
+    fun notebookSearchFindsUnannotatedPdfTextAndKeepsTypedDraft() {
+        openImportedPdf(imageOnly = false)
+        val pdfPage = requireNotNull(editor.state.value.selectedPage)
+        val writingPage = editor.state.value.pages.first { it.pageMode != PageMode.PDF.name }
+        rule.runOnUiThread { editor.selectPage(writingPage.id) }
+        rule.waitUntil(10_000) { editor.state.value.selectedPage?.id == writingPage.id }
+        selectTool("type")
+        rule.onNodeWithTag("page-text").performTextInput("Saved before PDF search")
+        if (hasTag("compact-more")) {
+            rule.onNodeWithTag("compact-more").performClick()
+            rule.onNodeWithTag("compact-more-search").performClick()
+        } else rule.onNodeWithContentDescription("Search").performClick()
+        rule.waitUntil(10_000) { hasTag("search-query") }
+        rule.onNodeWithTag("search-query").performTextInput("Alpha")
+        rule.waitUntil(30_000) {
+            editor.state.value.searchQuery == "Alpha" && !editor.state.value.searching &&
+                editor.state.value.searchResults.any { it.pdfMatch != null }
+        }
+        rule.onNodeWithTag("search-result-${pdfPage.pageIndex}").performClick()
+        rule.waitUntil(10_000) {
+            editor.state.value.selectedPage?.id == pdfPage.id && editor.state.value.pdfSearchHighlight != null
+        }
+        rule.onNodeWithTag("pdf-search-highlight").assertIsDisplayed()
+        assertNull("Search must not create an editable annotation", editor.state.value.pdfSelection)
+        runBlocking {
+            assertEquals("Saved before PDF search", repository().getBlocks(writingPage.id).single().text)
+            assertTrue(repository().getElements(pdfPage.id).isEmpty())
+        }
+    }
+
+    @Test
     fun capturedDiagramCanBeMovedResizedUndoneAndOpenedAtItsSource() {
         openImportedPdf(imageOnly = false)
         val sourcePageId = requireNotNull(editor.state.value.selectedPage).id

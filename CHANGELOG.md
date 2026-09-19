@@ -2,6 +2,25 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.8.0-beta.1] - Unreleased
+
+### Added
+
+- Open a second notebook in a resizable tablet split or a phone dialog, with independent pages, drafts, and zoom.
+- Search PDF body text and stored highlights, underlines, and strikeouts. Open matches at their page region. Scanned pages and older Android versions use opt-in local OCR.
+- Insert note pages or PDF slides after the current page while preserving its chapter and paper dimensions.
+- Choose custom RGB/hex brush colors and pen/pencil opacity without losing opacity when changing presets.
+- Filter bookmarked pages, jump to a page number, or preview page position with a slider.
+
+### Fixed
+
+- Save both editor sessions before leaving the workspace. Failed writes retain drafts and offer Retry.
+- Keep popup controls visible above the keyboard, including after activity recreation.
+- Prevent stale Undo history from replacing content edited through another session.
+- Route search-result navigation through the existing text and ink save barrier.
+- Use state-based name fields, focus the chapter/page name editor, and support keyboard Done. Chapter names now follow the storage limit before saving.
+- Keep tool icons readable independently of the selected brush opacity and color.
+
 ## [0.7.0-beta.2] - 2026-09-12
 
 ### Fixed

@@ -173,6 +173,9 @@ internal fun PageCanvas(
     inkCanvases: MutableSet<InkCanvasView>? = null,
     pdfSelection: PdfTextSelection? = null,
     pdfRegion: AnnotationRect? = null,
+    pageTextFocusEnabled: Boolean = true,
+    onViewportChanged: (String, PageViewport) -> Unit = { _, _ -> },
+    pdfSearchHighlight: PdfSearchHighlight? = null,
     modifier: Modifier = Modifier,
 ) {
     val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight)
@@ -233,6 +236,9 @@ internal fun PageCanvas(
                     inkCanvases,
                     pdfSelection,
                     pdfRegion,
+                    pageTextFocusEnabled,
+                    onViewportChanged,
+                    pdfSearchHighlight?.takeIf { it.pageId == targetPage.id },
                 )
             }
         }
@@ -293,6 +299,9 @@ private fun Paper(
     inkCanvases: MutableSet<InkCanvasView>?,
     pdfSelection: PdfTextSelection?,
     pdfRegion: AnnotationRect?,
+    pageTextFocusEnabled: Boolean,
+    onViewportChanged: (String, PageViewport) -> Unit,
+    pdfSearchHighlight: PdfSearchHighlight?,
 ) {
     val ratio = page.widthPoints.toFloat() / page.heightPoints
     var inkPreview by
@@ -361,6 +370,27 @@ private fun Paper(
         val viewportHeightPx = with(density) { maxHeight.toPx() }
         val paperWidthPx = with(density) { paperWidth.toPx() }
         val paperHeightPx = with(density) { paperHeight.toPx() }
+        LaunchedEffect(viewportWidthPx, viewportHeightPx, paperWidthPx, paperHeightPx) {
+            if (viewportWidthPx > 0f && viewportHeightPx > 0f && paperWidthPx > 0f && paperHeightPx > 0f) {
+                val clamped = updatePageViewport(PageViewport(viewportZoom, viewportPanX, viewportPanY),
+                    1f, 0f, 0f, 0f, 0f, viewportWidthPx, viewportHeightPx, paperWidthPx, paperHeightPx)
+                viewportZoom = clamped.zoom
+                viewportPanX = clamped.panX
+                viewportPanY = clamped.panY
+            }
+        }
+        LaunchedEffect(page.id, viewportZoom, viewportPanX, viewportPanY) {
+            onViewportChanged(page.id, PageViewport(viewportZoom, viewportPanX, viewportPanY))
+        }
+        LaunchedEffect(pdfSearchHighlight, viewportWidthPx, viewportHeightPx, paperWidthPx, paperHeightPx) {
+            val first = pdfSearchHighlight?.selection?.bounds?.firstOrNull() ?: return@LaunchedEffect
+            if (viewportWidthPx <= 0f || viewportHeightPx <= 0f || paperWidthPx <= 0f || paperHeightPx <= 0f) return@LaunchedEffect
+            val revealed = revealPagePoint(PageViewport(viewportZoom, viewportPanX, viewportPanY),
+                (first.left + first.right) / 2f, (first.top + first.bottom) / 2f,
+                viewportWidthPx, viewportHeightPx, paperWidthPx, paperHeightPx)
+            viewportPanX = revealed.panX
+            viewportPanY = revealed.panY
+        }
         val zoomDescription = stringResource(R.string.zoom_level, (viewportZoom * 100).roundToInt())
         val hostView = LocalView.current
         val nativeReleased = remember(page.id) { AtomicBoolean(false) }
@@ -608,7 +638,7 @@ private fun Paper(
                 PageTextLayer(
                     page = page,
                     blocks = blocks,
-                    active = tool == EditorTool.TYPE,
+                    active = tool == EditorTool.TYPE && pageTextFocusEnabled,
                     scaleX = scaleX,
                     scaleY = scaleY,
                     onTextChanged = onPageTextChanged,
@@ -618,6 +648,9 @@ private fun Paper(
                 )
                 if ((pdfSelection != null || pdfRegion != null) && isCurrentPage()) {
                     PdfSelectionPreview(pdfSelection, pdfRegion, Modifier.fillMaxSize())
+                }
+                if (pdfSearchHighlight != null && isCurrentPage()) {
+                    PdfSelectionPreview(pdfSearchHighlight.selection, null, Modifier.fillMaxSize().testTag("pdf-search-highlight"))
                 }
                 ElementLayer(
                     page,
@@ -828,9 +861,11 @@ private fun InlineTextPlacementLayer(
             if (inputEnabled) onFinished()
         }
         val textStyle = pageTextStyle(scaleY)
-        LaunchedEffect(point) {
-            focusRequester.requestFocus()
-            keyboard?.show()
+        LaunchedEffect(point, inputEnabled) {
+            if (inputEnabled) {
+                focusRequester.requestFocus()
+                keyboard?.show()
+            }
         }
         Box(
             Modifier
@@ -933,6 +968,7 @@ private fun PageTextLayer(
     var pageFull by remember(page.id) { mutableStateOf(false) }
     val focusRequester = remember(page.id) { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    var ownsFocus by remember(page.id) { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestText by rememberUpdatedState(draft.text)
@@ -986,15 +1022,15 @@ private fun PageTextLayer(
         }
         onTextChanged(page.id, draft.text)
     }
-    LaunchedEffect(active, page.id) {
-        if (active) {
+    LaunchedEffect(active, inputEnabled, page.id) {
+        if (active && inputEnabled) {
             focusRequester.requestFocus()
             keyboard?.show()
         } else {
             if (draft.text != storedText) {
                 onTextChanged(page.id, draft.text)
             }
-            focusManager.clearFocus()
+            if (ownsFocus) focusManager.clearFocus()
         }
     }
     DisposableEffect(page.id, lifecycleOwner) {
@@ -1028,7 +1064,7 @@ private fun PageTextLayer(
             enabled = inputEnabled,
             textStyle = textStyle,
             cursorBrush = SolidColor(Color(0xFF3156D9)),
-            modifier = modifier.focusRequester(focusRequester),
+            modifier = modifier.focusRequester(focusRequester).onFocusChanged { ownsFocus = it.isFocused },
             decorationBox = { field ->
                 Box {
                     if (draft.text.isEmpty()) {

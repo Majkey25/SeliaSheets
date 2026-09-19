@@ -5,6 +5,15 @@ import org.junit.Test
 
 class AppSettingsTest {
     @Test
+    fun penOpacityCannotBecomeInvisibleAndKeepsRgb() {
+        listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3, 128 to 128, 255 to 255).forEach { (alpha, expected) ->
+            val settings = AppSettings(penColorArgb = (alpha shl 24) or 0x00123456)
+            assertEquals((expected shl 24) or 0x00123456, settings.validated().penColorArgb)
+            assertEquals(settings.highlighterColorArgb, settings.validated().highlighterColorArgb)
+        }
+    }
+
+    @Test
     fun highlighterOpacityIsClampedWithoutChangingRgbOrOtherSettings() {
         listOf(0 to 26, 25 to 26, 26 to 26, 102 to 102, 204 to 204, 205 to 204, 255 to 204)
             .forEach { (alpha, expectedAlpha) ->

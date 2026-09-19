@@ -11,11 +11,13 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.settings.AppSettings
@@ -31,6 +33,45 @@ class HighlighterOpacityUiTest {
     @get:Rule
     val rule = createAndroidComposeRule<ComponentActivity>()
     private var settings by mutableStateOf(AppSettings())
+
+    @Test
+    fun penOpacityAndPresetColorsRetainEachOther() {
+        showOptions(EditorTool.PEN)
+        rule.onNodeWithTag("pen-opacity-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(50f) }
+        rule.runOnIdle { assertEquals(128, settings.penColorArgb ushr 24) }
+        rule.onNodeWithTag("brush-color-blue").performScrollTo().performClick().assertIsSelected()
+        rule.runOnIdle { assertEquals(0x803156D9.toInt(), settings.penColorArgb) }
+        rule.onNodeWithTag("pen-opacity-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        rule.runOnIdle { assertEquals(0x033156D9, settings.penColorArgb) }
+    }
+
+    @Test
+    fun customPencilColorRequiresSixHexDigitsAndPreservesOpacity() {
+        settings = AppSettings(penColorArgb = 0x80123456.toInt())
+        showOptions(EditorTool.PENCIL)
+        rule.onNodeWithTag("brush-custom-color").performScrollTo().performClick()
+        rule.onNodeWithTag("brush-color-hex").performTextReplacement("#nothex")
+        rule.onNodeWithTag("brush-color-apply").assertIsNotEnabled()
+        rule.onNodeWithTag("brush-color-hex").performTextReplacement("#abcdef")
+        rule.onNodeWithTag("brush-color-apply").performClick()
+        rule.runOnIdle { assertEquals(0x80ABCDEF.toInt(), settings.penColorArgb) }
+        rule.onNodeWithTag("brush-custom-color").performScrollTo().performClick()
+        rule.onNodeWithTag("brush-color-red-slider").performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(32f) }
+        rule.onNodeWithTag("brush-color-apply").performClick()
+        rule.runOnIdle { assertEquals(0x8020CDEF.toInt(), settings.penColorArgb) }
+    }
+
+    @Test
+    fun cancelingCustomHighlighterColorDoesNotChangeStoredColor() {
+        showOptions(EditorTool.HIGHLIGHTER)
+        rule.onNodeWithTag("brush-custom-color").performScrollTo().performClick()
+        rule.onNodeWithTag("brush-color-hex").performTextReplacement("FFFFFF")
+        rule.onNodeWithTag("brush-color-cancel").performClick()
+        rule.runOnIdle { assertEquals(AppSettings().highlighterColorArgb, settings.highlighterColorArgb) }
+    }
 
     @Test
     fun opacityChangesPreserveRgbAndColorChangesPreserveOpacity() {

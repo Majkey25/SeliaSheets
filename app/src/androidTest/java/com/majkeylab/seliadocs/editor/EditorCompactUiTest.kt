@@ -42,6 +42,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -1223,6 +1224,8 @@ class EditorCompactUiTest {
         } else {
             rule.onNodeWithContentDescription("Add page").performClick()
         }
+        rule.mainClock.advanceTimeByFrame()
+        if (hasTag("insert-note-page")) rule.onNodeWithTag("insert-note-page").performClick()
     }
 
     private fun hasTag(tag: String): Boolean =
@@ -1310,7 +1313,7 @@ class EditorCompactUiTest {
             "brush-color-blue",
             "brush-color-red",
         )
-            .forEach { tag -> rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction() }
+            .forEach { tag -> rule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHasClickAction() }
         rule.onNodeWithTag("brush-shape-assist").assertExists().assertHasClickAction()
 
         rule.onNodeWithTag("compact-tool-highlighter").performClick()
