@@ -1003,7 +1003,9 @@ private fun PageTextLayer(
                             draft.selection.end.coerceAtMost(storedText.length),
                         ),
                 )
-            if (onDraftChanged(page.id, updatedDraft)) draft = updatedDraft
+            // Edit locks must not reject a committed update to a locally clean field.
+            onDraftChanged(page.id, updatedDraft)
+            draft = updatedDraft
         }
     }
     LaunchedEffect(draft.text) {

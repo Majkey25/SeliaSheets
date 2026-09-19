@@ -1,6 +1,10 @@
 package com.majkeylab.seliadocs.editor
 
 import android.net.Uri
+import androidx.activity.compose.setContent
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.WindowSize
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -17,18 +21,23 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
+import com.majkeylab.seliadocs.SeliaDocsApp
 import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.CreateNotebookRequest
@@ -131,14 +140,45 @@ class EditorWorkspaceFlowTest {
         return titles
     }
     private fun menu(index: Int) {
-        rule.onNode(hasContentDescription("More options") and inPane(index)).performClick()
+        val button = hasContentDescription("More options") and inPane(index)
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNode(button).assertIsDisplayed().assertIsEnabled() }.isSuccess
+        }
+        assertInsideVisibleWindow(button)
+        rule.onNode(button).assertIsEnabled().performClick()
     }
     private fun openBeside(title: String) {
         menu(0)
-        rule.onNodeWithTag("open-beside").performClick()
-        val notebook = hasText(title) and hasAnyAncestor(hasTestTag("workspace-notebook-picker"))
-        waitFor(notebook)
-        rule.onNode(notebook).performScrollTo().performClick()
+        var stage = "waiting for Open beside"
+        try {
+            rule.waitUntil(10_000) {
+                runCatching { rule.onNodeWithTag("open-beside").assertIsDisplayed().assertIsEnabled() }.isSuccess
+            }
+            assertInsideVisibleWindow(hasTestTag("open-beside"))
+            rule.onNodeWithTag("open-beside").assertIsEnabled().performClick()
+            stage = "waiting for notebook picker"
+            val picker = hasTestTag("workspace-notebook-picker")
+            waitFor(picker)
+            stage = "scrolling to notebook $title"
+            val inPicker = hasAnyAncestor(picker)
+            val notebook = hasText(title) and inPicker
+            val list = SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollToIndex) and inPicker
+            rule.waitUntil(10_000) {
+                runCatching {
+                    rule.onNode(list).fetchSemanticsNode().children.any { SemanticsActions.OnClick in it.config }
+                }.getOrDefault(false)
+            }
+            rule.onNode(list).performScrollToNode(hasText(title))
+            rule.onNode(notebook).assertIsDisplayed().assertIsEnabled().performClick()
+        } catch (failure: Throwable) {
+            val details = runCatching {
+                val workspace = rule.runOnIdle { ViewModelProvider(rule.activity)["editor-workspace", EditorWorkspaceHolder::class.java] }
+                "pickerPane=${workspace.pickerPane} pending=${workspace.pending} failed=${workspace.failed}\n" +
+                    rule.onAllNodes(isRoot()).printToString(12)
+            }.getOrElse { "Picker diagnostics unavailable: ${it.message}" }
+            android.util.Log.e("WorkspacePickerQA", "$stage\n$details")
+            throw AssertionError("Open beside failed while $stage\n$details", failure)
+        }
         waitFor(hasTestTag("secondary-editor"))
         rule.waitUntil(10_000) { holder(1).selectedPage.value != null }
         assertWorkspaceChromeVisible()
@@ -366,5 +406,48 @@ class EditorWorkspaceFlowTest {
         rule.onNodeWithTag("workspace-retry").performClick()
         waitFor(hasTestTag("settings-top-bar"))
         runBlocking { assertEquals("Draft survives failed workspace save after recreation", repository().getBlocks(secondPage).single().text) }
+    }
+
+    @Test fun savedDraftFromPreviousPageCannotOverwriteOtherPaneEdits() {
+        rule.activity.setContent {
+            DeviceConfigurationOverride(DeviceConfigurationOverride.WindowSize(DpSize(1_000.dp, 744.dp))) {
+                SeliaDocsApp()
+            }
+        }
+        val titles = fixture()
+        val firstPage = requireNotNull(editor(0).state.value.selectedPage).id
+        val extraPages = runBlocking { List(2) { repository().addPage(notebooks.first()) } }
+        rule.waitUntil(10_000) { editor(0).state.value.pages.size == 3 }
+        openBeside(titles.first)
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNode(hasText("Next page") and inPane(1)).assertIsEnabled() }.isSuccess
+        }
+        rule.onNode(hasText("Next page") and inPane(1)).performClick()
+        rule.waitUntil(10_000) { holder(1).selectedPage.value == extraPages.first() }
+
+        fun activate(index: Int) {
+            paneNode(index, "workspace-pane-header").performTouchInput { click(Offset(8f, height / 2f)) }
+        }
+        fun goToPage(index: Int, pageNumber: Int, pageId: String) {
+            activate(index)
+            paneNode(index, "compact-page-location").performClick()
+            rule.onNode(hasTestTag("page-thumbnail") and hasText("Page $pageNumber")).performScrollTo().performClick()
+            rule.waitUntil(10_000) { holder(index).selectedPage.value == pageId }
+        }
+
+        activate(0)
+        type(0, "Primary earlier text")
+        goToPage(0, 3, extraPages.last())
+        goToPage(1, 1, firstPage)
+        type(1, "")
+        paneNode(1, "page-text").performTextReplacement("Secondary latest text")
+        rule.waitUntil(10_000) { editor(1).state.value.selectedBlocks.singleOrNull()?.text == "Secondary latest text" }
+
+        goToPage(0, 2, extraPages.first())
+        runBlocking { assertEquals("Secondary latest text", repository().getBlocks(firstPage).single().text) }
+        assertEquals(null, holder(0).draftFor(firstPage))
+        settings(0)
+        waitFor(hasTestTag("settings-top-bar"))
+        runBlocking { assertEquals("Secondary latest text", repository().getBlocks(firstPage).single().text) }
     }
 }

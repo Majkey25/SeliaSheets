@@ -50,8 +50,8 @@ class StylusRoutingTest {
                     fun live() = (0 until view.childCount).map(view::getChildAt)
                         .filterIsInstance<androidx.ink.authoring.InProgressStrokesView>().single()
                     val time = android.os.SystemClock.uptimeMillis()
-                    fun input(action: Int, elapsed: Long, x: Float) {
-                        val event = stylusEvent(time, time + elapsed, action, x, 150f)
+                    fun input(action: Int, elapsed: Long, x: Float, y: Float = 150f) {
+                        val event = stylusEvent(time, time + elapsed, action, x, y)
                         try { view.dispatchTouchEvent(event) } finally { event.recycle() }
                     }
                     layout()
@@ -73,8 +73,10 @@ class StylusRoutingTest {
                     view.setVisibleViewport(300, 200, 25f, -20f)
                     layout()
                     assertTrue("Pan must not replace the renderer", resized === live())
-                    input(MotionEvent.ACTION_DOWN, 48, 250f)
-                    input(MotionEvent.ACTION_UP, 64, 300f)
+                    assertTrue("The next stroke must lie inside the visible live surface",
+                        live().left <= 250 && live().right > 300 && live().top <= 250 && live().bottom > 250)
+                    input(MotionEvent.ACTION_DOWN, 48, 250f, 250f)
+                    input(MotionEvent.ACTION_UP, 64, 300f, 250f)
                 }
             }
             assertTrue("The new renderer did not hand off its first stroke", verified.await(10, TimeUnit.SECONDS))

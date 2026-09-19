@@ -1,10 +1,56 @@
 package com.majkeylab.seliadocs.editor
 
+import androidx.compose.ui.text.input.TextFieldValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EditorWorkspaceStateTest {
+    @Test
+    fun successfulActionSaveAcknowledgesOnlyItsCapturedPageDraft() {
+        val holder = EditorSessionHolder()
+        holder.prepare("book")
+        assertTrue(holder.acceptDraft("page-one", TextFieldValue("Saved text")))
+        val captured = requireNotNull(holder.latestDraft(setOf("page-one")))
+        holder.requestAction(EditorAction.SelectPage("page-two"))
+        val epoch = requireNotNull(holder.beginActionSave())
+        holder.completeActionSave(epoch, true, captured)
+        assertNull(holder.draftFor("page-one"))
+        assertEquals(EditorAction.SelectPage("page-two"), holder.takeReadyAction())
+    }
+
+    @Test
+    fun failedActionSaveRetainsTheCapturedPageDraft() {
+        val holder = EditorSessionHolder()
+        holder.prepare("book")
+        assertTrue(holder.acceptDraft("page", TextFieldValue("Unsaved text")))
+        val captured = requireNotNull(holder.latestDraft(setOf("page")))
+        holder.requestAction(EditorAction.NextPage)
+        val epoch = requireNotNull(holder.beginActionSave())
+        holder.completeActionSave(epoch, false, captured)
+        assertSame(captured, holder.latestDraft(setOf("page")))
+    }
+
+    @Test
+    fun staleSaveCannotAcknowledgeANewerEqualDraftOrNewSession() {
+        listOf(false, true).forEach { newSession ->
+            val holder = EditorSessionHolder()
+            holder.prepare("first")
+            assertTrue(holder.acceptDraft("page", TextFieldValue("Same text")))
+            val captured = requireNotNull(holder.latestDraft(setOf("page")))
+            val epoch = holder.sessionEpoch
+            if (newSession) holder.prepare("second")
+            assertTrue(holder.acceptDraft("page", TextFieldValue("Same text")))
+            val newer = requireNotNull(holder.latestDraft(setOf("page")))
+            holder.requestAction(EditorAction.NextPage)
+            holder.beginActionSave()
+            holder.completeActionSave(epoch, true, captured)
+            assertSame(newer, holder.latestDraft(setOf("page")))
+        }
+    }
+
     @Test
     fun closedPaneCannotKeepAReadOnlyPageLockOrOldSaveResult() {
         val holder = EditorSessionHolder()

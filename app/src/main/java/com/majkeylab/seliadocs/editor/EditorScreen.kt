@@ -300,8 +300,9 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     }
 
     @Synchronized
-    fun completeActionSave(epoch: Long, saved: Boolean) {
+    fun completeActionSave(epoch: Long, saved: Boolean, savedDraft: PageTextDraft? = null) {
         if (epoch != sessionEpoch) return
+        if (saved && draft === savedDraft) draft = null
         if (!saved) ((mutableActionState.value.pending as? EditorAction.WorkspaceSave) ?: mutableActionState.value.deferredWorkspace)?.let {
             workspaceSaveResult.value = it.requestId to false
         }
@@ -332,7 +333,6 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     fun mutationsAllowed(): Boolean = !mutableCloseState.value.closing
 
     fun finishWorkspaceSave(requestId: Long, saved: Boolean = true) {
-        if (saved) draft = null
         workspaceSaveResult.value = requestId to saved
     }
 
@@ -513,7 +513,7 @@ private fun EditorScreen(
                     viewModel.flushPageTextBeforeAction(
                         draft?.pageId,
                         draft?.value?.text,
-                    ) { pageSaved -> sessionHolder.completeActionSave(saveEpoch, pageSaved) }
+                    ) { pageSaved -> sessionHolder.completeActionSave(saveEpoch, pageSaved, draft) }
                 } else {
                     sessionHolder.completeActionSave(saveEpoch, false)
                 }

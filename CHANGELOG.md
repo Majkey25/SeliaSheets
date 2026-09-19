@@ -17,6 +17,8 @@ All notable changes to SeliaSheets are documented here.
 - Save both editor sessions before leaving the workspace. Failed writes retain drafts and offer Retry.
 - Keep popup controls visible above the keyboard, including after activity recreation.
 - Prevent stale Undo history from replacing content edited through another session.
+- Retire successfully saved page drafts so later navigation cannot overwrite another pane's newer text.
+- Preserve completed ink when replacing drawing surfaces during resizing, backgrounding, or reattachment.
 - Route search-result navigation through the existing text and ink save barrier.
 - Use state-based name fields, focus the chapter/page name editor, and support keyboard Done. Chapter names now follow the storage limit before saving.
 - Keep tool icons readable independently of the selected brush opacity and color.
