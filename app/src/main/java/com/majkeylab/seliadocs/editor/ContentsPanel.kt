@@ -258,7 +258,7 @@ internal fun ContentsPanel(
                 val positionDescription = stringResource(R.string.page_of_pages, previewNumber, pageCount)
                 Slider(
                     value = previewPage.coerceIn(1f, pageCount.toFloat()),
-                    onValueChange = { previewPage = it },
+                    onValueChange = { if (it.isFinite()) previewPage = it.coerceIn(1f, pageCount.toFloat()) },
                     onValueChangeFinished = {
                         val number = previewPage.roundToInt().coerceIn(1, pageCount)
                         state.pages.firstOrNull { it.pageIndex == number - 1 }?.let { onSelectPage(it.id) }

@@ -1761,7 +1761,7 @@ private fun BrushWidthControl(
         }
         Slider(
             value = sliderValue,
-            onValueChange = { sliderValue = it },
+            onValueChange = { if (it.isFinite()) sliderValue = it.coerceIn(range) },
             onValueChangeFinished = { onChange(sliderValue) },
             valueRange = range,
             modifier = Modifier.fillMaxWidth().testTag("brush-width-slider"),

@@ -5,6 +5,15 @@ import org.junit.Test
 
 class AppSettingsTest {
     @Test
+    fun nonFiniteBrushWidthsFallBackToVisibleMinimum() {
+        listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY).forEach { width ->
+            val settings = AppSettings(penWidth = width, highlighterWidth = width).validated()
+            assertEquals(PEN_WIDTH_RANGE.start, settings.penWidth, 0f)
+            assertEquals(HIGHLIGHTER_WIDTH_RANGE.start, settings.highlighterWidth, 0f)
+        }
+    }
+
+    @Test
     fun penOpacityCannotBecomeInvisibleAndKeepsRgb() {
         listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3, 128 to 128, 255 to 255).forEach { (alpha, expected) ->
             val settings = AppSettings(penColorArgb = (alpha shl 24) or 0x00123456)
