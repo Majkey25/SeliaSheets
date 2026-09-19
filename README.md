@@ -28,7 +28,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - Isolated-process PDF import, text selection, and editable highlights, underlines, and strikeouts. Scanned pages and Android 10–14 use local OCR when enabled.
 - Search PDF body text and stored text marks, then open the matching page region. Search is bounded to 100 results and reports pages it cannot search.
 - Linked text excerpts and cropped page images, including annotations and ink, with navigation back to their source page.
-- Draw-and-hold lines, arrows, ellipses, rectangles, and triangles with raw-ink Undo and shape Redo.
+- Draw-and-hold lines, arrows, ellipses, rectangles, and triangles with preserved pen color, opacity, width, raw-ink Undo, and shape Redo.
 - PDF export containing every page, paper pattern, ink, text, image, shape, math result, and imported PDF background.
 - PDF export is flattened. Editable annotations and original PDF sources remain in notebook backups.
 - Portable `.seliasheets` backups with validation, merge, replace, and rollback protection.
@@ -60,7 +60,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Format-6 backups require an updated reader; formats 1–5 remain readable.
+The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Current backups use format 7 for shape styles and require an updated reader; formats 1–6 remain readable.
 
 Workspace and PDF-search changes target the unreleased `0.8.0-beta.2` candidate. See the [workspace/search verification record](docs/qa/2026-09-12-workspace-search.md) for completed checks, pending acceptance, and limits.
 
