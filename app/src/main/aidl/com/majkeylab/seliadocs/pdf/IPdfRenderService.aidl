@@ -20,4 +20,5 @@ interface IPdfRenderService {
         float endX,
         float endY
     );
+    Bundle searchText(in ParcelFileDescriptor pdf, int pageIndex, String query);
 }

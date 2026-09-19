@@ -137,7 +137,7 @@ internal interface PageDao {
             FROM pages
             INNER JOIN elements ON elements.pageId = pages.id
             WHERE pages.notebookId = :notebookId
-              AND elements.kind = 'TEXT'
+              AND elements.kind IN ('TEXT', 'HIGHLIGHT', 'UNDERLINE', 'STRIKEOUT')
               AND elements.text IS NOT NULL
               AND elements.text GLOB :globPattern
             UNION ALL

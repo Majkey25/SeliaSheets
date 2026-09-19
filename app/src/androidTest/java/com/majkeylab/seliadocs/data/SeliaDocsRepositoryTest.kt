@@ -371,6 +371,49 @@ class SeliaDocsRepositoryTest {
     }
 
     @Test
+    fun notebookSearchFindsAllPdfMarkupKindsWithoutOcrAndKeepsLiteralScope() = runTest {
+        val book = repository.createNotebook(request())
+        val kinds = listOf(ElementKind.HIGHLIGHT, ElementKind.UNDERLINE, ElementKind.STRIKEOUT)
+        val pages = kinds.mapIndexed { index, kind ->
+            val pageId = if (index == 0) repository.getPages(book).single().id else repository.addPage(book)
+            repository.addElement(pageId, ElementDraft(kind, 10f, 20f, 200f, 40f,
+                text = "${kind.name} ŽLUŤOUČKÝ *?[]", colorArgb = 0x66FFD54F, annotationRects = "0,0,1,1"))
+            assertEquals(pageId, repository.searchPageText(book, kind.name.lowercase(), includeImageOcr = false).single().pageId)
+            pageId
+        }
+        repository.duplicateElement(repository.getElements(pages.first()).single().id)
+        val otherBook = repository.createNotebook(request())
+        val otherPage = repository.getPages(otherBook).single().id
+        repository.addElement(otherPage, ElementDraft(ElementKind.HIGHLIGHT, 10f, 20f, 200f, 40f,
+            text = "Foreign-only ŽLUŤOUČKÝ *?[]", colorArgb = 0x66FFD54F, annotationRects = "0,0,1,1"))
+        assertEquals(pages, repository.searchPageText(book, "žluťoučký", includeImageOcr = false).map { it.pageId })
+        assertEquals(pages, repository.searchPageText(book, "*?[]", includeImageOcr = false).map { it.pageId })
+        assertTrue(repository.searchPageText(book, "Foreign-only").isEmpty())
+        assertTrue(repository.searchPageText(book, "missing text").isEmpty())
+    }
+
+    @Test
+    fun markupSearchKeepsResultSnippetAndQueryLimits() = runTest {
+        val book = repository.createNotebook(request())
+        val firstPage = repository.getPages(book).single()
+        val first = repository.addElementEntity(firstPage.id, ElementDraft(ElementKind.UNDERLINE, 10f, 20f, 200f, 40f,
+            text = "Searchable markup " + "x".repeat(1_000), colorArgb = 0xFFFFD54F.toInt(), annotationRects = "0,0,1,1"))
+        database.withTransaction {
+            repeat(100) { offset ->
+                val index = offset + 1
+                val pageId = "markup-page-$index"
+                database.notebookDao().insertPage(firstPage.copy(id = pageId, pageIndex = index))
+                database.pageDao().insertElement(first.copy(id = "markup-$index", pageId = pageId))
+            }
+        }
+        val results = repository.searchPageText(book, "searchable markup", includeImageOcr = false)
+        assertEquals(100, results.size)
+        assertEquals((0 until 100).toList(), results.map { it.pageIndex })
+        assertTrue(results.all { it.text.length == 240 })
+        assertTrue(repository.searchPageText(book, "x".repeat(257)).isEmpty())
+    }
+
+    @Test
     fun notebookSearchReturnsEachMatchingPageOnce() = runTest {
         val notebookId = repository.createNotebook(request())
         val page = repository.getPages(notebookId).single()

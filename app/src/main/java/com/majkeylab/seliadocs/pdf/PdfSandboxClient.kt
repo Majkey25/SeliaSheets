@@ -27,6 +27,21 @@ internal data class PdfDocumentInfo(val pages: List<PdfPageSize>, val sandboxUid
 internal class PdfSandboxClient(context: Context) {
     private val application = context.applicationContext
 
+    suspend fun searchText(file: File, pageIndex: Int, query: String): PdfSearchPageResult {
+        require(pageIndex >= 0)
+        val term = normalizePdfSearchQuery(query)
+        if (term.isEmpty()) return PdfSearchPageResult(emptyList(), hasText = false)
+        return withService { service ->
+            withContext(Dispatchers.IO) {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                    val result = service.searchText(descriptor, pageIndex, term)
+                    result.requireSuccess()
+                    decodePdfSearchResult(result)
+                }
+            }
+        }
+    }
+
     suspend fun selectText(
         file: File,
         pageIndex: Int,
@@ -183,5 +198,31 @@ internal fun decodePdfTextSelection(result: android.os.Bundle): PdfTextSelection
         )
     } catch (error: IllegalArgumentException) {
         throw IOException("Invalid PDF selection", error)
+    }
+}
+
+@Suppress("DEPRECATION") // Type-check Binder payloads on Android 10 too.
+internal fun decodePdfSearchResult(result: android.os.Bundle): PdfSearchPageResult {
+    val hasText = result.get(PdfProtocol.SEARCH_HAS_TEXT) as? Boolean ?: throw IOException("PDF text status missing or invalid")
+    val counts = result.getIntArray(PdfProtocol.SEARCH_MATCH_COUNTS) ?: throw IOException("PDF search match counts missing")
+    val coordinates = result.getFloatArray(PdfProtocol.SEARCH_BOUNDS) ?: throw IOException("PDF search bounds missing")
+    if (counts.size > PdfProtocol.MAX_SEARCH_MATCHES || coordinates.size > PdfProtocol.MAX_SELECTION_BOUNDS * 4) {
+        throw IOException(PdfProtocol.ERROR_LIMIT)
+    }
+    val total = counts.sumOf { it.toLong() }
+    if (counts.any { it <= 0 } || total * 4 != coordinates.size.toLong() || (!hasText && counts.isNotEmpty())) {
+        throw IOException("Invalid PDF search shape")
+    }
+    return try {
+        var offset = 0
+        PdfSearchPageResult(counts.map { count ->
+            PdfTextSearchMatch(List(count) {
+                val rect = PdfTextBounds(coordinates[offset], coordinates[offset + 1], coordinates[offset + 2], coordinates[offset + 3])
+                offset += 4
+                rect
+            }, isOcr = false)
+        }, hasText)
+    } catch (error: IllegalArgumentException) {
+        throw IOException("Invalid PDF search bounds", error)
     }
 }

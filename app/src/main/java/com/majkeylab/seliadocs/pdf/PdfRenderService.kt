@@ -19,6 +19,19 @@ import kotlin.math.roundToInt
 class PdfRenderService : Service() {
     private val binder =
         object : IPdfRenderService.Stub() {
+            override fun searchText(pdf: ParcelFileDescriptor, pageIndex: Int, query: String?): Bundle = runCatching {
+                pdf.use { descriptor ->
+                    require(pageIndex >= 0) { PdfProtocol.ERROR_INVALID }
+                    val term = normalizePdfSearchQuery(requireNotNull(query) { PdfProtocol.ERROR_INVALID })
+                    if (Build.VERSION.SDK_INT < 35) throw UnsupportedOperationException(PdfProtocol.ERROR_SEARCH_UNSUPPORTED)
+                    PdfRenderer(descriptor).use { renderer ->
+                        require(renderer.pageCount in 1..PdfProtocol.MAX_PAGES) { PdfProtocol.ERROR_LIMIT }
+                        require(pageIndex in 0 until renderer.pageCount) { PdfProtocol.ERROR_INVALID }
+                        renderer.openPage(pageIndex).use { page -> searchPageText(page, term) }
+                    }
+                }
+            }.getOrElse(::failure)
+
             override fun inspect(pdf: ParcelFileDescriptor): Bundle =
                 runCatching {
                         pdf.use { descriptor ->
@@ -131,10 +144,42 @@ class PdfRenderService : Service() {
                 when (error.message) {
                     PdfProtocol.ERROR_LIMIT -> PdfProtocol.ERROR_LIMIT
                     PdfProtocol.ERROR_SELECTION_UNSUPPORTED -> PdfProtocol.ERROR_SELECTION_UNSUPPORTED
+                    PdfProtocol.ERROR_SEARCH_UNSUPPORTED -> PdfProtocol.ERROR_SEARCH_UNSUPPORTED
                     else -> PdfProtocol.ERROR_INVALID
                 },
             )
         }
+}
+
+@RequiresApi(35)
+private fun searchPageText(page: PdfRenderer.Page, query: String): Bundle {
+    require(page.width > 0 && page.height > 0) { PdfProtocol.ERROR_INVALID }
+    val matches = if (query.isEmpty()) emptyList() else page.searchText(query)
+    require(matches.size <= PdfProtocol.MAX_SEARCH_MATCHES) { PdfProtocol.ERROR_LIMIT }
+    var rectangleCount = 0
+    val rectangles = matches.map { match ->
+        require(match.bounds.isNotEmpty() && match.bounds.size <= PdfProtocol.MAX_SELECTION_BOUNDS - rectangleCount) { PdfProtocol.ERROR_LIMIT }
+        rectangleCount += match.bounds.size
+        match.bounds.map { rect ->
+            require(listOf(rect.left, rect.top, rect.right, rect.bottom).all(Float::isFinite)) { PdfProtocol.ERROR_INVALID }
+            PdfTextBounds((rect.left / page.width).coerceIn(0f, 1f), (rect.top / page.height).coerceIn(0f, 1f),
+                (rect.right / page.width).coerceIn(0f, 1f), (rect.bottom / page.height).coerceIn(0f, 1f))
+        }
+    }
+    val coordinates = FloatArray(rectangleCount * 4)
+    var offset = 0
+    rectangles.forEach { bounds -> bounds.forEach { rect ->
+        coordinates[offset++] = rect.left
+        coordinates[offset++] = rect.top
+        coordinates[offset++] = rect.right
+        coordinates[offset++] = rect.bottom
+    } }
+    return Bundle().apply {
+        putBoolean(PdfProtocol.SUCCESS, true)
+        putBoolean(PdfProtocol.SEARCH_HAS_TEXT, matches.isNotEmpty() || page.textContents.any { it.text.isNotBlank() })
+        putIntArray(PdfProtocol.SEARCH_MATCH_COUNTS, rectangles.map { it.size }.toIntArray())
+        putFloatArray(PdfProtocol.SEARCH_BOUNDS, coordinates)
+    }
 }
 
 @RequiresApi(35)

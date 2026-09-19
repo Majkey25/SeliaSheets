@@ -23,9 +23,15 @@ internal object PdfProtocol {
     const val SELECTION_FOUND = "selectionFound"
     const val SELECTION_TEXT = "selectionText"
     const val SELECTION_BOUNDS = "selectionBounds"
+    const val SEARCH_HAS_TEXT = "searchHasText"
+    const val SEARCH_MATCH_COUNTS = "searchMatchCounts"
+    const val SEARCH_BOUNDS = "searchBounds"
     const val ERROR_INVALID = "invalid_pdf"
     const val ERROR_LIMIT = "pdf_limit"
     const val ERROR_SELECTION_UNSUPPORTED = "pdf_selection_requires_android_15"
+    const val ERROR_SEARCH_UNSUPPORTED = "pdf_search_requires_android_15"
+    const val MAX_SEARCH_QUERY_LENGTH = 256
+    const val MAX_SEARCH_MATCHES = 100
     const val MAX_SELECTION_TEXT = 10_000
     const val MAX_SELECTION_BOUNDS = 2_000
     const val MAX_PAGES = 2_000
