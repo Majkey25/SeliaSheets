@@ -19,6 +19,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools
       - name: Install Android platforms
         run: sdkmanager "platforms;android-29" "platforms;android-37.0"
       - uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
@@ -67,6 +69,7 @@ jobs:
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
         with:
           cmdline-tools-version: "16111833" # SDK command-line tools 23
+          packages: platform-tools
       - name: Select command-line tools 23
         run: |
           mv "$ANDROID_HOME/cmdline-tools/latest" "$ANDROID_HOME/cmdline-tools/preinstalled"
