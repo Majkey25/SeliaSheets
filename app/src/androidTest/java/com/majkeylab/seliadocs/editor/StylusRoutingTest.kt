@@ -6,9 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.core.view.descendants
 import androidx.ink.strokes.Stroke
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.test.core.app.ActivityScenario
@@ -29,6 +32,7 @@ class StylusRoutingTest {
         val verified = CountDownLatch(1)
         val strokes = mutableListOf<Stroke>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            var stopWaiting: (() -> Unit)? = null
             scenario.onActivity { activity ->
                 val view = InkCanvasView(activity)
                 view.setPageSize(500, 500)
@@ -41,7 +45,7 @@ class StylusRoutingTest {
                     }
                     override fun onStrokeCanceled(pointerId: Int) = Unit
                 }
-                view.post {
+                val exercise = Runnable {
                     fun layout() {
                         val exact = View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY)
                         view.measure(exact, exact)
@@ -76,12 +80,41 @@ class StylusRoutingTest {
                     input(MotionEvent.ACTION_DOWN, 48, 250f, 250f)
                     input(MotionEvent.ACTION_UP, 64, 300f, 250f)
                 }
+                view.post {
+                    val surface = view.descendants.filterIsInstance<SurfaceView>().single()
+                    val callback = object : SurfaceHolder.Callback {
+                        private var scheduled = false
+                        fun startWhenReady() {
+                            if (!scheduled && surface.width > 0 && surface.height > 0 && surface.holder.surface.isValid) {
+                                scheduled = true
+                                surface.holder.removeCallback(this)
+                                // Run after the library's surfaceChanged callback, without a delay or warmup input.
+                                view.post(exercise)
+                            }
+                        }
+                        override fun surfaceCreated(holder: SurfaceHolder) = Unit
+                        override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            if (width > 0 && height > 0) startWhenReady()
+                        }
+                    }
+                    stopWaiting = {
+                        surface.holder.removeCallback(callback)
+                        view.removeCallbacks(exercise)
+                    }
+                    surface.holder.addCallback(callback)
+                    callback.startWhenReady()
+                }
             }
-            assertTrue("Drawing did not hand off both strokes after resize", verified.await(10, TimeUnit.SECONDS))
-            scenario.onActivity {
-                assertEquals("Each completed stroke must be saved once", 2, strokes.size)
-                assertEquals(100f, strokes.first().inputs[0].x, 0.1f)
-                assertEquals(200f, strokes.first().inputs[strokes.first().inputs.size - 1].x, 0.1f)
+            try {
+                assertTrue("Drawing did not hand off both strokes after resize", verified.await(10, TimeUnit.SECONDS))
+                scenario.onActivity {
+                    assertEquals("Each completed stroke must be saved once", 2, strokes.size)
+                    assertEquals(100f, strokes.first().inputs[0].x, 0.1f)
+                    assertEquals(200f, strokes.first().inputs[strokes.first().inputs.size - 1].x, 0.1f)
+                }
+            } finally {
+                scenario.onActivity { stopWaiting?.invoke() }
             }
         }
     }
