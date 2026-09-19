@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
@@ -34,6 +35,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -51,6 +53,9 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.printToString
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -611,8 +616,7 @@ class EditorCompactUiTest {
         val draft = "Inline ${System.nanoTime()}"
         val editor = rule.onNodeWithTag("inline-text-editor").assertIsDisplayed()
         editor.performTextInput(draft)
-        val editorBounds = editor.fetchSemanticsNode().boundsInRoot
-        val editorPageBounds = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
+        val (editorBounds, editorPageBounds) = settledPageGeometry(hasTestTag("inline-text-editor"))
         val editorX = (editorBounds.left - editorPageBounds.left) / editorPageBounds.width
         val editorY = (editorBounds.top - editorPageBounds.top) / editorPageBounds.height
         rule.onNodeWithTag("inline-text-editor").performImeAction()
@@ -623,8 +627,7 @@ class EditorCompactUiTest {
         }
 
         rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
-        val savedBounds = rule.onNodeWithText(draft).fetchSemanticsNode().boundsInRoot
-        val savedPageBounds = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
+        val (savedBounds, savedPageBounds) = settledPageGeometry(hasText(draft))
         val savedX = (savedBounds.left - savedPageBounds.left) / savedPageBounds.width
         val savedY = (savedBounds.top - savedPageBounds.top) / savedPageBounds.height
         assertTrue("Text x changed: $editorX -> $savedX; editor=$editorBounds/$editorPageBounds saved=$savedBounds/$savedPageBounds",
@@ -976,7 +979,7 @@ class EditorCompactUiTest {
             }
             val placement = runCatching { rule.onNodeWithTag("inline-text-placement").printToString() }
             val menu = runCatching { rule.onNodeWithTag("toolbar-insert-text").printToString() }
-            throw AssertionError("Text placement missing: $state\nMenu tap: $menuTap\nMenu: $menu\nPlacement: $placement", failure)
+            throw AssertionError("Text placement missing: $state\nMenu tap: $menuTap\nMenu: $menu\nPlacement: $placement\n${nativeWindowDiagnostics()}", failure)
         }
         rule.onNodeWithTag("inline-text-placement").performTouchInput { click(center) }
         rule.waitUntil(5_000) {
@@ -1428,6 +1431,36 @@ class EditorCompactUiTest {
         return openEditor(widthDp = 360)
     }
 
+    private fun settledPageGeometry(content: SemanticsMatcher): Pair<Rect, Rect> {
+        var previous: Pair<Rect, Rect>? = null
+        var stableSince = 0L
+        try {
+            rule.waitUntil(5_000) {
+                val contentNode = rule.onNode(content).fetchSemanticsNode()
+                val pageNode = rule.onNodeWithTag("page-paper").fetchSemanticsNode()
+                // Read both coordinates on the UI thread so an IME layout cannot split the sample.
+                val sample = rule.runOnIdle { contentNode.boundsInRoot to pageNode.boundsInRoot }
+                val now = android.os.SystemClock.uptimeMillis()
+                if (sample != previous) { previous = sample; stableSince = now }
+                sample.first.width > 0f && sample.first.height > 0f &&
+                    sample.second.width > 0f && sample.second.height > 0f && now - stableSince >= 250L
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Page geometry did not settle: $previous\n${nativeWindowDiagnostics()}", failure)
+        }
+        return requireNotNull(previous)
+    }
+
+    private fun nativeWindowDiagnostics(): String = rule.runOnIdle {
+        val decor = rule.activity.window.decorView
+        val insets = ViewCompat.getRootWindowInsets(decor)
+        val visible = android.graphics.Rect().also(decor::getWindowVisibleDisplayFrame)
+        "Native window=${decor.width}x${decor.height}, density=${decor.resources.displayMetrics.density}, " +
+            "visible=$visible, imeVisible=${insets?.isVisible(WindowInsetsCompat.Type.ime())}, " +
+            "ime=${insets?.getInsets(WindowInsetsCompat.Type.ime())}, " +
+            "systemBars=${insets?.getInsets(WindowInsetsCompat.Type.systemBars())}"
+    }
+
     private fun assertStoredInlineTexts(title: String, expected: List<String>) = runBlocking {
         val repository = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity.application))
         val notebook = repository.getAllNotebooks().single { it.title == title }
@@ -1464,6 +1497,17 @@ class EditorCompactUiTest {
         rule.onNodeWithText("Create notebook").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
+        }
+        closeSoftKeyboard()
+        try {
+            rule.waitUntil(5_000) {
+                rule.runOnIdle {
+                    ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                        ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+                }
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Notebook dialog keyboard remained visible before opening the editor. ${nativeWindowDiagnostics()}", failure)
         }
         rule.onNodeWithContentDescription("Open $title").performClick()
         rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
