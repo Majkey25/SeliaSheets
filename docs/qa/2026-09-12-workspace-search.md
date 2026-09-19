@@ -20,7 +20,7 @@ These changes follow the [PDF study release](2026-09-12-pdf-study-tools.md). The
 
 ## Remaining acceptance and limits
 
-The stronger post-recreation edit assertion, tablet split insets, and final integrated regression still require a fresh run. Native PDF search requires Android 15+ CI acceptance. The phone has no active pen attached; injected stylus tests do not certify hardware pressure, tilt, hover, or palm behavior.
+The September 19 runs below supersede the initial pending recreation, split-inset, and native PDF-search checks. Current acceptance is blocked by the latest inline-text/keyboard rerun. The phone has no active pen attached; injected stylus tests do not certify hardware pressure, tilt, hover, or palm behavior.
 
 ## September 19 integration
 
@@ -46,6 +46,8 @@ The stronger post-recreation edit assertion, tablet split insets, and final inte
 - Signed production source is `350bfa9` (main source tree `298ea244f9080c791521ff2f5bed21e910099f0d`). APK SHA-256: `56bbdbe811ef94c800dc496465b5b6f9f5f4cd46c799ca86f9045ac9e8530c39`; AAB SHA-256: `d7c1c96fd71fd11f673dfca85e82be4cf8de6a6184229883d7deacc0eb7d16e9`. Both signatures match the expected upload certificate; APK alignment and version metadata pass.
 - [Run 35445655627](https://github.com/Majkey25/SeliaSheets/actions/runs/35445655627), test-only commit `20594ed`, passed build and both dedicated ink groups. Each primary group had one inline-text UI failure: Android 10 reported a zero-size expanded placement surface; Android 17 sampled editor and paper geometry across keyboard relayout. These failures are being investigated; the earlier green run is not being substituted for current acceptance. Version 21 has not been published.
 - The inline-text tests now dismiss the creation-dialog keyboard before opening the editor and sample text/paper bounds together on the UI thread after geometry settles. Anchor tolerances, save assertions, and test timeouts are unchanged. Expanded-layout failures now report native IME visibility/insets and window geometry. This is a fixture correction with pending runtime acceptance, not a claim that hiding the keyboard fixes application behavior.
+- Huawei `device-qa-20260919-160339-803.log`: all six focused inline-text checks passed after the fixture correction: compact/expanded placement, existing text edits, tool-switch save, delete/Undo, and Back save. Review also requires keeping the native-size create/open path free of forced keyboard dismissal; that coverage is separate from synthetic phone/tablet layout checks.
+- Keyboard dismissal is now limited to explicit `WindowSize` fixtures. A native-window regression opens a newly created notebook without dismissal, requires the real keyboard to appear, and verifies text placement, unchanged anchor, and persisted text. Its runtime acceptance remains pending. The superseded CI run `35447480095` was canceled to avoid duplicate emulator work.
 
 Search currently caps combined results at 100. On Android 15+, a page with native text does not OCR its embedded scanned regions after an unsuccessful native query. Search reports unreadable pages instead of silently presenting an exhaustive result. Workspace activity recreation is covered; process-death workspace restoration and movable/resizable phone pop-ups are not implemented.
 

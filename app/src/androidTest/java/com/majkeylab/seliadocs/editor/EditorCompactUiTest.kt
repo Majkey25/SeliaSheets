@@ -605,16 +605,41 @@ class EditorCompactUiTest {
 
     @Test
     fun compactTextObjectWaitsForPageTapThenSavesInline() {
-        openCompactEditor()
+        assertInlineTextPlacementAndSave(openCompactEditor(), "compact")
+    }
 
-        rule.onNodeWithTag("compact-insert").performClick()
-        rule.onNodeWithTag("compact-insert-text").performClick()
+    @Test
+    fun nativeWindowTextObjectKeepsItsAnchorAndSavesWithTheKeyboard() {
+        val title = createAndOpenNotebook()
+        val toolbar = if (hasTag("compact-insert")) "compact" else "toolbar"
+        assertInlineTextPlacementAndSave(title, toolbar, requireVisibleIme = true)
+    }
+
+    private fun assertInlineTextPlacementAndSave(title: String, toolbar: String, requireVisibleIme: Boolean = false) {
+        rule.onNodeWithTag("$toolbar-insert").performClick()
+        rule.onNodeWithTag("$toolbar-insert-text").performClick()
 
         rule.onNodeWithTag("inline-text-editor").assertDoesNotExist()
         rule.onNodeWithText("Add text").assertDoesNotExist()
+        rule.waitUntil(5_000) {
+            runCatching { rule.onNodeWithTag("inline-text-placement").assertIsDisplayed() }.isSuccess
+        }
         rule.onNodeWithTag("page-paper").performTouchInput { click(center) }
         val draft = "Inline ${System.nanoTime()}"
         val editor = rule.onNodeWithTag("inline-text-editor").assertIsDisplayed()
+        if (requireVisibleIme) {
+            try {
+                rule.waitUntil(5_000) {
+                    rule.runOnIdle {
+                        ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                            ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                    }
+                }
+            } catch (failure: ComposeTimeoutException) {
+                throw AssertionError("Inline editor did not open the native keyboard. ${nativeWindowDiagnostics()}", failure)
+            }
+            editor.assertIsDisplayed().assertIsEnabled()
+        }
         editor.performTextInput(draft)
         val (editorBounds, editorPageBounds) = settledPageGeometry(hasTestTag("inline-text-editor"))
         val editorX = (editorBounds.left - editorPageBounds.left) / editorPageBounds.width
@@ -635,6 +660,7 @@ class EditorCompactUiTest {
         assertTrue("Text y changed: $editorY -> $savedY; editor=$editorBounds/$editorPageBounds saved=$savedBounds/$savedPageBounds",
             kotlin.math.abs(savedY - editorY) <= 0.03f)
         rule.onNodeWithTag("element-selection").assertIsDisplayed()
+        assertStoredInlineTexts(title, listOf(draft))
     }
 
     @Test
@@ -1487,10 +1513,10 @@ class EditorCompactUiTest {
                 }
             }
         }
-        return createAndOpenNotebook()
+        return createAndOpenNotebook(dismissCreationKeyboard = true)
     }
 
-    private fun createAndOpenNotebook(): String {
+    private fun createAndOpenNotebook(dismissCreationKeyboard: Boolean = false): String {
         val title = "Compact editor ${System.nanoTime()}"
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").assertIsDisplayed().performTextReplacement(title)
@@ -1498,16 +1524,18 @@ class EditorCompactUiTest {
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
         }
-        closeSoftKeyboard()
-        try {
-            rule.waitUntil(5_000) {
-                rule.runOnIdle {
-                    ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
-                        ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+        if (dismissCreationKeyboard) {
+            closeSoftKeyboard()
+            try {
+                rule.waitUntil(5_000) {
+                    rule.runOnIdle {
+                        ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                            ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+                    }
                 }
+            } catch (failure: ComposeTimeoutException) {
+                throw AssertionError("Notebook dialog keyboard remained visible before opening the editor. ${nativeWindowDiagnostics()}", failure)
             }
-        } catch (failure: ComposeTimeoutException) {
-            throw AssertionError("Notebook dialog keyboard remained visible before opening the editor. ${nativeWindowDiagnostics()}", failure)
         }
         rule.onNodeWithContentDescription("Open $title").performClick()
         rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
