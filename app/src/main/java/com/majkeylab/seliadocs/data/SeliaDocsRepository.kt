@@ -683,7 +683,7 @@ internal class SeliaDocsRepository(
             }
         }
         if (draft.kind != ElementKind.IMAGE) require(draft.ocrRegions == null)
-        validateAnnotationFields(draft.kind, draft.colorArgb, draft.annotationRects, draft.sourcePageId, draft.sourceRect)
+        validateAnnotationFields(draft.kind, draft.colorArgb, draft.annotationRects, draft.sourcePageId, draft.sourceRect, draft.strokeWidth)
     }
 
     private fun validateElement(element: ElementEntity) {
@@ -705,6 +705,7 @@ internal class SeliaDocsRepository(
                 annotationRects = element.annotationRects,
                 sourcePageId = element.sourcePageId,
                 sourceRect = element.sourceRect,
+                strokeWidth = element.strokeWidth,
             ),
         )
     }
@@ -735,6 +736,7 @@ internal class SeliaDocsRepository(
             annotationRects = draft.annotationRects,
             sourcePageId = draft.sourcePageId,
             sourceRect = draft.sourceRect,
+            strokeWidth = draft.strokeWidth,
         )
 
 }

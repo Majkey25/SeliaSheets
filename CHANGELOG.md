@@ -2,7 +2,7 @@
 
 All notable changes to SeliaSheets are documented here.
 
-## [0.8.0-beta.1] - Unreleased
+## [0.8.0-beta.2] - Unreleased
 
 ### Added
 
@@ -22,6 +22,8 @@ All notable changes to SeliaSheets are documented here.
 - Route search-result navigation through the existing text and ink save barrier.
 - Use state-based name fields, focus the chapter/page name editor, and support keyboard Done. Chapter names now follow the storage limit before saving.
 - Keep tool icons readable independently of the selected brush opacity and color.
+- Preserve pen color, opacity, and page-space width when correcting shapes, including backup and PDF/PNG exports. Transparent arrow joins no longer darken from overlapping paint passes.
+- Keep PDF and image assets when cancellation arrives after their database insert commits.
 
 ## [0.7.0-beta.2] - 2026-09-12
 

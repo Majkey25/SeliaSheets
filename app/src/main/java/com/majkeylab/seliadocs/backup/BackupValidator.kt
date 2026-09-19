@@ -3,6 +3,7 @@ package com.majkeylab.seliadocs.backup
 import android.graphics.BitmapFactory
 import android.util.JsonReader
 import android.util.JsonToken
+import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.pageTextFits
 import com.majkeylab.seliadocs.editor.BrushKind
 import com.majkeylab.seliadocs.editor.EncodedStroke
@@ -405,7 +406,10 @@ internal class BackupValidator(
         pageElements.forEach { (pageId, records) ->
             val size = pageSizes[pageId] ?: return@forEach
             records.forEach { record ->
-                if (record.annotationRects != null || record.colorArgb != null) {
+                if (record.kind == ElementKind.SHAPE.name && (record.colorArgb != null || record.strokeWidth != null)) {
+                    if (manifest.formatVersion < 7) throw BackupFailure.InvalidRelationship("shape-style-version")
+                    if ("shape-style" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("shape-style-feature")
+                } else if (record.annotationRects != null || record.colorArgb != null) {
                     if (manifest.formatVersion < 6) throw BackupFailure.InvalidRelationship("pdf-markup-version")
                     if ("pdf-markup" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("pdf-markup-feature")
                 }

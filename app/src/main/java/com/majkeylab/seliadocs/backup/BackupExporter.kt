@@ -69,6 +69,9 @@ internal class BackupExporter(
                         element.assetId?.let(written.assetIds::add)
                         if (element.annotationRects != null) written.annotationFeatures += "pdf-markup"
                         if (element.sourcePageId != null) written.annotationFeatures += "source-links"
+                        if (element.kind == "SHAPE" && (element.colorArgb != null || element.strokeWidth != null)) {
+                            written.annotationFeatures += "shape-style"
+                        }
                     }
                     content.blocks.forEach { BackupJson.writeRecord(writer, it.toBackup()) }
                     written.pages += content.pages.size
@@ -291,6 +294,7 @@ internal class BackupExporter(
             annotationRects = annotationRects,
             sourcePageId = sourcePageId,
             sourceRect = sourceRect,
+            strokeWidth = strokeWidth,
         )
 
     private fun BlockEntity.toBackup() =

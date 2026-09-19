@@ -11,6 +11,9 @@ import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.data.AssetStore
@@ -25,6 +28,11 @@ import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -110,6 +118,62 @@ class PdfImportTest {
             assertEquals(1, repository.getPages(notebookId).size)
             assertTrue(assets.files().isEmpty())
         } finally {
+            source.delete()
+        }
+    }
+
+    @Test
+    fun cancellationAfterDatabaseCommitKeepsTheReferencedPdfAsset() = runBlocking {
+        database.close()
+        val importJob = Job()
+        val cancelledAfterCommit = AtomicBoolean()
+        database = Room.inMemoryDatabaseBuilder(application, SeliaDocsDatabase::class.java)
+            .openHelperFactory(object : SupportSQLiteOpenHelper.Factory {
+                override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper {
+                    val helper = FrameworkSQLiteOpenHelperFactory().create(configuration)
+                    fun monitor(delegate: SupportSQLiteDatabase): SupportSQLiteDatabase =
+                        object : SupportSQLiteDatabase by delegate {
+                            override fun endTransaction() {
+                                delegate.endTransaction()
+                                if (!delegate.inTransaction() && delegate.query("SELECT COUNT(*) FROM pdf_sources").use {
+                                        it.moveToFirst() && it.getInt(0) > 0
+                                    } && cancelledAfterCommit.compareAndSet(false, true)) {
+                                    // Cancel only after SQLite has committed; Room still has to resume its caller.
+                                    importJob.cancel()
+                                }
+                            }
+                        }
+                    return object : SupportSQLiteOpenHelper by helper {
+                        override val writableDatabase: SupportSQLiteDatabase get() = monitor(helper.writableDatabase)
+                        override val readableDatabase: SupportSQLiteDatabase get() = monitor(helper.readableDatabase)
+                    }
+                }
+            })
+            .build()
+        repository = SeliaDocsRepository(database)
+        val book = repository.createNotebook(request())
+        val anchor = repository.getPages(book).single().id
+        val source = File(application.cacheDir, "cancel-import-${System.nanoTime()}.pdf")
+        createPdf(source)
+        try {
+            val importer = PdfImporter(application.contentResolver, assets, repository, sandbox)
+            val importing = CoroutineScope(Dispatchers.IO + importJob).async {
+                importer.import(book, Uri.fromFile(source), afterPageId = anchor)
+            }
+            val failure = runCatching { importing.await() }.exceptionOrNull()
+            importing.join()
+
+            assertTrue("Cancellation must happen after the actual SQLite commit", cancelledAfterCommit.get())
+            assertTrue(failure is CancellationException)
+            val pdf = repository.getPdfSources(book).single()
+            val pages = repository.getPages(book)
+            assertEquals(listOf(0, 1, 2), pages.map { it.pageIndex })
+            assertEquals(listOf(0, 1), pages.filter { it.pdfSourceId == pdf.id }.map { it.pdfPageIndex })
+            val installed = assets.requireFile(pdf.assetId)
+            assertEquals(2, sandbox.inspect(installed).pages.size)
+            assertEquals(listOf(installed.name), assets.files().map { it.name })
+        } finally {
+            importJob.cancel()
             source.delete()
         }
     }

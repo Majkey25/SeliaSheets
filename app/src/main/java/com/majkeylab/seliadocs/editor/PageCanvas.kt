@@ -1175,7 +1175,7 @@ private fun ElementLayer(
                             }
                         StoredImage(assetFile(id), modifier, highlightedRegions, element.id)
                     }
-                    ElementKind.SHAPE -> CleanShape(element, modifier)
+                    ElementKind.SHAPE -> CleanShape(element, modifier, transform.width)
                     ElementKind.HIGHLIGHT, ElementKind.UNDERLINE, ElementKind.STRIKEOUT -> PdfMarkupElement(element, modifier)
                     null -> Unit
                 }
@@ -1196,34 +1196,27 @@ private fun pageTextStyle(scaleY: Float, lineHeight: Float = 24f): TextStyle {
 }
 
 @Composable
-private fun CleanShape(element: ElementEntity, modifier: Modifier) {
+internal fun CleanShape(element: ElementEntity, modifier: Modifier, displayedWidth: Float = element.width) {
     val kind = element.shapeKind?.let { runCatching { ShapeKind.valueOf(it) }.getOrNull() } ?: return
     Canvas(modifier) {
-        val color = Color(0xFF202124)
-        val stroke = DrawStroke(width = 3.dp.toPx())
-        val inset = 3.dp.toPx()
+        val color = Color(element.colorArgb ?: 0xFF202124.toInt())
+        val pageScale = size.width / displayedWidth
+        val stroke = DrawStroke(width = element.strokeWidth?.let { it * pageScale } ?: 3.dp.toPx())
+        val inset = if (element.strokeWidth == null) 3.dp.toPx() else 0f
         when (kind) {
             ShapeKind.LINE,
             ShapeKind.ARROW,
             -> {
                 val start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f)
                 val end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f)
-                drawLine(color, start, end, strokeWidth = stroke.width)
+                val path = Path().apply { moveTo(start.x, start.y); lineTo(end.x, end.y) }
                 if (kind == ShapeKind.ARROW) {
-                    val head = minOf(18.dp.toPx(), size.width / 3f)
-                    drawLine(
-                        color,
-                        end,
-                        androidx.compose.ui.geometry.Offset(end.x - head, end.y - head * 0.55f),
-                        strokeWidth = stroke.width,
-                    )
-                    drawLine(
-                        color,
-                        end,
-                        androidx.compose.ui.geometry.Offset(end.x - head, end.y + head * 0.55f),
-                        strokeWidth = stroke.width,
-                    )
+                    val head = minOf(if (element.strokeWidth == null) 18.dp.toPx() else 18f * pageScale, size.width / 3f)
+                    path.moveTo(end.x - head, end.y - head * 0.55f)
+                    path.lineTo(end.x, end.y)
+                    path.lineTo(end.x - head, end.y + head * 0.55f)
                 }
+                drawPath(path, color, style = stroke)
             }
             ShapeKind.ELLIPSE -> drawOval(color, style = stroke)
             ShapeKind.RECTANGLE ->

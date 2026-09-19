@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TextMarkEntity::class,
         PdfSourceEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 internal abstract class SeliaDocsDatabase : RoomDatabase() {
@@ -144,6 +144,13 @@ internal abstract class SeliaDocsDatabase : RoomDatabase() {
                 }
             }
 
+        val MIGRATION_5_6 =
+            object : Migration(5, 6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE elements ADD COLUMN strokeWidth REAL")
+                }
+            }
+
         fun get(context: Context): SeliaDocsDatabase =
             instance
                 ?: synchronized(this) {
@@ -153,7 +160,7 @@ internal abstract class SeliaDocsDatabase : RoomDatabase() {
                             SeliaDocsDatabase::class.java,
                             FILE_NAME,
                         )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                             .build()
                             .also { instance = it }
                 }

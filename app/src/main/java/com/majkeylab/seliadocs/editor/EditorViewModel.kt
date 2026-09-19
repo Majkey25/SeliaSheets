@@ -596,6 +596,8 @@ internal class EditorViewModel(
                             height = recognition.transform.height,
                             rotation = recognition.transform.rotation,
                             shapeKind = recognition.kind.name,
+                            colorArgb = encoded.colorArgb,
+                            strokeWidth = encoded.size,
                         ),
                     )
                 showSmartShapePreview(id)
@@ -1253,8 +1255,8 @@ internal class EditorViewModel(
         onComplete: (Boolean) -> Unit = {},
     ) = mutate(onComplete = onComplete) {
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
-        val asset = imageImporter.importImage(uri).getOrThrow()
         val history = history(pageId)
+        val asset = imageImporter.importImage(uri).getOrThrow()
         val elementId =
             runCatching {
                 val scale =
@@ -1264,17 +1266,21 @@ internal class EditorViewModel(
                     )
                 val width = asset.width * scale
                 val height = asset.height * scale
-                repository.addElement(
-                    pageId,
-                    ElementDraft(
-                        kind = ElementKind.IMAGE,
-                        x = (page.widthPoints - width) / 2f,
-                        y = (page.heightPoints - height) / 2f,
-                        width = width,
-                        height = height,
-                        assetId = asset.id,
-                    ),
-                )
+                currentCoroutineContext().ensureActive()
+                // Do not treat cancellation after a committed insert as an unowned asset.
+                withContext(NonCancellable) {
+                    repository.addElement(
+                        pageId,
+                        ElementDraft(
+                            kind = ElementKind.IMAGE,
+                            x = (page.widthPoints - width) / 2f,
+                            y = (page.heightPoints - height) / 2f,
+                            width = width,
+                            height = height,
+                            assetId = asset.id,
+                        ),
+                    )
+                }
             }
             .getOrElse {
                 asset.file.delete()
@@ -1444,10 +1450,10 @@ internal class EditorViewModel(
             val selectedIds = controls.value.selectedStrokeIds
             if (selectedIds.isEmpty()) return@mutate
             val history = history(page.id)
-            val paths =
-                history.current.strokes
-                    .filter { it.id in selectedIds }
-                    .map(StrokeEntity::toStrokePath)
+            val selectedStrokes = history.current.strokes.filter { it.id in selectedIds }
+            // Match the existing geometry order: the earliest selected stroke supplies the style.
+            val style = selectedStrokes.firstOrNull() ?: return@mutate
+            val paths = selectedStrokes.map(StrokeEntity::toStrokePath)
             val box = shapeBox(paths) ?: return@mutate
             val draft =
                 if (kind == ShapeKind.LINE || kind == ShapeKind.ARROW) {
@@ -1475,7 +1481,8 @@ internal class EditorViewModel(
                         shapeKind = kind.name,
                     )
                 }
-            repository.replaceStrokesWithElement(page.id, selectedIds, draft)
+            repository.replaceStrokesWithElement(page.id, selectedIds,
+                draft.copy(colorArgb = style.colorArgb, strokeWidth = style.size))
             history.push(snapshot(page.id))
             controls.value =
                 controls.value.copy(selectedStrokeIds = emptySet(), selectedElementId = null)

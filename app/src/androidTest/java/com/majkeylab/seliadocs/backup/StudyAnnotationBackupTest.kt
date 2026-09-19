@@ -60,6 +60,59 @@ class StudyAnnotationBackupTest {
     }
 
     @Test
+    fun mergeAndDuplicatePreserveShapeColorOpacityAndPageSpaceWidth() = runTest {
+        val book = repository.createNotebook(request())
+        val page = repository.getPages(book).single().id
+        val original = repository.addElementEntity(page, ElementDraft(ElementKind.SHAPE, 20f, 30f, 200f, 40f,
+            shapeKind = "LINE", colorArgb = 0x803156D9.toInt(), strokeWidth = 9.5f))
+        val duplicate = requireNotNull(repository.getElement(repository.duplicateElement(original.id)))
+        assertEquals(original.colorArgb, duplicate.colorArgb)
+        assertEquals(original.strokeWidth, duplicate.strokeWidth)
+        repository.deleteElement(duplicate.id)
+        val output = ByteArrayOutputStream()
+        BackupExporter(repository, assets, "test").export(BackupScope.Notebook(book), output)
+        validator.validate(ByteArrayInputStream(output.toByteArray())).use { backup ->
+            assertEquals(7, backup.manifest.formatVersion)
+            assertTrue("shape-style" in backup.manifest.featureFlags)
+            assertTrue("pdf-markup" !in backup.manifest.featureFlags)
+        }
+        BackupImporter(database, repository, assets, validator, File(root, "restore"), "test")
+            .restore(ByteArrayInputStream(output.toByteArray()), RestoreMode.MERGE)
+        val imported = repository.getAllNotebooks().single { it.id != book }
+        val restored = repository.loadNotebook(imported.id).elements.single()
+        assertEquals(original.colorArgb, restored.colorArgb)
+        assertEquals(original.strokeWidth, restored.strokeWidth)
+        assertEquals(original.shapeKind, restored.shapeKind)
+    }
+
+    @Test
+    fun malformedOrDowngradedShapeStylesAreRejectedAndLegacyShapesStillRead() = runTest {
+        val record = backupElement().copy(kind = "SHAPE", text = null, shapeKind = "LINE",
+            colorArgb = 0x803156D9.toInt(), strokeWidth = 9.5f, annotationRects = null, sourcePageId = null, sourceRect = null)
+        val encoded = StringWriter().also { BackupJson.writeRecord(it, record) }.toString()
+        assertEquals(record, BackupJson.records(StringReader(encoded)).single())
+        listOf(0f, -1f, 129f, Float.MAX_VALUE, Float.NaN, Float.POSITIVE_INFINITY).forEach { width ->
+            assertTrue(runCatching { BackupJson.writeRecord(StringWriter(), record.copy(strokeWidth = width)) }
+                .exceptionOrNull() is BackupFailure)
+        }
+        val malformed = encoded.replace("\"strokeWidth\":9.5", "\"strokeWidth\":1e999")
+        assertTrue(runCatching { BackupJson.records(StringReader(malformed)).toList() }.exceptionOrNull() is BackupFailure)
+        val notebook = BackupNotebook("book", "Study", "SAGE", "SOLID", "BLANK", "PORTRAIT", false, false, 1, 2, null)
+        val page = BackupPage("page", "book", 0, "BLANK", 595, 842)
+        val records = StringWriter().also { output -> listOf(notebook, page, record).forEach { BackupJson.writeRecord(output, it) } }.toString()
+        listOf(6 to setOf("shape-style"), 7 to emptySet()).forEach { (version, flags) ->
+            val manifest = BackupManifest(version, "test", 1, 1, 1, 0, flags)
+            val failure = runCatching { validator.validate(ByteArrayInputStream(archive(manifest, records))).close() }.exceptionOrNull()
+            assertTrue("$version $flags: $failure", failure is BackupFailure.InvalidRelationship)
+        }
+        val legacy = record.copy(colorArgb = null, strokeWidth = null)
+        val legacyRecords = StringWriter().also { output -> listOf(notebook, page, legacy).forEach { BackupJson.writeRecord(output, it) } }.toString()
+        validator.validate(ByteArrayInputStream(archive(BackupManifest(6, "legacy", 1, 1, 1, 0), legacyRecords))).use {
+            assertEquals(6, it.manifest.formatVersion)
+        }
+    }
+
+    @Test
     fun mergeAndPageCopyPreserveMarkupAndRemapInternalSourceLinks() = runTest {
         val book = repository.createNotebook(request())
         val source = repository.getPages(book).single().id
@@ -76,7 +129,7 @@ class StudyAnnotationBackupTest {
         val output = ByteArrayOutputStream()
         BackupExporter(repository, assets, "test").export(BackupScope.Notebook(book), output)
         validator.validate(ByteArrayInputStream(output.toByteArray())).use { backup ->
-            assertEquals(6, backup.manifest.formatVersion)
+            assertEquals(7, backup.manifest.formatVersion)
             assertTrue(backup.manifest.featureFlags.containsAll(setOf("pdf-markup", "source-links")))
         }
         BackupImporter(database, repository, assets, validator, File(root, "restore"), "test")
@@ -205,6 +258,7 @@ class StudyAnnotationBackupTest {
         assertEquals(null, record.annotationRects)
         assertEquals(null, record.sourcePageId)
         assertEquals(null, record.sourceRect)
+        assertEquals(null, record.strokeWidth)
     }
 
     @Test
