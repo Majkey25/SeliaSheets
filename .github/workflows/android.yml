@@ -53,9 +53,17 @@ jobs:
           api-level: 29
           arch: x86_64
           profile: pixel_4
-          script: |
-            ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.notClass=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
-            ./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
+          script: sh .github/scripts/run_android_instrumentation.sh
+      - name: Upload Android 10 diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: SeliaSheets-api29-diagnostics
+          if-no-files-found: warn
+          path: |
+            app/build/qa/primary-instrumentation/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
 
   instrumentation-api37:
     runs-on: ubuntu-latest
@@ -111,6 +119,7 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           path: |
+            app/build/qa/primary-instrumentation/
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             ${{ runner.temp }}/seliasheets-api37/

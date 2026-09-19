@@ -11,6 +11,9 @@ Checked September 19, 2026 against official product documentation. This is a cap
 | [MyScript Notes](https://www.myscript.com/notes/) | Mixed handwriting/typing, gesture editing, searchable ink, diagrams, responsive documents | Math objects are distinct from universal automatic recognition and from the separate MyScript Math product. |
 | [Notability](https://support.gingerlabs.com/hc/en-us/articles/5955260981786-Settings-Appearances-Tools-Gestures) | Configurable toolbox, ruler, hold-to-shape, tape recall, audio-linked replay | [Android availability](https://intercom.help/notability/en-us/articles/16300000-notability-for-android-faq) differs from iOS, including backup and text-only mode. |
 | [OneNote](https://support.microsoft.com/en-us/onenote/take-handwritten-notes-in-onenote-for-android) | Lasso move/resize, ruled/grid paper, finger navigation and collapsible tools | Its documented Math Assistant uses selection and a Math panel on supported platforms, not automatic Android math everywhere. |
+| [Noteshelf Android](https://www.noteshelf.net/noteshelf3-android.html) | Customizable toolbar, handwriting conversion, hold-to-shape, rich text, sticky notes and audio recording | Its Android feature page is the reference, not assumed iPad parity. |
+| [Squid](https://www.squidnotes.com/) | Editable vector ink, change stroke color/thickness after drawing, pen-button actions, insert PDF pages, crop/resize images and presentation output | Pressure requires compatible hardware. Some PDF workflows require its premium features. |
+| [Notewise](https://notewise.dev/post/notewise-3-5) | Arc shapes, image opacity for tracing, embedded media and diagram tools | Features vary by platform/version. Its newer cloud/AI workflows are not evidence of offline capability and are not required for SeliaSheets' local drawing tools. |
 | [Sketchbook](https://www.sketchbook.com/apps) | Brush library, layers, blend modes, guides and stroke stabilization | Stabilization adds deliberate lag/offset. Pen pressure and tilt depend on platform/device support. |
 | [Concepts](https://concepts.app/en/manual/precision-tools) | Editable vector strokes, layers, snapping, measurement and shape guides | [Export formats](https://concepts.app/en/manual/export) have different fidelity limits. |
 | [Infinite Painter](https://docs.infinitestudio.art/painter/layers/) | Layer visibility/locking/opacity, clipping, custom brushes, fill and perspective | These require a real compositor and persistent layer model, not additional toolbar icons. |
@@ -26,7 +29,7 @@ These are implemented changes awaiting integrated device and CI acceptance, not 
 ## Remaining implementation groups
 
 1. Persistent graphics layers: reorder, rename, visibility, lock, opacity, selection, export and backup round trips.
-2. Saved brush presets, pressure-response profiles, measured stabilization, rulers and symmetry/perspective guides.
+2. Saved brush presets, pressure-response profiles, measured stabilization, rulers and symmetry/perspective guides. Include image opacity for tracing and post-drawing ink style edits.
 3. Study masks, reveal/reset and progress; audio-linked notes with permission, interruption and crash recovery.
 4. Rich text, tables, diagram connectors, recognition correction, then verified two-dimensional math and graphs.
 5. PDF outlines, annotation filters, editable exports, and page-range import.

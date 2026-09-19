@@ -98,7 +98,9 @@ class EditorWorkspaceHistoryTest {
             }
             complete { done -> first.addText(pageId, "Undo this text", onComplete = done) }
             first.await { it.canUndo && it.elements.size == 2 }
-            onMain { first.selectElement(image.id); first.recognizeSelectedImage() }
+            onMain { first.selectElement(image.id) }
+            first.await { it.selectedElement?.id == image.id }
+            onMain(first::recognizeSelectedImage)
             first.await { it.elements.any { element -> element.id == image.id && element.ocrRegions != null } && it.canUndo }
             onMain(first::undo)
             val restored = first.await { it.canRedo && it.elements.size == 1 }

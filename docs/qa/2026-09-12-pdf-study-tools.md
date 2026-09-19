@@ -28,6 +28,7 @@ Version 19 was an unsubmitted Play draft. Android 17 CI caught off-region native
 - Final version-20 [CI run 34710873293](https://github.com/Majkey25/SeliaSheets/actions/runs/34710873293) passed build, Android 10 instrumentation, and Android 17 instrumentation. [PR 29](https://github.com/Majkey25/SeliaSheets/pull/29) merged as `fe5e950eccd487b04075ba1ca386efdcab677a08` with an identical source tree to the tested release commit.
 - [GitHub prerelease 0.7.0-beta.2](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.7.0-beta.2) contains APK SHA-256 `e9ffcfe8d35ec3050fe6ba0eb4251a4584850a4e9f499d9d29c47debc2c62386` and AAB SHA-256 `fda3dab3ded9f625acc570f39a482fccf72161693f16b67bc10522f6ea79dccd`. GitHub asset digests match the local frozen artifacts.
 - Google Play closed Alpha version 20 was submitted on September 12. At 21:10 CEST, quick checks had finished and Play reported the changes under review. This does not establish tester availability. The superseded version-19 bundle remains only in the artifact library.
+- On September 19, Play Console confirmed version 20 available to selected Alpha testers, with a September 12 21:25 release time. Version 21 had not been uploaded.
 
 ## Bugs and test defects found
 
@@ -45,6 +46,6 @@ Version 19 was an unsubmitted Play draft. Android 17 CI caught off-region native
 
 ## Remaining acceptance
 
-Version 20 is published on GitHub and under Google Play review. Split/pop-up workspace and PDF body-search work remain separate, unshipped changes. Audio-linked notes, study masking, annotation-preserving PDF export, and other parity items remain open in the [implementation checklist](../superpowers/specs/2026-09-12-flexcil-parity.md).
+Version 20 is published on GitHub and available to Google Play closed Alpha testers. Split/pop-up workspace and PDF body-search work remain separate, unshipped changes. Audio-linked notes, study masking, annotation-preserving PDF export, and other parity items remain open in the [implementation checklist](../superpowers/specs/2026-09-12-flexcil-parity.md).
 
 Injected stylus events exercise Android input routing. They do not certify a physical active pen's pressure, tilt, palm rejection, or vendor buttons. The shared Huawei has no attached active pen.
