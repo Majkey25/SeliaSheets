@@ -75,6 +75,7 @@ internal fun PageLocationBar(
     onOpenContents: () -> Unit,
     onBookmarkPage: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val page = state.selectedPage ?: return
     val bookmarkDescription =
@@ -86,7 +87,7 @@ internal fun PageLocationBar(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onOpenContents) { Text(stringResource(R.string.contents)) }
+            TextButton(onClick = onOpenContents, enabled = enabled) { Text(stringResource(R.string.contents)) }
             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                 Text(
                     page.title ?: stringResource(R.string.page_number, page.pageIndex + 1),
@@ -102,6 +103,7 @@ internal fun PageLocationBar(
             }
             TextButton(
                 onClick = { onBookmarkPage(page.id, !page.bookmarked) },
+                enabled = enabled,
                 modifier =
                     Modifier.semantics {
                         contentDescription = bookmarkDescription
@@ -127,6 +129,7 @@ internal fun ContentsPanel(
     onDeletePage: (String) -> Unit,
     loadPagePreview: suspend (String) -> PagePreviewData,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     var createChapter by rememberSaveable { mutableStateOf(false) }
     var renamePage by remember { mutableStateOf<PageEntity?>(null) }
@@ -142,7 +145,7 @@ internal fun ContentsPanel(
     val previewNumber = previewPage.roundToInt().coerceIn(1, maxOf(1, pageCount))
     val visiblePages = if (bookmarksOnly) state.pages.filter(PageEntity::bookmarked) else state.pages
     if (jumpOpen) {
-        PageJumpDialog(state.pages, previewNumber, onSelectPage) { jumpOpen = false }
+        PageJumpDialog(state.pages, previewNumber, onSelectPage, enabled) { jumpOpen = false }
     }
 
     if (createChapter) {
@@ -151,28 +154,35 @@ internal fun ContentsPanel(
             initial = "",
             allowEmpty = false,
             maxLength = 120,
+            enabled = enabled,
             onDismiss = { createChapter = false },
             onSave = {
-                onCreateChapter(it)
-                createChapter = false
+                if (enabled) {
+                    onCreateChapter(it)
+                    createChapter = false
+                }
             },
         )
     }
     renamePage?.let { page ->
         NameDialog(
             title = stringResource(R.string.rename_page),
+            enabled = enabled,
             initial = page.title.orEmpty(),
             allowEmpty = true,
             onDismiss = { renamePage = null },
             onSave = {
-                onRenamePage(page.id, it.ifBlank { null })
-                renamePage = null
+                if (enabled) {
+                    onRenamePage(page.id, it.ifBlank { null })
+                    renamePage = null
+                }
             },
         )
     }
     movePage?.let { page ->
         MovePageDialog(
             chapters = state.chapters,
+            enabled = enabled,
             onDismiss = { movePage = null },
             onSelect = {
                 onAssignPage(page.id, it)
@@ -187,6 +197,7 @@ internal fun ContentsPanel(
             text = { Text(stringResource(R.string.delete_chapter_message, chapter.title)) },
             confirmButton = {
                 TextButton(
+                    enabled = enabled,
                     onClick = {
                         onDeleteChapter(chapter.id)
                         deleteChapter = null
@@ -205,6 +216,7 @@ internal fun ContentsPanel(
             text = { Text(stringResource(R.string.delete_page_message)) },
             confirmButton = {
                 TextButton(
+                    enabled = enabled,
                     onClick = {
                         onDeletePage(page.id)
                         deletePage = null
@@ -229,7 +241,7 @@ internal fun ContentsPanel(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { createChapter = true }) { Text(stringResource(R.string.add_chapter)) }
+                TextButton(onClick = { createChapter = true }, enabled = enabled) { Text(stringResource(R.string.add_chapter)) }
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -237,6 +249,7 @@ internal fun ContentsPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FilterChip(
+                    enabled = enabled,
                     selected = bookmarksOnly,
                     onClick = { bookmarksOnly = !bookmarksOnly },
                     label = { Text(stringResource(R.string.contents_bookmarks_filter)) },
@@ -244,7 +257,7 @@ internal fun ContentsPanel(
                 )
                 val jumpDescription = stringResource(R.string.contents_go_to_page)
                 val currentPosition = stringResource(R.string.page_of_pages, previewNumber, pageCount)
-                TextButton(onClick = { jumpOpen = true }, enabled = pageCount > 0,
+                TextButton(onClick = { jumpOpen = true }, enabled = enabled && pageCount > 0,
                     modifier = Modifier.weight(1f).testTag("contents-jump-page").semantics {
                         contentDescription = jumpDescription
                         stateDescription = currentPosition
@@ -257,11 +270,12 @@ internal fun ContentsPanel(
                 val sliderDescription = stringResource(R.string.contents_page_slider)
                 val positionDescription = stringResource(R.string.page_of_pages, previewNumber, pageCount)
                 Slider(
+                    enabled = enabled,
                     value = previewPage.coerceIn(1f, pageCount.toFloat()),
-                    onValueChange = { if (it.isFinite()) previewPage = it.coerceIn(1f, pageCount.toFloat()) },
+                    onValueChange = { if (enabled && it.isFinite()) previewPage = it.coerceIn(1f, pageCount.toFloat()) },
                     onValueChangeFinished = {
                         val number = previewPage.roundToInt().coerceIn(1, pageCount)
-                        state.pages.firstOrNull { it.pageIndex == number - 1 }?.let { onSelectPage(it.id) }
+                        if (enabled) state.pages.firstOrNull { it.pageIndex == number - 1 }?.let { onSelectPage(it.id) }
                     },
                     valueRange = 1f..pageCount.toFloat(),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("contents-page-slider").semantics {
@@ -279,31 +293,31 @@ internal fun ContentsPanel(
         if (unfiled.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.unfiled), null) }
             items(unfiled, key = PageEntity::id) { page ->
-                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview)
+                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
             }
         }
         state.chapters.forEach { chapter ->
             val chapterPages = visiblePages.filter { it.chapterId == chapter.id }
             if (bookmarksOnly && chapterPages.isEmpty()) return@forEach
             item {
-                SectionHeader(chapter.title, Color(chapter.colorArgb), onDelete = { deleteChapter = chapter })
+                SectionHeader(chapter.title, Color(chapter.colorArgb), onDelete = { deleteChapter = chapter }, enabled = enabled)
             }
             items(chapterPages, key = PageEntity::id) { page ->
-                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview)
+                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
             }
         }
     }
 }
 
 @Composable
-private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPage: (String) -> Unit, onDismiss: () -> Unit) {
+private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPage: (String) -> Unit, enabled: Boolean, onDismiss: () -> Unit) {
     var input by rememberSaveable { mutableStateOf(initialPage.toString()) }
     val number = input.toIntOrNull()?.takeIf { it in 1..pages.size }
     val target = number?.let { value -> pages.firstOrNull { it.pageIndex == value - 1 } }
     val focus = remember { FocusRequester() }
     val go: () -> Unit = {
         val latestNumber = input.toIntOrNull()?.takeIf { it in 1..pages.size }
-        pages.firstOrNull { latestNumber != null && it.pageIndex == latestNumber - 1 }?.let { page ->
+        pages.firstOrNull { enabled && latestNumber != null && it.pageIndex == latestNumber - 1 }?.let { page ->
             onDismiss()
             onSelectPage(page.id)
         }
@@ -314,6 +328,7 @@ private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPa
         title = { Text(stringResource(R.string.contents_go_to_page)) },
         text = {
             OutlinedTextField(
+                enabled = enabled,
                 value = input,
                 onValueChange = { input = it.take(10) },
                 label = { Text(stringResource(R.string.contents_page_number)) },
@@ -326,7 +341,7 @@ private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPa
             )
         },
         confirmButton = {
-            TextButton(onClick = go, enabled = target != null, modifier = Modifier.testTag("contents-go-page")) {
+            TextButton(onClick = go, enabled = enabled && target != null, modifier = Modifier.testTag("contents-go-page")) {
                 Text(stringResource(R.string.contents_go))
             }
         },
@@ -335,14 +350,14 @@ private fun PageJumpDialog(pages: List<PageEntity>, initialPage: Int, onSelectPa
 }
 
 @Composable
-private fun SectionHeader(title: String, color: Color?, onDelete: (() -> Unit)? = null) {
+private fun SectionHeader(title: String, color: Color?, onDelete: (() -> Unit)? = null, enabled: Boolean = true) {
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, top = 14.dp, end = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (color != null) Box(Modifier.padding(end = 8.dp).size(10.dp).background(color, RoundedCornerShape(5.dp)))
         Text(title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-        if (onDelete != null) TextButton(onClick = onDelete) { Text(stringResource(R.string.remove)) }
+        if (onDelete != null) TextButton(onClick = onDelete, enabled = enabled) { Text(stringResource(R.string.remove)) }
     }
 }
 
@@ -467,6 +482,7 @@ private fun ContentsPageRow(
     onDuplicate: (String) -> Unit,
     onDelete: (PageEntity) -> Unit,
     loadPagePreview: suspend (String) -> PagePreviewData,
+    enabled: Boolean,
 ) {
     val selected = state.selectedPage?.id == page.id
     var menu by remember { mutableStateOf(false) }
@@ -477,6 +493,7 @@ private fun ContentsPageRow(
         stringResource(if (page.bookmarked) R.string.bookmarked else R.string.not_bookmarked)
     Surface(
         onClick = { onSelect(page.id) },
+        enabled = enabled,
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
         shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).testTag("page-thumbnail"),
@@ -505,6 +522,7 @@ private fun ContentsPageRow(
             }
             TextButton(
                 onClick = { onBookmark(page.id, !page.bookmarked) },
+                enabled = enabled,
                 modifier =
                     Modifier.testTag("contents-bookmark").semantics {
                         contentDescription = bookmarkDescription
@@ -516,10 +534,12 @@ private fun ContentsPageRow(
             Box {
                 TextButton(
                     onClick = { menu = true },
+                    enabled = enabled,
                     modifier = Modifier.semantics { contentDescription = actionsDescription },
                 ) { Text("⋮") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
+                        enabled = enabled,
                         text = { Text(stringResource(R.string.rename_page)) },
                         onClick = {
                             menu = false
@@ -527,6 +547,7 @@ private fun ContentsPageRow(
                         },
                     )
                     DropdownMenuItem(
+                        enabled = enabled,
                         text = { Text(stringResource(R.string.move_to_chapter)) },
                         onClick = {
                             menu = false
@@ -534,6 +555,7 @@ private fun ContentsPageRow(
                         },
                     )
                     DropdownMenuItem(
+                        enabled = enabled,
                         text = { Text(stringResource(R.string.duplicate_page)) },
                         onClick = {
                             menu = false
@@ -542,6 +564,7 @@ private fun ContentsPageRow(
                     )
                     if (state.pages.size > 1) {
                         DropdownMenuItem(
+                            enabled = enabled,
                             text = { Text(stringResource(R.string.delete_page)) },
                             onClick = {
                                 menu = false
@@ -564,17 +587,19 @@ internal fun NameDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     maxLength: Int = 160,
+    enabled: Boolean = true,
 ) {
     val value = rememberTextFieldState(initial)
     val focusRequester = remember { FocusRequester() }
-    val canSave = allowEmpty || value.text.isNotBlank()
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val canSave = enabled && (allowEmpty || value.text.isNotBlank())
+    LaunchedEffect(enabled) { if (enabled) focusRequester.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             OutlinedTextField(
                 state = value,
+                enabled = enabled,
                 inputTransformation = InputTransformation.maxLength(maxLength),
                 label = { Text(title) },
                 lineLimits = TextFieldLineLimits.SingleLine,
@@ -597,6 +622,7 @@ private fun MovePageDialog(
     chapters: List<ChapterEntity>,
     onDismiss: () -> Unit,
     onSelect: (String?) -> Unit,
+    enabled: Boolean = true,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -604,13 +630,14 @@ private fun MovePageDialog(
         text = {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                 item {
-                    TextButton(onClick = { onSelect(null) }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { onSelect(null) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.unfiled))
                     }
                 }
                 items(chapters, key = ChapterEntity::id) { chapter ->
                     TextButton(
                         onClick = { onSelect(chapter.id) },
+                        enabled = enabled,
                         modifier = Modifier.fillMaxWidth().testTag("move-chapter-option"),
                     ) {
                         Text(chapter.title)

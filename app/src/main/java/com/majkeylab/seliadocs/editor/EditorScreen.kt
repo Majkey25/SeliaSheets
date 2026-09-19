@@ -349,7 +349,11 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
         val completed = mutableCloseState.value
         check(completed.completed)
         sessionEpoch++
-        if (completed.intent == EditorCloseIntent.BACK) viewModelStore.clear()
+        if (completed.intent == EditorCloseIntent.BACK) {
+            viewModelStore.clear()
+            selectedPage.value = null
+            workspaceSaveResult.value = null
+        }
         draft = null
         mutableActionState.value = EditorActionState()
         mutableInlineTextDraft.value = null
@@ -465,7 +469,7 @@ private fun EditorScreen(
     val textPlacementPageId = inlineTextDraft?.pageId
     val editingTextElementId = inlineTextDraft?.elementId
     val actionState by sessionHolder.actionState.collectAsStateWithLifecycle()
-    val inputEnabled = editable && !actionState.busy && !closeState.closing
+    val inputEnabled = editable && !workspaceBusy && !actionState.busy && !closeState.closing
     val contextActionsEnabled = inputEnabled && inlineTextDraft == null
     val toolbarState =
         if (state.tool == EditorTool.TYPE || inlineTextDraft != null || !inputEnabled) {
@@ -725,6 +729,7 @@ private fun EditorScreen(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             ContentsPanel(
+                enabled = inputEnabled,
                 state = state,
                 onSelectPage = {
                     selectPage(it)
@@ -805,6 +810,7 @@ private fun EditorScreen(
                         }
                     } else if (compact) {
                         CompactEditorTopBar(
+                            controlsEnabled = !workspaceBusy,
                             state = toolbarState,
                             onBack = { requestClose(EditorCloseIntent.BACK) },
                             onOpenContents = { contentsOpen = true },
@@ -819,6 +825,7 @@ private fun EditorScreen(
                         )
                     } else {
                         EditorTopBar(
+                            controlsEnabled = !workspaceBusy,
                             title = state.notebook?.title.orEmpty(),
                             failed = state.failed,
                             onBack = { requestClose(EditorCloseIntent.BACK) },
@@ -829,6 +836,7 @@ private fun EditorScreen(
                         )
                         HorizontalDivider()
                         EditorToolBar(
+                            enabled = !workspaceBusy,
                             state = toolbarState,
                             onSelectTool = selectTool,
                             onEraserMode = viewModel::setEraserMode,
@@ -929,6 +937,7 @@ private fun EditorScreen(
             bottomBar = {
                 if (compact && editable) {
                     CompactEditorPalette(
+                        enabled = !workspaceBusy,
                         state = state,
                         onSelectTool = selectTool,
                         onEraserMode = viewModel::setEraserMode,
@@ -957,6 +966,7 @@ private fun EditorScreen(
                 windowClass == SeliaWindowClass.EXPANDED && editable -> {
                     Row(Modifier.fillMaxSize().padding(padding)) {
                         ContentsPanel(
+                            enabled = inputEnabled,
                             state = state,
                             onSelectPage = selectPage,
                             onCreateChapter = viewModel::createChapter,
@@ -978,8 +988,8 @@ private fun EditorScreen(
                             strokes = state.selectedStrokes,
                             elements = state.selectedElements,
                             blocks = state.selectedBlocks,
-                            selectedStrokeIds = state.selectedStrokeIds,
-                            selectedElementId = state.selectedElementId,
+                            selectedStrokeIds = if (inputEnabled) state.selectedStrokeIds else emptySet(),
+                            selectedElementId = if (inputEnabled) state.selectedElementId else null,
                             smartShapePreviewId = state.smartShapePreviewId,
                             ocrSearchHighlight = state.ocrSearchHighlight,
                             pdfSearchHighlight = state.pdfSearchHighlight,
@@ -1035,6 +1045,7 @@ private fun EditorScreen(
                     Column(Modifier.fillMaxSize().padding(padding)) {
                         if (windowClass == SeliaWindowClass.MEDIUM && editable) {
                             PageLocationBar(
+                                enabled = inputEnabled,
                                 state = state,
                                 onOpenContents = { contentsOpen = true },
                                 onBookmarkPage = viewModel::setPageBookmarked,
@@ -1050,8 +1061,8 @@ private fun EditorScreen(
                             strokes = state.selectedStrokes,
                             elements = state.selectedElements,
                             blocks = state.selectedBlocks,
-                            selectedStrokeIds = if (editable) state.selectedStrokeIds else emptySet(),
-                            selectedElementId = if (editable) state.selectedElementId else null,
+                            selectedStrokeIds = if (inputEnabled) state.selectedStrokeIds else emptySet(),
+                            selectedElementId = if (inputEnabled) state.selectedElementId else null,
                             smartShapePreviewId = state.smartShapePreviewId,
                             ocrSearchHighlight = state.ocrSearchHighlight,
                             pdfSearchHighlight = state.pdfSearchHighlight,
@@ -1122,6 +1133,7 @@ private fun CompactEditorTopBar(
     onExport: () -> Unit,
     onSettings: () -> Unit,
     onOpenBeside: (() -> Unit)? = null,
+    controlsEnabled: Boolean = true,
 ) {
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     val largeFont = LocalDensity.current.fontScale >= 1.5f
@@ -1140,6 +1152,7 @@ private fun CompactEditorTopBar(
             title = {
                 TextButton(
                     onClick = onOpenContents,
+                    enabled = controlsEnabled,
                     contentPadding = PaddingValues(horizontal = 4.dp),
                     modifier =
                         Modifier
@@ -1180,6 +1193,7 @@ private fun CompactEditorTopBar(
             navigationIcon = {
                 IconButton(
                     onClick = onBack,
+                    enabled = controlsEnabled,
                     modifier = Modifier.size(48.dp).testTag("compact-back"),
                 ) {
                     Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = backDescription)
@@ -1189,14 +1203,14 @@ private fun CompactEditorTopBar(
                 if (!largeFont) {
                     IconButton(
                         onClick = onUndo,
-                        enabled = state.canUndo,
+                        enabled = controlsEnabled && state.canUndo,
                         modifier = Modifier.size(48.dp).testTag("compact-undo"),
                     ) {
                         Icon(painterResource(R.drawable.ic_undo), contentDescription = undoDescription)
                     }
                     IconButton(
                         onClick = onRedo,
-                        enabled = state.canRedo,
+                        enabled = controlsEnabled && state.canRedo,
                         modifier = Modifier.size(48.dp).testTag("compact-redo"),
                     ) {
                         Icon(painterResource(R.drawable.ic_redo), contentDescription = redoDescription)
@@ -1214,7 +1228,7 @@ private fun CompactEditorTopBar(
                             CompactMenuItem(
                                 stringResource(R.string.undo),
                                 "compact-more-undo",
-                                enabled = state.canUndo,
+                                enabled = controlsEnabled && state.canUndo,
                             ) {
                                 menuOpen = false
                                 onUndo()
@@ -1222,23 +1236,24 @@ private fun CompactEditorTopBar(
                             CompactMenuItem(
                                 stringResource(R.string.redo),
                                 "compact-more-redo",
-                                enabled = state.canRedo,
+                                enabled = controlsEnabled && state.canRedo,
                             ) {
                                 menuOpen = false
                                 onRedo()
                             }
                         }
-                        CompactMenuItem(stringResource(R.string.add_page), "compact-more-add-page") {
+                        CompactMenuItem(stringResource(R.string.add_page), "compact-more-add-page", controlsEnabled) {
                             menuOpen = false
                             onAddPage()
                         }
-                        CompactMenuItem(stringResource(R.string.search), "compact-more-search") {
+                        CompactMenuItem(stringResource(R.string.search), "compact-more-search", controlsEnabled) {
                             menuOpen = false
                             onSearch()
                         }
                         val fingerDrawing = state.notebook?.fingerDrawing == true
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.draw_with_finger)) },
+                            enabled = controlsEnabled,
                             trailingIcon = { Switch(checked = fingerDrawing, onCheckedChange = null) },
                             onClick = {
                                 menuOpen = false
@@ -1251,15 +1266,15 @@ private fun CompactEditorTopBar(
                                         if (fingerDrawing) ToggleableState.On else ToggleableState.Off
                                 },
                         )
-                        CompactMenuItem(stringResource(R.string.export_pdf), "compact-more-export") {
+                        CompactMenuItem(stringResource(R.string.export_pdf), "compact-more-export", controlsEnabled) {
                             menuOpen = false
                             onExport()
                         }
-                        CompactMenuItem(stringResource(R.string.settings), "compact-more-settings") {
+                        CompactMenuItem(stringResource(R.string.settings), "compact-more-settings", controlsEnabled) {
                             menuOpen = false
                             onSettings()
                         }
-                        if (onOpenBeside != null) CompactMenuItem(stringResource(R.string.open_beside), "open-beside") {
+                        if (onOpenBeside != null) CompactMenuItem(stringResource(R.string.open_beside), "open-beside", controlsEnabled) {
                             menuOpen = false
                             onOpenBeside()
                         }
@@ -1293,6 +1308,7 @@ internal fun CompactEditorPalette(
     onConvertHandwriting: () -> Unit = {},
     settings: AppSettings = AppSettings(),
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit = {},
+    enabled: Boolean = true,
     contentInsets: WindowInsets =
         WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
 ) {
@@ -1316,6 +1332,7 @@ internal fun CompactEditorPalette(
             if (optionsTool != null) {
                 BrushOptions(
                     tool = requireNotNull(optionsTool),
+                    enabled = enabled,
                     settings = settings,
                     onUpdate = onUpdateSettings,
                     modifier =
@@ -1339,6 +1356,7 @@ internal fun CompactEditorPalette(
                         if (tool == EditorTool.ERASER) eraserModeLabel(state.eraserMode) else null
                     Box(Modifier.weight(1f).widthIn(min = 48.dp)) {
                         Surface(
+                            enabled = enabled,
                             onClick = {
                                 if (tool == EditorTool.ERASER) {
                                     eraserMenuOpen = true
@@ -1384,7 +1402,7 @@ internal fun CompactEditorPalette(
                         }
                         if (tool == EditorTool.ERASER) {
                             DropdownMenu(
-                                expanded = eraserMenuOpen,
+                                expanded = eraserMenuOpen && enabled,
                                 onDismissRequest = { eraserMenuOpen = false },
                             ) {
                                 EraserMode.entries.forEach { mode ->
@@ -1414,6 +1432,7 @@ internal fun CompactEditorPalette(
                 Box(Modifier.weight(1f).widthIn(min = 48.dp)) {
                     Surface(
                         onClick = { insertOpen = true },
+                        enabled = enabled,
                         color = Color.Transparent,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("compact-insert"),
@@ -1429,7 +1448,7 @@ internal fun CompactEditorPalette(
                             )
                         }
                     }
-                    DropdownMenu(expanded = insertOpen, onDismissRequest = { insertOpen = false }) {
+                    DropdownMenu(expanded = insertOpen && enabled, onDismissRequest = { insertOpen = false }) {
                         CompactMenuItem(stringResource(R.string.text_object), "compact-insert-text") {
                             insertOpen = false
                             onAddText()
@@ -1483,6 +1502,7 @@ private fun BrushOptions(
     settings: AppSettings,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val highlighter = tool == EditorTool.HIGHLIGHTER
     val currentWidth = if (highlighter) settings.highlighterWidth else settings.penWidth
@@ -1507,6 +1527,7 @@ private fun BrushOptions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BrushWidthControl(
+            enabled = enabled,
             label = widthLabel,
             value = currentWidth,
             range = widthRange,
@@ -1526,6 +1547,7 @@ private fun BrushOptions(
             val swatchColor = Color(colorArgb).copy(alpha = (currentColor ushr 24) / 255f)
             val label = stringResource(labelResource)
             Surface(
+                enabled = enabled,
                 onClick = {
                     onUpdate { current ->
                         if (highlighter) {
@@ -1557,11 +1579,12 @@ private fun BrushOptions(
         }
         TextButton(
             onClick = { customColorOpen = true },
+            enabled = enabled,
             modifier = Modifier.heightIn(min = 48.dp).testTag("brush-custom-color"),
         ) {
             Text(stringResource(R.string.brush_custom_color))
         }
-        BrushOpacityControl(currentColor, highlighter) { alpha ->
+        BrushOpacityControl(currentColor, highlighter, enabled) { alpha ->
             onUpdate { current ->
                 if (highlighter) {
                     current.copy(highlighterColorArgb = (alpha shl 24) or (current.highlighterColorArgb and 0x00FFFFFF))
@@ -1574,6 +1597,7 @@ private fun BrushOptions(
             val smartShapesLabel = stringResource(R.string.smart_shapes)
             Surface(
                 onClick = { onUpdate { current -> current.copy(shapeAssist = !current.shapeAssist) } },
+                enabled = enabled,
                 color = if (settings.shapeAssist) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(12.dp),
@@ -1596,6 +1620,7 @@ private fun BrushOptions(
     if (customColorOpen) {
         BrushColorDialog(
             colorArgb = currentColor,
+            enabled = enabled,
             onDismiss = { customColorOpen = false },
             onApply = { rgb ->
                 onUpdate { current ->
@@ -1612,7 +1637,7 @@ private fun BrushOptions(
 }
 
 @Composable
-private fun BrushOpacityControl(colorArgb: Int, highlighter: Boolean, onChange: (Int) -> Unit) {
+private fun BrushOpacityControl(colorArgb: Int, highlighter: Boolean, enabled: Boolean, onChange: (Int) -> Unit) {
     val alpha = colorArgb ushr 24
     val range = if (highlighter) 10f..80f else 1f..100f
     var opacity by remember(alpha, highlighter) { mutableFloatStateOf((alpha * 100f / 255f).coerceIn(range)) }
@@ -1634,6 +1659,7 @@ private fun BrushOpacityControl(colorArgb: Int, highlighter: Boolean, onChange: 
         }
         Slider(
             value = opacity,
+            enabled = enabled,
             onValueChange = { if (it.isFinite()) opacity = it.coerceIn(range) },
             onValueChangeFinished = { onChange((opacity * 255f / 100f).roundToInt()) },
             valueRange = range,
@@ -1646,7 +1672,7 @@ private fun BrushOpacityControl(colorArgb: Int, highlighter: Boolean, onChange: 
 }
 
 @Composable
-private fun BrushColorDialog(colorArgb: Int, onDismiss: () -> Unit, onApply: (Int) -> Unit) {
+private fun BrushColorDialog(colorArgb: Int, enabled: Boolean, onDismiss: () -> Unit, onApply: (Int) -> Unit) {
     var rgb by rememberSaveable { mutableStateOf(colorArgb and 0x00FFFFFF) }
     var hex by rememberSaveable { mutableStateOf(rgb.toString(16).padStart(6, '0').uppercase()) }
     val digits = hex.removePrefix("#")
@@ -1715,7 +1741,7 @@ private fun BrushColorDialog(colorArgb: Int, onDismiss: () -> Unit, onApply: (In
             }
         },
         confirmButton = {
-            TextButton(onClick = { onApply(rgb) }, enabled = valid, modifier = Modifier.testTag("brush-color-apply")) {
+            TextButton(onClick = { onApply(rgb) }, enabled = valid && enabled, modifier = Modifier.testTag("brush-color-apply")) {
                 Text(stringResource(R.string.save))
             }
         },
@@ -1733,6 +1759,7 @@ private fun BrushWidthControl(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     color: Color,
+    enabled: Boolean = true,
     onChange: (Float) -> Unit,
 ) {
     var sliderValue by remember(value) { mutableFloatStateOf(value) }
@@ -1761,6 +1788,7 @@ private fun BrushWidthControl(
         }
         Slider(
             value = sliderValue,
+            enabled = enabled,
             onValueChange = { if (it.isFinite()) sliderValue = it.coerceIn(range) },
             onValueChangeFinished = { onChange(sliderValue) },
             valueRange = range,
@@ -1784,6 +1812,7 @@ internal fun EditorToolBar(
     onConvertHandwriting: () -> Unit = {},
     settings: AppSettings,
     onUpdateSettings: ((AppSettings) -> AppSettings) -> Unit,
+    enabled: Boolean = true,
 ) {
     var optionsTool by remember { mutableStateOf<EditorTool?>(null) }
     var insertOpen by rememberSaveable { mutableStateOf(false) }
@@ -1793,9 +1822,9 @@ internal fun EditorToolBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolbarIconAction(R.drawable.ic_undo, R.string.undo, "toolbar-undo", state.canUndo, onUndo)
-            ToolbarIconAction(R.drawable.ic_redo, R.string.redo, "toolbar-redo", state.canRedo, onRedo)
-            ToolbarIconAction(R.drawable.ic_search, R.string.search, "toolbar-search", onClick = onSearch)
+            ToolbarIconAction(R.drawable.ic_undo, R.string.undo, "toolbar-undo", enabled && state.canUndo, onUndo)
+            ToolbarIconAction(R.drawable.ic_redo, R.string.redo, "toolbar-redo", enabled && state.canRedo, onRedo)
+            ToolbarIconAction(R.drawable.ic_search, R.string.search, "toolbar-search", enabled, onClick = onSearch)
             VerticalDivider(Modifier.height(32.dp).padding(horizontal = 4.dp))
             EditorTool.entries.forEach { tool ->
                 val selected = state.tool == tool
@@ -1816,6 +1845,7 @@ internal fun EditorToolBar(
                                 .testTag("toolbar-tool-${tool.name.lowercase()}")
                                 .selectable(
                                     selected = selected,
+                                    enabled = enabled,
                                     onClick = {
                                         if (selected && configurable) {
                                             optionsTool = if (optionsTool == tool) null else tool
@@ -1836,7 +1866,7 @@ internal fun EditorToolBar(
                         }
                     }
                     DropdownMenu(
-                        expanded = optionsTool == tool,
+                        expanded = optionsTool == tool && enabled,
                         onDismissRequest = { optionsTool = null },
                     ) {
                         when (tool) {
@@ -1848,6 +1878,7 @@ internal fun EditorToolBar(
                                 settings,
                                 onUpdateSettings,
                                 Modifier.width(520.dp).horizontalScroll(rememberScrollState()),
+                                enabled = enabled,
                             )
                             EditorTool.ERASER ->
                                 EraserMode.entries.forEach { mode ->
@@ -1881,9 +1912,10 @@ internal fun EditorToolBar(
                     R.drawable.ic_add,
                     R.string.insert,
                     "toolbar-insert",
+                    enabled = enabled,
                     onClick = { insertOpen = true },
                 )
-                DropdownMenu(expanded = insertOpen, onDismissRequest = { insertOpen = false }) {
+                DropdownMenu(expanded = insertOpen && enabled, onDismissRequest = { insertOpen = false }) {
                     CompactMenuItem(stringResource(R.string.tool_text_box), "toolbar-insert-text") {
                         insertOpen = false
                         onAddText()
@@ -2190,6 +2222,7 @@ private fun EditorTopBar(
     onSettings: () -> Unit,
     onExport: () -> Unit,
     onOpenBeside: (() -> Unit)? = null,
+    controlsEnabled: Boolean = true,
 ) {
     val backDescription = stringResource(R.string.back)
     val addDescription = stringResource(R.string.add_page)
@@ -2209,13 +2242,14 @@ private fun EditorTopBar(
                 )
             },
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, enabled = controlsEnabled) {
                     Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = backDescription)
                 }
             },
             actions = {
                 IconButton(
                     onClick = onAddPage,
+                    enabled = controlsEnabled,
                 ) {
                     Icon(painterResource(R.drawable.ic_add), contentDescription = addDescription)
                 }
@@ -2228,11 +2262,13 @@ private fun EditorTopBar(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (onOpenBeside != null) DropdownMenuItem(
                             text = { Text(stringResource(R.string.open_beside)) },
+                            enabled = controlsEnabled,
                             modifier = Modifier.testTag("open-beside"),
                             onClick = { menuOpen = false; onOpenBeside() },
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.settings)) },
+                            enabled = controlsEnabled,
                             onClick = {
                                 menuOpen = false
                                 onSettings()
@@ -2240,6 +2276,7 @@ private fun EditorTopBar(
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.export_pdf)) },
+                            enabled = controlsEnabled,
                             onClick = {
                                 menuOpen = false
                                 onExport()

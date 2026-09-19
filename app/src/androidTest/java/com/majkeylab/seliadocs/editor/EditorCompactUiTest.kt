@@ -627,8 +627,10 @@ class EditorCompactUiTest {
         val savedPageBounds = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
         val savedX = (savedBounds.left - savedPageBounds.left) / savedPageBounds.width
         val savedY = (savedBounds.top - savedPageBounds.top) / savedPageBounds.height
-        assertTrue(kotlin.math.abs(savedX - editorX) <= 0.03f)
-        assertTrue(kotlin.math.abs(savedY - editorY) <= 0.03f)
+        assertTrue("Text x changed: $editorX -> $savedX; editor=$editorBounds/$editorPageBounds saved=$savedBounds/$savedPageBounds",
+            kotlin.math.abs(savedX - editorX) <= 0.03f)
+        assertTrue("Text y changed: $editorY -> $savedY; editor=$editorBounds/$editorPageBounds saved=$savedBounds/$savedPageBounds",
+            kotlin.math.abs(savedY - editorY) <= 0.03f)
         rule.onNodeWithTag("element-selection").assertIsDisplayed()
     }
 
@@ -1119,19 +1121,51 @@ class EditorCompactUiTest {
     @Test
     fun activityRetainsOneSessionHolderAndClearsChildBetweenEditors() {
         rule.waitForIdle()
-        val activityModelCount = rule.activity.viewModelStore.keys().size
-        val firstTitle = openCompactEditor()
-        rule.onNodeWithTag("compact-back").performClick()
-        rule.waitUntil(5_000) {
-            runCatching {
-                rule.onNodeWithContentDescription("Open $firstTitle").fetchSemanticsNode()
-            }.isSuccess
+        val initialKeys = rule.runOnIdle { rule.activity.viewModelStore.keys().toSet() }
+        var title = openCompactEditor()
+        val expectedKeys = initialKeys + setOf(
+            "editor-session-holder", "secondary-editor-session-holder", "editor-workspace",
+        )
+        val holders = rule.runOnIdle {
+            assertEquals(3, expectedKeys.size - initialKeys.size)
+            assertEquals(expectedKeys, rule.activity.viewModelStore.keys())
+            val provider = ViewModelProvider(rule.activity)
+            Triple(
+                provider["editor-session-holder", EditorSessionHolder::class.java],
+                provider["secondary-editor-session-holder", EditorSessionHolder::class.java],
+                provider["editor-workspace", EditorWorkspaceHolder::class.java],
+            )
         }
-        assertEquals(activityModelCount + 1, rule.activity.viewModelStore.keys().size)
-        val secondTitle = createAndOpenNotebook()
-
-        rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(secondTitle)
-        assertEquals(activityModelCount + 1, rule.activity.viewModelStore.keys().size)
+        var previousEditor = rule.runOnIdle {
+            assertEquals(setOf("editor"), holders.first.viewModelStore.keys())
+            ViewModelProvider(holders.first)["editor", EditorViewModel::class.java]
+        }
+        repeat(2) {
+            rule.onNodeWithTag("compact-back").performClick()
+            rule.waitUntil(5_000) {
+                runCatching {
+                    rule.onNodeWithContentDescription("Open $title").fetchSemanticsNode()
+                }.isSuccess
+            }
+            rule.runOnIdle {
+                assertEquals(expectedKeys, rule.activity.viewModelStore.keys())
+                assertTrue("Primary editor must be cleared after Back", holders.first.viewModelStore.keys().isEmpty())
+                assertTrue("Secondary editor must be cleared after Back", holders.second.viewModelStore.keys().isEmpty())
+            }
+            title = createAndOpenNotebook()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(title)
+            previousEditor = rule.runOnIdle {
+                assertEquals(expectedKeys, rule.activity.viewModelStore.keys())
+                val provider = ViewModelProvider(rule.activity)
+                assertTrue(holders.first === provider["editor-session-holder", EditorSessionHolder::class.java])
+                assertTrue(holders.second === provider["secondary-editor-session-holder", EditorSessionHolder::class.java])
+                assertTrue(holders.third === provider["editor-workspace", EditorWorkspaceHolder::class.java])
+                assertEquals(setOf("editor"), holders.first.viewModelStore.keys())
+                val editor = ViewModelProvider(holders.first)["editor", EditorViewModel::class.java]
+                assertTrue("Each notebook needs a new child editor", editor !== previousEditor)
+                editor
+            }
+        }
     }
     @Test
     fun recreationRetainsDraftAndSystemBackWaitsForFlush() {

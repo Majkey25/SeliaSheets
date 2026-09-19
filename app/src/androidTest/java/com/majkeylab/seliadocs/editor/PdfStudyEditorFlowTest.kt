@@ -331,7 +331,7 @@ class PdfStudyEditorFlowTest {
     }
 
     private fun returnToLibrary() {
-        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.runOnIdle { rule.activity.onBackPressedDispatcher.onBackPressed() }
         rule.waitUntil(10_000) { !hasTag("editor-top-bar") }
     }
 

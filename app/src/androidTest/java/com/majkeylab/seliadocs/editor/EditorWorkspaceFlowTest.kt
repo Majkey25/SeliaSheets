@@ -248,6 +248,8 @@ class EditorWorkspaceFlowTest {
         rule.onNode(hasText("Close pane") and inPane(1)).performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("secondary-editor").fetchSemanticsNode() }.isFailure }
         waitFor(hasTestTag("primary-editor"))
+        waitFor(hasTestTag("editor-top-bar") and inPane(0))
+        paneNode(0, "workspace-read-only").assertDoesNotExist()
         assertEquals(notebooks.first(), editor(0).state.value.notebook?.id)
         runBlocking { assertEquals("Updated by the owning pane", repository().getBlocks(pageId).single().text) }
     }

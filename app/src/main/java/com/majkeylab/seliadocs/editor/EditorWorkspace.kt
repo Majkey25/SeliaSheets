@@ -244,16 +244,16 @@ internal fun EditorWorkspace(
                     workspace.request(if (index == 0) WorkspaceChange.PRIMARY else WorkspaceChange.SECONDARY, WorkspacePane(notebook, page))
                 },
                 holderKey = if (index == 0) "editor-session-holder" else "secondary-editor-session-holder",
-                editable = !busy && (sharedPage == null || (index == 0 && workspace.sharedPageSaved == sharedPage)),
+                editable = sharedPage == null || (index == 0 && workspace.sharedPageSaved == sharedPage),
                 ownsTextFocus = workspace.activePane == index,
                 handleSystemBack = false, onWorkspaceClose = ::close,
                 onOpenBeside = { workspace.pickerPane = 1 }, workspaceBusy = busy,
                 readOnlyPageId = if (index == 1) primaryPage
-                    else secondaryPage?.takeUnless { workspace.sharedPageSaved == it },
+                    else secondaryPage?.takeIf { workspace.secondary != null }?.takeUnless { workspace.sharedPageSaved == it },
             )
         }
     }
-    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+    Column(Modifier.fillMaxSize().then(if (workspace.secondary != null) Modifier.safeDrawingPadding() else Modifier)) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val primary = requireNotNull(workspace.primary)
             val secondary = workspace.secondary

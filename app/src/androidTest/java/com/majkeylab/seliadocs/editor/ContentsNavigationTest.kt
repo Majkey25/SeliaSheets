@@ -7,6 +7,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import com.majkeylab.seliadocs.data.PageEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -92,14 +95,70 @@ class ContentsNavigationTest {
         compose.runOnIdle { assertEquals(listOf("page-3"), selected) }
     }
 
+    @Test
+    fun busyPanelKeepsItsLayoutAndDisablesOpenMenuAndNavigation() {
+        val enabled = mutableStateOf(true)
+        val selected = mutableListOf<String>()
+        show(onSelect = selected::add, enabled = { enabled.value })
+        val before = compose.onNodeWithTag("contents-jump-page").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithContentDescription("Page 1 actions").performClick()
+        compose.runOnIdle { enabled.value = false }
+
+        listOf("contents-jump-page", "contents-page-slider", "contents-bookmarks-filter").forEach {
+            compose.onNodeWithTag(it).assertIsNotEnabled()
+        }
+        compose.onNodeWithText("Add chapter").assertIsNotEnabled()
+        compose.onNodeWithText("Sheet 1").assertIsNotEnabled()
+        compose.onAllNodesWithTag("contents-bookmark")[0].assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Page 1 actions").assertIsNotEnabled()
+        listOf("Rename page", "Move to chapter", "Duplicate page", "Delete page").forEach {
+            compose.onNodeWithText(it).assertIsNotEnabled()
+        }
+        assertEquals(before, compose.onNodeWithTag("contents-jump-page").fetchSemanticsNode().boundsInRoot)
+        compose.runOnIdle { assertTrue(selected.isEmpty()) }
+    }
+
+    @Test
+    fun busyJumpDialogCannotNavigateAndResumesWithoutLosingItsInput() {
+        val enabled = mutableStateOf(true)
+        val selected = mutableListOf<String>()
+        show(onSelect = selected::add, enabled = { enabled.value })
+        compose.onNodeWithTag("contents-jump-page").performClick()
+        compose.onNodeWithTag("contents-page-number").performTextReplacement("4")
+        compose.runOnIdle { enabled.value = false }
+        compose.onNodeWithTag("contents-page-number").assertIsNotEnabled()
+        compose.onNodeWithTag("contents-go-page").assertIsNotEnabled().performTouchInput { click() }
+        compose.runOnIdle { assertTrue(selected.isEmpty()); enabled.value = true }
+        compose.onNodeWithTag("contents-go-page").performClick()
+        compose.runOnIdle { assertEquals(listOf("page-3"), selected) }
+    }
+
+    @Test
+    fun busyLocationBarKeepsPositionVisibleWithoutOpeningContentsOrBookmarking() {
+        var callbacks = 0
+        compose.setContent {
+            MaterialTheme {
+                PageLocationBar(
+                    EditorUiState(pages = pages, selectedPageId = pages.first().id),
+                    onOpenContents = { callbacks++ }, onBookmarkPage = { _, _ -> callbacks++ }, enabled = false,
+                )
+            }
+        }
+        compose.onNodeWithText("Sheet 1").assertIsDisplayed()
+        compose.onNodeWithText("Contents").assertIsNotEnabled().performTouchInput { click() }
+        compose.onNodeWithContentDescription("Bookmark page").assertIsNotEnabled().performTouchInput { click() }
+        compose.runOnIdle { assertEquals(0, callbacks) }
+    }
+
     private fun show(
         state: () -> EditorUiState = { EditorUiState(pages = pages, selectedPageId = pages.first().id) },
         onSelect: (String) -> Unit = {},
+        enabled: () -> Boolean = { true },
     ) {
         compose.setContent {
             MaterialTheme {
                 ContentsPanel(state(), onSelect, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {},
-                    loadPagePreview = { PagePreviewData(emptyList(), emptyList(), emptyList()) })
+                    loadPagePreview = { PagePreviewData(emptyList(), emptyList(), emptyList()) }, enabled = enabled())
             }
         }
     }

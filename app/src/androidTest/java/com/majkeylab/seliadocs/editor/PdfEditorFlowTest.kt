@@ -58,8 +58,13 @@ class PdfEditorFlowTest {
             val slide = requireNotNull(imported.selectedPage)
             assertEquals(listOf(first, slide.id, last), imported.pages.map { it.id })
 
+            val existingPageIds = imported.pages.mapTo(mutableSetOf()) { it.id }
             onMain { editor.addPage() }
-            val withNote = editor.await("note after slide") { it.pages.size == 4 && it.selectedPage?.pageMode == PageMode.PAPER.name }
+            val withNote = editor.await("selected new note after slide") {
+                it.pages.size == 4 && it.selectedPage?.let { page ->
+                    page.pageMode == PageMode.PAPER.name && page.id !in existingPageIds
+                } == true
+            }
             val note = requireNotNull(withNote.selectedPage)
             assertEquals(listOf(first, slide.id, note.id, last), withNote.pages.map { it.id })
             assertEquals(slide.widthPoints, note.widthPoints)

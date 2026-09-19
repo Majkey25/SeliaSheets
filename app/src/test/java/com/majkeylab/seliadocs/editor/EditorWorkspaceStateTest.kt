@@ -6,6 +6,19 @@ import org.junit.Test
 
 class EditorWorkspaceStateTest {
     @Test
+    fun closedPaneCannotKeepAReadOnlyPageLockOrOldSaveResult() {
+        val holder = EditorSessionHolder()
+        holder.prepare("book")
+        holder.selectedPage.value = "shared-page"
+        holder.finishWorkspaceSave(7)
+        holder.beginClose(EditorCloseIntent.BACK)
+        holder.completeClose(true)
+        holder.consumeCompletedClose()
+        assertNull(holder.selectedPage.value)
+        assertNull(holder.workspaceSaveResult.value)
+    }
+
+    @Test
     fun sharedPageWaitsForBusyOperationAndDoesNotAutomaticallyRetryFailure() {
         val workspace = EditorWorkspaceHolder()
         workspace.prepare("library:first", "first", "page-one")
