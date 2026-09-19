@@ -67,7 +67,9 @@ internal class InkCanvasView @JvmOverloads constructor(
     }
 
     private val finishedView = FinishedInkView(context)
-    private val inProgressView = InProgressStrokesView(context)
+    private var inProgressView = InProgressStrokesView(context)
+    private var replaceOnAttach = false
+    private var viewportResizePending = false
     private val gestureOverlay = GestureOverlayView(context)
     private val predictor = MotionEventPredictor.newInstance(this)
     private val activeStrokes = mutableMapOf<Int, ActiveStroke>()
@@ -113,9 +115,33 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (replaceOnAttach) {
+            replaceInProgressView()
+            replaceOnAttach = false
+        }
         inProgressView.addFinishedStrokesListener(this)
         inProgressView.eagerInit()
         setOnTouchListener(touchListener)
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (!isAttachedToWindow) return
+        if (visibility != VISIBLE && inProgressView.width > 0) replaceInProgressView()
+        else if (visibility == VISIBLE) inProgressView.eagerInit()
+    }
+
+    private fun replaceInProgressView() {
+        // Ink alpha07 can run an old viewport callback against a new viewport's render thread.
+        // Keep each authoring instance tied to one buffer size/window lifetime.
+        flushPendingCommits()
+        inProgressView.clearFinishedStrokesListeners()
+        inProgressView.cancelUnfinishedStrokes()
+        removeView(inProgressView)
+        inProgressView = InProgressStrokesView(context)
+        inProgressView.addFinishedStrokesListener(this)
+        addView(inProgressView, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        if (isAttachedToWindow && windowVisibility == VISIBLE) inProgressView.eagerInit()
     }
 
     fun setStrokes(strokes: List<Stroke>, selected: Set<Int> = emptySet()) {
@@ -155,6 +181,17 @@ internal class InkCanvasView @JvmOverloads constructor(
             val x = ((measuredWidth - viewportWidth) / 2f - viewportPanX).roundToInt()
             val y = ((measuredHeight - viewportHeight) / 2f - viewportPanY).roundToInt()
             liveBounds.set(x, y, x + viewportWidth, y + viewportHeight)
+        }
+        viewportResizePending = inProgressView.width > 0 && inProgressView.height > 0 &&
+            (inProgressView.width != liveBounds.width() || inProgressView.height != liveBounds.height())
+        if (viewportResizePending) {
+            if (hasActiveInteraction()) {
+                liveBounds.right = liveBounds.left + inProgressView.width
+                liveBounds.bottom = liveBounds.top + inProgressView.height
+            } else {
+                replaceInProgressView()
+                viewportResizePending = false
+            }
         }
         inProgressView.measure(
             MeasureSpec.makeMeasureSpec(liveBounds.width(), MeasureSpec.EXACTLY),
@@ -238,6 +275,7 @@ internal class InkCanvasView @JvmOverloads constructor(
         }
         pendingCommit?.complete(Unit)
         pendingCommit = null
+        if (viewportResizePending && !hasActiveInteraction()) requestLayout()
     }
 
     suspend fun awaitPendingCommits() {
@@ -250,8 +288,11 @@ internal class InkCanvasView @JvmOverloads constructor(
     fun flushPendingCommits() {
         cancelAll(null)
         pendingEdits.filterIsInstance<PendingEdit.Ink>().forEach { edit ->
-            if (edit.finished && edit.stroke == null) edit.stroke = edit.input.toStroke()
+            if (edit.finished && edit.stroke == null) {
+                edit.stroke = edit.input.toStroke().also { finishedView.addStrokes(listOf(it)) }
+            }
         }
+        finishedView.invalidate()
         drainPendingEdits()
     }
 
@@ -263,6 +304,7 @@ internal class InkCanvasView @JvmOverloads constructor(
         activeStrokes.clear()
         clearGesture()
         gestureOverlay.setHover(null, 0f)
+        replaceOnAttach = true
         super.onDetachedFromWindow()
     }
 
@@ -310,6 +352,8 @@ internal class InkCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_POINTER_DOWN -> startAdditionalInteraction(event)
             MotionEvent.ACTION_POINTER_UP -> finishInteraction(event) || hasActiveInteraction()
             else -> hasActiveInteraction()
+        }.also {
+            if (viewportResizePending && !hasActiveInteraction()) requestLayout()
         }
     }
 

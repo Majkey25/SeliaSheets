@@ -10,6 +10,8 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -21,6 +23,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
@@ -61,18 +66,49 @@ class EditorWorkspaceFlowTest {
         runCatching { rule.onNode(matcher).assertIsDisplayed() }.isSuccess
     }
     private fun assertInsideVisibleWindow(matcher: SemanticsMatcher) {
-        fun checkBounds() {
+        fun checkBounds(): Triple<Offset, IntSize, android.graphics.Rect> {
             val node = rule.onNode(matcher).assertIsDisplayed().fetchSemanticsNode()
-            val visible = android.graphics.Rect()
             val view = requireNotNull(node.root as? android.view.View) { "Android Compose root must expose its native View" }
-            rule.runOnIdle { view.getWindowVisibleDisplayFrame(visible) }
-            val position = node.positionOnScreen
-            assertTrue("Control at $position size=${node.size} is outside window $visible",
+            val (position, size, visible) = rule.runOnIdle {
+                val visible = android.graphics.Rect()
+                view.getWindowVisibleDisplayFrame(visible)
+                Triple(node.positionOnScreen, node.size, visible)
+            }
+            assertTrue("Control at $position size=$size is outside window $visible",
                 position.x >= visible.left - 1 && position.y >= visible.top - 1 &&
-                    position.x + node.size.width <= visible.right + 1 && position.y + node.size.height <= visible.bottom + 1)
+                    position.x + size.width <= visible.right + 1 && position.y + size.height <= visible.bottom + 1)
+            return Triple(position, size, visible)
         }
-        rule.waitUntil(5_000) { runCatching { checkBounds() }.isSuccess }
-        checkBounds()
+        var previous: Triple<Offset, IntSize, android.graphics.Rect>? = null
+        var stableSince = 0L
+        var lastFailure: Throwable? = null
+        try {
+            rule.waitUntil(5_000) {
+                val sample = runCatching { checkBounds() }.getOrElse {
+                    lastFailure = it
+                    previous = null
+                    return@waitUntil false
+                }
+                val now = android.os.SystemClock.uptimeMillis()
+                if (sample != previous) { previous = sample; stableSince = now }
+                now - stableSince >= 250L
+            }
+        } catch (failure: Throwable) {
+            lastFailure?.let(failure::addSuppressed)
+            val tree = runCatching { rule.onAllNodes(isRoot()).printToString(12) }
+                .getOrElse { "Semantics unavailable: ${it.message}" }
+            val details = "Control=$matcher lastBounds=$previous lastFailure=${lastFailure?.message}\n$tree"
+            android.util.Log.e("WorkspaceChromeQA", details)
+            runCatching {
+                val bitmap = requireNotNull(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                try {
+                    java.io.File(rule.activity.getExternalFilesDir(null), "workspace-chrome-failed.png").outputStream().use {
+                        check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+                    }
+                } finally { bitmap.recycle() }
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw AssertionError("Workspace chrome did not settle inside its visible window. $details", failure)
+        }
     }
     private fun assertWorkspaceChromeVisible() {
         (0..1).forEach { assertInsideVisibleWindow(hasTestTag("workspace-pane-header") and inPane(it)) }
@@ -107,13 +143,19 @@ class EditorWorkspaceFlowTest {
         rule.waitUntil(10_000) { holder(1).selectedPage.value != null }
         assertWorkspaceChromeVisible()
     }
-    private fun type(index: Int, text: String) {
+    private fun type(index: Int, text: String, waitForKeyboard: Boolean = false) {
         val compact = hasTestTag("compact-tool-type") and inPane(index)
         val expanded = hasTestTag("toolbar-tool-type") and inPane(index)
         val button = if (runCatching { rule.onNode(compact).fetchSemanticsNode() }.isSuccess) compact else expanded
         rule.onNode(button).assertIsDisplayed().performClick()
         waitFor(hasTestTag("page-text") and hasSetTextAction() and inPane(index))
         paneNode(index, "page-text").assertIsEnabled().performTextInput(text)
+        if (waitForKeyboard) {
+            val view = requireNotNull(paneNode(index, "page-text").fetchSemanticsNode().root as? android.view.View)
+            rule.waitUntil(10_000) {
+                rule.runOnIdle { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
+            }
+        }
         if (runCatching { rule.onNodeWithTag("secondary-editor").fetchSemanticsNode() }.isSuccess) assertWorkspaceChromeVisible()
     }
     private fun settings(index: Int) {
@@ -306,7 +348,7 @@ class EditorWorkspaceFlowTest {
         failTrigger = true
         val probe = runBlocking { runCatching { repository().updatePageText(secondPage, "Failure trigger probe") } }
         assertTrue("The SQLite failure trigger did not reject an actual repository write: $probe", probe.isFailure)
-        type(1, "Draft survives failed workspace save")
+        type(1, "Draft survives failed workspace save", waitForKeyboard = true)
         settings(1)
         waitFor(hasTestTag("workspace-save-failed"))
         assertInsideVisibleWindow(hasTestTag("workspace-retry"))
