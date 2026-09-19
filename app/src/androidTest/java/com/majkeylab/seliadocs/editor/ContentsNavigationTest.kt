@@ -68,10 +68,12 @@ class ContentsNavigationTest {
         show(onSelect = selected::add)
         val slider = compose.onNodeWithTag("contents-page-slider")
         slider.performTouchInput {
-            down(centerLeft + Offset(15f, 0f))
-            moveTo(centerRight - Offset(15f, 0f), delayMillis = 200)
+            down(Offset(width * 0.1f, center.y))
+            moveTo(center, delayMillis = 100)
+            moveTo(Offset(width * 0.95f, center.y), delayMillis = 100)
         }
         compose.runOnIdle { assertTrue(selected.isEmpty()) }
+        compose.waitForIdle()
         compose.onNodeWithText("4 / 4").assertIsDisplayed()
         slider.performTouchInput { up() }
         compose.runOnIdle { assertEquals(listOf("page-3"), selected) }
