@@ -64,11 +64,9 @@ class StylusRoutingTest {
                     assertEquals("Do not resize its native buffer mid-stroke", 300, live().height)
                     input(MotionEvent.ACTION_UP, 32, 200f)
                     layout()
-                    assertTrue("A resized surface needs a fresh native renderer", original !== live())
+                    assertEquals("Only the V33 backend needs a fresh authoring instance",
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU, original !== live())
                     assertEquals(200, live().height)
-                    assertEquals(1, strokes.size)
-                    assertEquals(100f, strokes.single().inputs[0].x, 0.1f)
-                    assertEquals(200f, strokes.single().inputs[strokes.single().inputs.size - 1].x, 0.1f)
                     val resized = live()
                     view.setVisibleViewport(300, 200, 25f, -20f)
                     layout()
@@ -79,13 +77,17 @@ class StylusRoutingTest {
                     input(MotionEvent.ACTION_UP, 64, 300f, 250f)
                 }
             }
-            assertTrue("The new renderer did not hand off its first stroke", verified.await(10, TimeUnit.SECONDS))
-            scenario.onActivity { assertEquals("Each completed stroke must be saved once", 2, strokes.size) }
+            assertTrue("Drawing did not hand off both strokes after resize", verified.await(10, TimeUnit.SECONDS))
+            scenario.onActivity {
+                assertEquals("Each completed stroke must be saved once", 2, strokes.size)
+                assertEquals(100f, strokes.first().inputs[0].x, 0.1f)
+                assertEquals(200f, strokes.first().inputs[strokes.first().inputs.size - 1].x, 0.1f)
+            }
         }
     }
 
     @Test
-    fun resumedCanvasCommitsAfterReplacingItsHiddenSurface() {
+    fun resumedCanvasCommitsAfterItsSurfaceWasHidden() {
         val first = CountDownLatch(1)
         val second = CountDownLatch(1)
         val strokes = mutableListOf<Stroke>()
@@ -119,7 +121,8 @@ class StylusRoutingTest {
             scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
             scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
             scenario.onActivity {
-                assertTrue("A hidden renderer must not be reused", original.get() !== view.getChildAt(1))
+                assertEquals("Only the V33 backend needs a fresh authoring instance",
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU, original.get() !== view.getChildAt(1))
                 draw()
             }
             assertTrue(second.await(10, TimeUnit.SECONDS))

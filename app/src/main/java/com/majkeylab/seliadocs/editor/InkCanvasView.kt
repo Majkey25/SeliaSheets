@@ -8,6 +8,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.GestureDetector
@@ -68,6 +69,8 @@ internal class InkCanvasView @JvmOverloads constructor(
 
     private val finishedView = FinishedInkView(context)
     private var inProgressView = InProgressStrokesView(context)
+    // Only the API 33+ backend replaces its render thread with each viewport.
+    private val replaceAuthoringOnSurfaceChanges = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
     private var replaceOnAttach = false
     private var viewportResizePending = false
     private val gestureOverlay = GestureOverlayView(context)
@@ -127,8 +130,9 @@ internal class InkCanvasView @JvmOverloads constructor(
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
         if (!isAttachedToWindow) return
-        if (visibility != VISIBLE && inProgressView.width > 0) replaceInProgressView()
-        else if (visibility == VISIBLE) inProgressView.eagerInit()
+        if (visibility != VISIBLE && inProgressView.width > 0) {
+            if (replaceAuthoringOnSurfaceChanges) replaceInProgressView() else flushPendingCommits()
+        } else if (visibility == VISIBLE) inProgressView.eagerInit()
     }
 
     private fun replaceInProgressView() {
@@ -189,7 +193,9 @@ internal class InkCanvasView @JvmOverloads constructor(
                 liveBounds.right = liveBounds.left + inProgressView.width
                 liveBounds.bottom = liveBounds.top + inProgressView.height
             } else {
-                replaceInProgressView()
+                // Older backends can consume early draw requests before a new Surface is ready.
+                // Retain their initialized renderer instead of applying the V33 workaround.
+                if (replaceAuthoringOnSurfaceChanges) replaceInProgressView()
                 viewportResizePending = false
             }
         }
@@ -304,7 +310,7 @@ internal class InkCanvasView @JvmOverloads constructor(
         activeStrokes.clear()
         clearGesture()
         gestureOverlay.setHover(null, 0f)
-        replaceOnAttach = true
+        replaceOnAttach = replaceAuthoringOnSurfaceChanges
         super.onDetachedFromWindow()
     }
 
