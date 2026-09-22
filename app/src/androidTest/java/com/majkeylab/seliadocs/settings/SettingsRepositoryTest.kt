@@ -1,13 +1,21 @@
 package com.majkeylab.seliadocs.settings
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.preferencesOf
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +32,46 @@ import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 
 @RunWith(AndroidJUnit4::class)
 class SettingsRepositoryTest {
+    @Test
+    fun readRecoveryKeepsTheLastSettingsInsteadOfReopeningOnboarding() = runTest {
+        val preferences = preferencesOf(booleanPreferencesKey("onboarding_complete") to true)
+        var attempts = 0
+        val store = object : DataStore<Preferences> {
+            override val data = flow {
+                val failAfterEmission = attempts++ == 0
+                emit(preferences)
+                if (failAfterEmission) throw IOException("Temporary read failure")
+            }
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences) = transform(preferences)
+        }
+        val observed = SettingsRepository(store).settings.take(2).toList()
+        assertEquals(listOf(true, true), observed.map { it.onboardingComplete })
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun appearanceAndOnboardingPersistWithoutReplacingLegacyMotionChoice() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File(context.cacheDir, "appearance-${System.nanoTime()}.preferences_pb")
+        val job = SupervisorJob()
+        val store = PreferenceDataStoreFactory.create(scope = CoroutineScope(job + Dispatchers.IO)) { file }
+        try {
+            val repository = SettingsRepository(store)
+            assertEquals(false, repository.settings.first().pageTransition)
+            assertEquals(false, repository.settings.first().onboardingComplete)
+            assertEquals(ThemePalette.CLASSIC, repository.settings.first().themePalette)
+            store.edit { it[booleanPreferencesKey("page_transition")] = true }
+            repository.update { it.copy(themePalette = ThemePalette.FOREST, onboardingComplete = true) }
+            val stored = repository.settings.first()
+            assertEquals(true, stored.pageTransition)
+            assertEquals(ThemePalette.FOREST, stored.themePalette)
+            assertEquals(true, stored.onboardingComplete)
+        } finally {
+            job.cancelAndJoin()
+            file.delete()
+        }
+    }
+
     @Test
     fun recognitionDefaultsToDisabledCzech() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()

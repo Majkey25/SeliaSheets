@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -50,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -75,6 +78,7 @@ import com.majkeylab.seliadocs.ui.PaperPreview
 import com.majkeylab.seliadocs.ui.TemplatePreview
 import com.majkeylab.seliadocs.ui.coverColorValue
 import com.majkeylab.seliadocs.ui.paperLabel
+import com.majkeylab.seliadocs.ui.ThemePalettePicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -88,6 +92,7 @@ internal fun SettingsScreen(
     recognitionModelStatus: RecognitionModelStatus = RecognitionModelStatus.NotDownloaded,
     onDownloadRecognitionModel: (RecognitionLanguage) -> Unit = {},
     onDeleteRecognitionModel: (RecognitionLanguage) -> Unit = {},
+    onIntroduction: () -> Unit = {},
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -103,7 +108,11 @@ internal fun SettingsScreen(
                     )
                 },
                 navigationIcon = {
-                    TextButton(onClick = onClose) { Text(stringResource(R.string.back)) }
+                    TextButton(onClick = onClose) {
+                        Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.back))
+                    }
                 },
             )
         },
@@ -113,6 +122,7 @@ internal fun SettingsScreen(
                 SettingsGroup(
                     title = stringResource(R.string.notebook_defaults),
                     summary = stringResource(R.string.notebook_defaults_summary),
+                    icon = R.drawable.ic_notebook,
                 ) {
                     NotebookDefaults(settings, onUpdate)
                 }
@@ -121,6 +131,7 @@ internal fun SettingsScreen(
                 SettingsGroup(
                     title = stringResource(R.string.settings_drawing),
                     summary = stringResource(R.string.drawing_summary),
+                    icon = R.drawable.ic_stylus,
                 ) {
                     ChoiceSetting(
                         label = stringResource(R.string.default_tool),
@@ -176,6 +187,7 @@ internal fun SettingsScreen(
                 SettingsGroup(
                     title = stringResource(R.string.interface_export),
                     summary = stringResource(R.string.interface_export_summary),
+                    icon = R.drawable.ic_tune,
                 ) {
                     Text(
                         stringResource(R.string.theme),
@@ -195,10 +207,16 @@ internal fun SettingsScreen(
                             )
                         }
                     }
+                    Text(stringResource(R.string.color_palette), style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                    ThemePalettePicker(settings.themePalette, { palette -> onUpdate { it.copy(themePalette = palette) } },
+                        Modifier.padding(horizontal = 20.dp))
+                    InfoText(stringResource(R.string.color_palette_hint))
                     SwitchSetting(
                         stringResource(R.string.page_transition),
                         settings.pageTransition,
                     ) { enabled -> onUpdate { it.copy(pageTransition = enabled) } }
+                    InfoText(stringResource(R.string.notebook_motion_hint))
                     InfoText(stringResource(R.string.export_details))
                 }
             }
@@ -206,6 +224,7 @@ internal fun SettingsScreen(
                 SettingsGroup(
                     title = stringResource(R.string.app_privacy),
                     summary = stringResource(R.string.app_privacy_summary),
+                    icon = R.drawable.ic_shield,
                 ) {
                     InfoText(stringResource(R.string.recognition_details))
                     StorageUsage()
@@ -213,6 +232,12 @@ internal fun SettingsScreen(
                         title = stringResource(R.string.backup_restore),
                         summary = stringResource(R.string.backup_restore_summary),
                         onClick = onBackup,
+                    )
+                    NavigationSetting(
+                        title = stringResource(R.string.intro_replay),
+                        summary = stringResource(R.string.intro_replay_summary),
+                        onClick = onIntroduction,
+                        icon = R.drawable.ic_notebook,
                     )
                     InfoText(stringResource(R.string.autosave_details))
                     Text(
@@ -229,7 +254,7 @@ internal fun SettingsScreen(
 }
 
 @Composable
-private fun NavigationSetting(title: String, summary: String, onClick: () -> Unit) {
+private fun NavigationSetting(title: String, summary: String, onClick: () -> Unit, icon: Int = R.drawable.ic_backup) {
     Row(
         modifier =
             Modifier
@@ -239,6 +264,8 @@ private fun NavigationSetting(title: String, summary: String, onClick: () -> Uni
                 .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(painterResource(icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             Text(
@@ -247,7 +274,7 @@ private fun NavigationSetting(title: String, summary: String, onClick: () -> Uni
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text("›", style = MaterialTheme.typography.titleLarge)
+        Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(20.dp).rotate(180f))
     }
 }
 
@@ -390,6 +417,7 @@ private fun NotebookDefaults(settings: AppSettings, onUpdate: ((AppSettings) -> 
 private fun SettingsGroup(
     title: String,
     summary: String,
+    icon: Int,
     content: @Composable () -> Unit,
 ) {
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
@@ -402,6 +430,8 @@ private fun SettingsGroup(
                     .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(painterResource(icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -410,10 +440,7 @@ private fun SettingsGroup(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(
-                stringResource(if (expanded) R.string.collapse_group else R.string.expand_group),
-                style = MaterialTheme.typography.titleLarge,
-            )
+            Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(24.dp).rotate(if (expanded) 180f else 0f))
         }
         if (expanded) content()
         HorizontalDivider()

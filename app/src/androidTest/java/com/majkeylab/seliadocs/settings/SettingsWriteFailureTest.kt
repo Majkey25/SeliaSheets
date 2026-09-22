@@ -11,7 +11,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.preferencesOf
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
@@ -32,7 +33,7 @@ class SettingsWriteFailureTest {
     @Test
     fun failedWriteShowsErrorAndRetrySavesOnlyAfterStorageRecovers() {
         val failWrites = AtomicBoolean(true)
-        val preferences = MutableStateFlow(emptyPreferences())
+        val preferences = MutableStateFlow(preferencesOf(booleanPreferencesKey("onboarding_complete") to true))
         val store = object : DataStore<Preferences> {
             override val data = preferences
 

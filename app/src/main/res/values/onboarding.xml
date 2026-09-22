@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="intro_subjects_title">One notebook per subject</string>
+    <string name="intro_subjects_body">Keep lecture notes and PDF slides together. Add chapters as your course grows.</string>
+    <string name="intro_input_title">Pen, fingers, keyboard</string>
+    <string name="intro_input_body">Write with your pen. Use fingers to navigate and pinch to zoom. Choose Type for full-page text.</string>
+    <string name="intro_backup_title">Your work stays with you</string>
+    <string name="intro_backup_body">Notes are stored on this device. Export a backup to keep a second copy or move to another device.</string>
+    <string name="intro_preview_subject">Biology</string>
+    <string name="intro_preview_notes">Lecture notes</string>
+    <string name="intro_preview_backup">Notebook and backup copy</string>
+    <string name="intro_skip">Skip</string>
+    <string name="intro_next">Next</string>
+    <string name="intro_start">Start writing</string>
+    <string name="intro_continue_unsaved">Continue for now</string>
+    <string name="intro_page">%1$d of %2$d</string>
+    <string name="intro_replay">Getting started</string>
+    <string name="intro_replay_summary">Notebook, input, and backup guide</string>
+    <string name="color_palette">Color palette</string>
+    <string name="color_palette_hint">Changes the app interface, not your paper or drawings.</string>
+    <string name="notebook_motion_hint">Optional opening and page transitions. Off by default.</string>
+</resources>

@@ -5,6 +5,11 @@ import org.junit.Test
 
 class AppSettingsTest {
     @Test
+    fun notebookMotionStartsDisabled() {
+        assertEquals(false, AppSettings().pageTransition)
+    }
+
+    @Test
     fun nonFiniteBrushWidthsFallBackToVisibleMinimum() {
         listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY).forEach { width ->
             val settings = AppSettings(penWidth = width, highlighterWidth = width).validated()

@@ -6,4 +6,12 @@
         <item name="android:navigationBarColor">#FBF8F1</item>
         <item name="android:statusBarColor">#FBF8F1</item>
     </style>
+
+    <string name="theme_palette_classic">Classic</string>
+    <string name="theme_palette_ocean">Ocean</string>
+    <string name="theme_palette_forest">Forest</string>
+    <string name="theme_palette_rose">Rose</string>
+    <string name="theme_palette_amber">Amber</string>
+    <string name="theme_palette_graphite">Graphite</string>
+    <string name="theme_palette_option">Color palette: %1$s</string>
 </resources>

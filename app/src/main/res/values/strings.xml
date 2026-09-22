@@ -221,7 +221,7 @@
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
-    <string name="page_transition">Animated page transition</string>
+    <string name="page_transition">Notebook animations</string>
     <string name="autosave_details">Autosave is always enabled. Notebooks and imported images stay in private app storage.</string>
     <string name="storage_usage">Storage used: %1$s</string>
     <string name="version_name">Version %1$s</string>

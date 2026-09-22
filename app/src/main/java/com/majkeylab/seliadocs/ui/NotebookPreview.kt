@@ -85,6 +85,7 @@ internal fun NotebookPreview(
                 ) {
                     Text(
                         text = title.ifBlank { stringResource(R.string.untitled_notebook) },
+                        color = Color(0xFF202124),
                         style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
@@ -327,8 +328,9 @@ private fun PaperIllustration(paper: PaperTemplate, modifier: Modifier) {
 }
 
 @Composable
-private fun CoverPatternIllustration(pattern: CoverPattern, modifier: Modifier) {
+internal fun CoverPatternIllustration(pattern: CoverPattern, modifier: Modifier) {
     Canvas(modifier) {
+        if (size.minDimension <= 0f) return@Canvas
         when (pattern) {
             CoverPattern.SOLID -> Unit
             CoverPattern.BAND ->
@@ -359,7 +361,7 @@ private fun CoverPatternIllustration(pattern: CoverPattern, modifier: Modifier) 
 }
 
 @Composable
-private fun BindingIllustration(modifier: Modifier) {
+internal fun BindingIllustration(modifier: Modifier) {
     Canvas(modifier) {
         repeat(4) { index ->
             val y = size.height * (0.2f + index * 0.2f)

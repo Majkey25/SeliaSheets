@@ -16,15 +16,25 @@ import com.majkeylab.seliadocs.data.CoverColor
 import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 import java.io.IOException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.retryWhen
 
 internal class SettingsRepository(private val store: DataStore<Preferences>) {
-    val settings: Flow<AppSettings> =
-        store.data
-            .catch { error -> if (error is IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw error }
-            .map(::decode)
+    val settings: Flow<AppSettings> = flow {
+        var hasValue = false
+        store.data.retryWhen { error, _ ->
+            if (error !is IOException) return@retryWhen false
+            // Keep the last settings during an outage, and observe writes again after recovery.
+            if (!hasValue) emit(androidx.datastore.preferences.core.emptyPreferences())
+            delay(1_000)
+            true
+        }.collect { preferences ->
+            hasValue = true
+            emit(decode(preferences))
+        }
+    }
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         store.edit { preferences -> encode(preferences, transform(decode(preferences)).validated()) }
@@ -46,7 +56,9 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
             defaultOrientation =
                 enumValue(preferences[Keys.defaultOrientation], PageOrientation.PORTRAIT),
             theme = enumValue(preferences[Keys.theme], AppTheme.SYSTEM),
-            pageTransition = preferences[Keys.pageTransition] ?: true,
+            themePalette = enumValue(preferences[Keys.themePalette], ThemePalette.CLASSIC),
+            onboardingComplete = preferences[Keys.onboardingComplete] ?: false,
+            pageTransition = preferences[Keys.pageTransition] ?: false,
             shapeAssist = preferences[Keys.shapeAssist] ?: true,
             imageOcr = preferences[Keys.imageOcr] ?: true,
             handwritingRecognition = preferences[Keys.handwritingRecognition] ?: false,
@@ -65,6 +77,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.defaultPaper] = value.defaultPaper.name
         preferences[Keys.defaultOrientation] = value.defaultOrientation.name
         preferences[Keys.theme] = value.theme.name
+        preferences[Keys.themePalette] = value.themePalette.name
+        preferences[Keys.onboardingComplete] = value.onboardingComplete
         preferences[Keys.pageTransition] = value.pageTransition
         preferences[Keys.shapeAssist] = value.shapeAssist
         preferences[Keys.imageOcr] = value.imageOcr
@@ -87,6 +101,8 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val defaultPaper = stringPreferencesKey("default_paper")
         val defaultOrientation = stringPreferencesKey("default_orientation")
         val theme = stringPreferencesKey("theme")
+        val themePalette = stringPreferencesKey("theme_palette")
+        val onboardingComplete = booleanPreferencesKey("onboarding_complete")
         val pageTransition = booleanPreferencesKey("page_transition")
         val shapeAssist = booleanPreferencesKey("shape_assist")
         val imageOcr = booleanPreferencesKey("image_ocr")
