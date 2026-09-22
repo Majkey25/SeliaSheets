@@ -20,6 +20,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - Multiple notebooks with covers, chapters, page titles, bookmarks, search across stored titles, text, and math, favorites, and trash.
 - Second-notebook workspace with a resizable tablet split or a keyboard-aware phone dialog. Each pane keeps its own page, draft, and zoom; a shared page has one writable pane.
 - Add a note page or PDF slides after the current page. Inserted notes preserve the current page dimensions and chapter.
+- Import `.docx` body text as editable notebook pages and export typed text to a new Word file. Conversion excludes source formatting, images, headers, and notes; keep the original separately.
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
 - Private image import through Android Photo Picker with MIME, dimension, allocation, and corruption checks.
@@ -33,6 +34,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - PDF export is flattened. Editable annotations and original PDF sources remain in notebook backups.
 - Portable `.seliasheets` backups with validation, merge, replace, and rollback protection.
 - Working settings for default tools, widths, finger drawing, paper, orientation, theme, and motion.
+- Six light/dark interface palettes with previews, a replayable introduction, and optional notebook-opening/page animations. Animations start disabled on new installations.
 - No first-party account, ads, analytics, telemetry, or cloud sync.
 - Optional on-device handwriting recognition for simple single-line arithmetic after an explicit Google model download.
 
@@ -63,6 +65,8 @@ The default release bundle is unsigned. Publication uses an external upload keys
 The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Current backups use format 7 for shape styles and require an updated reader; formats 1–6 remain readable.
 
 Version `0.8.0-beta.2` adds workspace, PDF search, shape-style preservation, and import recovery. See the [workspace/search verification record](docs/qa/2026-09-12-workspace-search.md) for completed checks and limits.
+
+The unreleased `0.9.0-beta.1` adds Word text conversion, onboarding, palettes, and optional cover animation. See the [study workspace checks](docs/qa/2026-09-23-study-workspace.md). It is not a full Word layout editor, PDF source-text editor, or professional graphics suite.
 
 The [September 19 capability comparison](docs/qa/2026-09-19-notes-and-drawing-comparison.md) separates documented competitor workflows, current changes, and missing graphics/study features. Name fields use native Compose text-input behavior; direct stylus handwriting requires a compatible Android 14+ device and keyboard.
 

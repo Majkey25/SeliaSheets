@@ -2,6 +2,26 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.9.0-beta.1] - Unreleased
+
+### Added
+
+- Three-step notebook, input, and backup introduction. Skip it or reopen it from Settings.
+- Six Material color palettes with light/dark previews, named selections, and keyboard controls. Paper and drawings keep their colors.
+- Optional notebook-opening cover animation. New installations start with animations off; existing choices are preserved.
+- Import ordinary `.docx` body text as editable pages after the current page. Export typed page text and text boxes to a new `.docx`.
+
+### Fixed
+
+- Save drafts in both workspace panes before Word or PDF export. Failed saves retain the export destination for retry.
+- Resume settings observation after temporary storage-read failures, without resetting the last known preferences.
+
+### Limits
+
+- Word conversion is plain text, not full Word editing. Images, styles, headers, notes, and source layout remain only in the original file. Original Word files are not included in notebook backups.
+- Word imports are limited to 16 MiB compressed, 32 MiB inflated, 1,000,000 content characters, and 2,000 inserted pages. XML size, nesting, and event limits also apply. Unsafe or unsupported files fail before page insertion.
+- Native PDF source-text editing remains a capability test, not an available editor tool. PDF annotation and flattened export are unchanged.
+
 ## [0.8.0-beta.2] - 2026-09-22
 
 ### Added
