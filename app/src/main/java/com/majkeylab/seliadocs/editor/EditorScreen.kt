@@ -113,6 +113,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.documents.WORD_DOCUMENT_MIME
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkTextRecognizer
 import com.majkeylab.seliadocs.recognition.RecognitionLanguage
@@ -148,6 +149,7 @@ internal data class InlineTextDraft(
 internal enum class EditorCloseIntent { BACK, SETTINGS }
 
 internal sealed interface EditorAction {
+    sealed interface NotebookExport : EditorAction
     data class WorkspaceSave(val requestId: Long) : EditorAction
     data class OpenSearchResult(val result: NotebookSearchResult) : EditorAction
     data class Close(val intent: EditorCloseIntent) : EditorAction
@@ -158,7 +160,9 @@ internal sealed interface EditorAction {
     data class DuplicatePage(val pageId: String) : EditorAction
     data class DeletePage(val pageId: String) : EditorAction
     data class ImportPdf(val uri: Uri) : EditorAction
-    data class ExportPdf(val uri: Uri) : EditorAction
+    data class ExportPdf(val uri: Uri) : NotebookExport
+    data class ImportWordText(val uri: Uri) : EditorAction
+    data class ExportWordText(val uri: Uri) : NotebookExport
     data class ImportImage(val pageId: String, val uri: Uri, val ocr: Boolean) : EditorAction
     data object AddText : EditorAction
     data object FinishText : EditorAction
@@ -276,6 +280,8 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     fun requestAction(action: EditorAction) {
         if (mutableCloseState.value.closing) return
         val current = mutableActionState.value
+        if (action is EditorAction.WorkspaceSave &&
+            (current.executing == action || workspaceSaveResult.value?.first == action.requestId)) return
         if (current.pending is EditorAction.WorkspaceSave || current.deferredWorkspace != null) return
         if (current.pending is EditorAction.Close || current.deferredClose != null) return
         if (action is EditorAction.WorkspaceSave && current.pending != null) {
@@ -300,6 +306,13 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
     }
 
     @Synchronized
+    fun dispatchSavedExport(action: EditorAction.NotebookExport): Boolean {
+        if (mutableCloseState.value.closing || mutableActionState.value.busy) return false
+        mutableActionState.value = EditorActionState(pending = action, ready = true)
+        return true
+    }
+
+    @Synchronized
     fun completeActionSave(epoch: Long, saved: Boolean, savedDraft: PageTextDraft? = null) {
         if (epoch != sessionEpoch) return
         if (saved && draft === savedDraft) draft = null
@@ -317,7 +330,7 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
         val action = current.pending
         mutableActionState.value = EditorActionState(
             pending = current.deferredClose ?: current.deferredWorkspace,
-            executing = action?.takeIf { it is EditorAction.ImportPdf || it is EditorAction.ImportImage || it is EditorAction.OpenSource || it is EditorAction.WorkspaceSave },
+            executing = action?.takeIf { it is EditorAction.ImportPdf || it is EditorAction.ImportWordText || it is EditorAction.NotebookExport || it is EditorAction.ImportImage || it is EditorAction.OpenSource || it is EditorAction.WorkspaceSave },
         )
         return action
     }
@@ -383,6 +396,8 @@ internal fun EditorRoute(
     ownsTextFocus: Boolean = true,
     handleSystemBack: Boolean = true,
     onWorkspaceClose: ((EditorCloseIntent) -> Unit)? = null,
+    onWorkspaceExport: ((EditorAction.NotebookExport) -> Unit)? = null,
+    onWorkspaceExportComplete: ((Boolean) -> Unit)? = null,
     onOpenBeside: (() -> Unit)? = null,
     workspaceBusy: Boolean = false,
     readOnlyPageId: String? = null,
@@ -440,6 +455,8 @@ internal fun EditorRoute(
             ownsTextFocus = ownsTextFocus,
             handleSystemBack = handleSystemBack,
             onWorkspaceClose = onWorkspaceClose,
+            onWorkspaceExport = onWorkspaceExport,
+            onWorkspaceExportComplete = onWorkspaceExportComplete,
             onOpenBeside = onOpenBeside,
             workspaceBusy = workspaceBusy,
         )
@@ -460,6 +477,8 @@ private fun EditorScreen(
     ownsTextFocus: Boolean,
     handleSystemBack: Boolean,
     onWorkspaceClose: ((EditorCloseIntent) -> Unit)?,
+    onWorkspaceExport: ((EditorAction.NotebookExport) -> Unit)?,
+    onWorkspaceExportComplete: ((Boolean) -> Unit)?,
     onOpenBeside: (() -> Unit)?,
     workspaceBusy: Boolean,
 ) {
@@ -492,6 +511,7 @@ private fun EditorScreen(
     var shapeDialogOpen by remember { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var addPagesOpen by rememberSaveable { mutableStateOf(false) }
+    var exportWordOpen by rememberSaveable { mutableStateOf(false) }
     var contentsOpen by rememberSaveable { mutableStateOf(false) }
     var excerptDestinationOpen by remember { mutableStateOf(false) }
     var excerptAsImage by remember { mutableStateOf(false) }
@@ -566,7 +586,17 @@ private fun EditorScreen(
             is EditorAction.ImportPdf -> viewModel.importPdf(action.uri) {
                 sessionHolder.completeExecutingAction(actionEpoch, action)
             }
-            is EditorAction.ExportPdf -> viewModel.exportPdf(action.uri)
+            is EditorAction.ExportPdf -> viewModel.exportPdf(action.uri) { saved ->
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+                if (sessionHolder.sessionEpoch == actionEpoch) onWorkspaceExportComplete?.invoke(saved)
+            }
+            is EditorAction.ImportWordText -> viewModel.importWordText(action.uri) {
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+            }
+            is EditorAction.ExportWordText -> viewModel.exportWordText(action.uri) { saved ->
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+                if (sessionHolder.sessionEpoch == actionEpoch) onWorkspaceExportComplete?.invoke(saved)
+            }
             is EditorAction.ImportImage -> viewModel.importImage(action.pageId, action.uri, action.ocr) {
                 sessionHolder.completeExecutingAction(actionEpoch, action)
             }
@@ -634,8 +664,49 @@ private fun EditorScreen(
         }
     val pdfExporter =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-            if (uri != null) sessionHolder.requestAction(EditorAction.ExportPdf(uri))
+            if (uri != null) {
+                val action = EditorAction.ExportPdf(uri)
+                if (onWorkspaceExport != null) onWorkspaceExport(action) else sessionHolder.requestAction(action)
+            }
         }
+    val wordPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) sessionHolder.requestAction(EditorAction.ImportWordText(uri))
+        }
+    val wordExporter =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(WORD_DOCUMENT_MIME)) { uri ->
+            if (uri != null) {
+                val action = EditorAction.ExportWordText(uri)
+                if (onWorkspaceExport != null) onWorkspaceExport(action) else sessionHolder.requestAction(action)
+            }
+        }
+    if (exportWordOpen) {
+        AlertDialog(
+            onDismissRequest = { exportWordOpen = false },
+            title = { Text(stringResource(R.string.export_word_text)) },
+            text = { Text(stringResource(R.string.word_export_detail)) },
+            confirmButton = {
+                TextButton(enabled = inputEnabled, onClick = {
+                    exportWordOpen = false
+                    val title = state.notebook?.title.orEmpty().ifBlank { "SeliaSheets notebook" }
+                    wordExporter.launch("${safeFileName(title)}-text.docx")
+                }) { Text(stringResource(R.string.export_word_text)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { exportWordOpen = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+    state.wordDocumentMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissWordDocumentMessage,
+            title = { Text(stringResource(R.string.word_text_copy)) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissWordDocumentMessage) { Text(stringResource(R.string.close)) }
+            },
+        )
+    }
     if (addPagesOpen) {
         AlertDialog(
             modifier = Modifier.testTag("insert-pages-dialog"),
@@ -670,6 +741,20 @@ private fun EditorScreen(
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(stringResource(R.string.insert_pdf_slides), style = MaterialTheme.typography.titleSmall)
                             Text(stringResource(R.string.insert_pdf_slides_detail), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth().testTag("insert-word-text"),
+                        enabled = inputEnabled,
+                        onClick = {
+                            addPagesOpen = false
+                            wordPicker.launch(arrayOf(WORD_DOCUMENT_MIME))
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.ic_text_fields), contentDescription = null)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(stringResource(R.string.import_word_text), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.word_import_detail), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -820,6 +905,7 @@ private fun EditorScreen(
                             onSearch = requestSearch,
                             onFingerDrawing = viewModel::setFingerDrawing,
                             onExport = onExport,
+                            onExportWord = { if (inputEnabled) exportWordOpen = true },
                             onSettings = { requestClose(EditorCloseIntent.SETTINGS) },
                             onOpenBeside = onOpenBeside,
                         )
@@ -832,6 +918,7 @@ private fun EditorScreen(
                             onAddPage = addPage,
                             onSettings = { requestClose(EditorCloseIntent.SETTINGS) },
                             onExport = onExport,
+                            onExportWord = { if (inputEnabled) exportWordOpen = true },
                             onOpenBeside = onOpenBeside,
                         )
                         HorizontalDivider()
@@ -1131,6 +1218,7 @@ private fun CompactEditorTopBar(
     onSearch: () -> Unit,
     onFingerDrawing: (Boolean) -> Unit,
     onExport: () -> Unit,
+    onExportWord: () -> Unit,
     onSettings: () -> Unit,
     onOpenBeside: (() -> Unit)? = null,
     controlsEnabled: Boolean = true,
@@ -1270,6 +1358,13 @@ private fun CompactEditorTopBar(
                             menuOpen = false
                             onExport()
                         }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.export_word_text)) },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_text_fields), contentDescription = null) },
+                            enabled = controlsEnabled,
+                            modifier = Modifier.testTag("export-word-text"),
+                            onClick = { menuOpen = false; onExportWord() },
+                        )
                         CompactMenuItem(stringResource(R.string.settings), "compact-more-settings", controlsEnabled) {
                             menuOpen = false
                             onSettings()
@@ -2221,6 +2316,7 @@ private fun EditorTopBar(
     onAddPage: () -> Unit,
     onSettings: () -> Unit,
     onExport: () -> Unit,
+    onExportWord: () -> Unit,
     onOpenBeside: (() -> Unit)? = null,
     controlsEnabled: Boolean = true,
 ) {
@@ -2281,6 +2377,13 @@ private fun EditorTopBar(
                                 menuOpen = false
                                 onExport()
                             },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.export_word_text)) },
+                            leadingIcon = { Icon(painterResource(R.drawable.ic_text_fields), contentDescription = null) },
+                            enabled = controlsEnabled,
+                            modifier = Modifier.testTag("export-word-text"),
+                            onClick = { menuOpen = false; onExportWord() },
                         )
                     }
                 }

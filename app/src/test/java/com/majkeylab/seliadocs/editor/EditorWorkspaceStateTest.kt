@@ -118,6 +118,51 @@ class EditorWorkspaceStateTest {
     }
 
     @Test
+    fun recreationCannotQueueTheSameWorkspaceSaveAtAnyCheckpoint() {
+        val holder = EditorSessionHolder()
+        holder.prepare("notebook")
+        val save = EditorAction.WorkspaceSave(8)
+        fun replayAfterRecreation() {
+            val before = holder.actionState.value
+            holder.prepare("notebook")
+            holder.requestAction(save)
+            assertEquals(before, holder.actionState.value)
+        }
+        holder.requestAction(save)
+        replayAfterRecreation()
+        holder.beginActionSave()
+        replayAfterRecreation()
+        holder.completeActionSave(holder.sessionEpoch, true)
+        replayAfterRecreation()
+        assertEquals(save, holder.takeReadyAction())
+        replayAfterRecreation()
+        holder.finishWorkspaceSave(save.requestId)
+        replayAfterRecreation()
+        holder.completeExecutingAction(holder.sessionEpoch, save)
+        replayAfterRecreation()
+        assertNull(holder.actionState.value.pending)
+        assertNull(holder.actionState.value.executing)
+        holder.requestAction(EditorAction.WorkspaceSave(9))
+        assertEquals(EditorAction.WorkspaceSave(9), holder.actionState.value.pending)
+    }
+
+    @Test
+    fun recreationDoesNotRetryAFailedWorkspaceSaveWithoutANewRequest() {
+        val holder = EditorSessionHolder()
+        holder.prepare("notebook")
+        val save = EditorAction.WorkspaceSave(8)
+        holder.requestAction(save)
+        holder.beginActionSave()
+        holder.completeActionSave(holder.sessionEpoch, false)
+        holder.prepare("notebook")
+        holder.requestAction(save)
+        assertNull(holder.actionState.value.pending)
+        assertEquals(8L to false, holder.workspaceSaveResult.value)
+        holder.requestAction(EditorAction.WorkspaceSave(9))
+        assertEquals(EditorAction.WorkspaceSave(9), holder.actionState.value.pending)
+    }
+
+    @Test
     fun workspaceSaveCannotDiscardPendingUndoAndReportsFailure() {
         listOf(true, false).forEach { saved ->
             val holder = EditorSessionHolder()
