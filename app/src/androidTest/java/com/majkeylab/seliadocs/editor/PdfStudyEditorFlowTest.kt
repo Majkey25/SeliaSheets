@@ -442,6 +442,10 @@ class PdfStudyEditorFlowTest {
             settings.update { it.copy(imageOcr = true, highlighterColorArgb = 0x66FFD54F) }
         }
         title = "PDF study ${System.nanoTime()}"
+        // DataStore loading/updates are outside Compose's idling clock.
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNodeWithContentDescription("New notebook").assertIsDisplayed().assertIsEnabled() }.isSuccess
+        }
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextReplacement(title)
         rule.onNodeWithText("Create notebook").performClick()
