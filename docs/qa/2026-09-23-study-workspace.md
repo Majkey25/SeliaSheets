@@ -1,6 +1,6 @@
 # Study workspace checks
 
-Candidate: `0.9.0-beta.1`, version code 23. Not published.
+Candidate: `0.9.0-beta.1`, version code 23. Uploaded to Play as an unpublished Alpha draft with English notes. Play validation reports no lost device support. Version 22 remains available to selected testers.
 
 ## Implemented scope
 
@@ -34,6 +34,10 @@ Opening motion changes only a cover graphics layer, not the native ink surface. 
 Review also found a stale-destination retry after output cleanup and duplicate workspace-save dispatch after recreation. The saved-request deduplication passed JVM checkpoint tests. A failed export releases the workspace and leaves its error in the exporter UI; only a draft-save failure retains the destination for retry. The extended physical recovery check passed. Android 17 CI must still execute the native PDF edit capability test. Huawei has no compatible active pen attached, so synthetic input is not pressure/tilt/hover hardware certification.
 
 CI run `35791581317`: build passed. The primary Android 10 suite reported 481 tests, 1 failure, and 7 skips. Its failure was a setup click before the merged `New notebook` target was ready after a DataStore update. The shared PDF fixture now waits for that same visible/enabled target; it does not switch to an unmerged node or remove the PDF-search assertions. All six PDF study flows then passed on Huawei (`device-qa-20260923-004009-052.log`). Full CI rerun is still required.
+
+The same run's Android 17 direct emulator stylus injection passed both pressure-at-zoom and live-pinch checks. Its separate input suite completed 65 cases with 2 expected skips and no failures. The primary suite failed seven early UI taps plus the experimental PDF fixture's object-count assumption. A shared JUnit RuleChain now waits for the visible, enabled library action before every MainActivity test starts. A 38-case Huawei batch covering those routes, backups, settings, and onboarding passed (`device-qa-20260923-005945-852.log`). The PDF probe now uses two direct Helvetica text objects instead of Skia-dependent content grouping; it still requires text replacement, source/neighbor preservation, and visible rendering.
+
+Run `35793760072` reproduced early library taps in other fixtures and exposed a handwriting-test setup race: the page list grew before `addPage()` finished selecting its new page. That fixture now waits for the exact new page before returning to page one and verifies the raw stroke in the repository. All 34 handwriting checks passed on Huawei (`device-qa-20260923-010604-350.log`). A separate rapid-selection/ink check also passed without changing production navigation (`device-qa-20260923-010946-834.log`). The application source tree and frozen signed artifacts are unchanged by these test fixes.
 
 ## Document-editing boundary
 

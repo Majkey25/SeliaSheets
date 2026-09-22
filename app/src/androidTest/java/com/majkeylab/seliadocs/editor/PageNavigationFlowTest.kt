@@ -41,8 +41,8 @@ import org.junit.Rule
 import org.junit.Test
 
 class PageNavigationFlowTest {
-    @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
 
     @Test
     fun oneFingerSwipeTurnsExactlyOnePageWhenFingerDrawingIsOff() {

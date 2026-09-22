@@ -29,7 +29,8 @@ import org.junit.Rule
 import org.junit.Test
 
 class OnboardingFlowTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
     private lateinit var repository: SettingsRepository
     private lateinit var previous: AppSettings
 

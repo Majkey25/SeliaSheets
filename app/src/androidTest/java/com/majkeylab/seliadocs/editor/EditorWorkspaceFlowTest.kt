@@ -63,7 +63,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class EditorWorkspaceFlowTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
     private val notebooks = mutableListOf<String>()
     private var failTrigger = false
     private fun repository() = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity))

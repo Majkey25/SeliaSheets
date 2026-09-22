@@ -3,8 +3,6 @@ package com.majkeylab.seliadocs.pdf
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.graphics.pdf.component.PdfPageTextObject
 import android.os.ParcelFileDescriptor
@@ -89,13 +87,16 @@ class PdfNativeTextEditTest {
 
     private fun textObjects(page: PdfRenderer.Page): Map<Int, String> {
         val objects = page.pageObjects
-        assertTrue("Unexpected fixture object count", objects.size in 2..16)
-        assertTrue(objects.all { it.first >= 0 })
-        assertEquals(objects.size, objects.map { it.first }.toSet().size)
+        val details = "count=${objects.size}, types=" + objects.take(16).joinToString {
+            "${it.first}:${it.second.javaClass.simpleName}/${it.second.pdfObjectType}"
+        }
+        assertTrue("Fixture exceeds object budget: $details", objects.size <= 16)
+        assertTrue("Invalid object ID: $details", objects.all { it.first >= 0 })
+        assertEquals("Duplicate object IDs: $details", objects.size, objects.map { it.first }.toSet().size)
         val text = objects.mapNotNull { entry ->
             (entry.second as? PdfPageTextObject)?.let { entry.first to it.text }
         }.toMap()
-        assertEquals("Fixture must have two separate text objects", 2, text.size)
+        assertEquals("Fixture must have two separate text objects: $details", 2, text.size)
         assertTrue(text.values.all { it.length <= 128 })
         return text
     }
@@ -106,16 +107,29 @@ class PdfNativeTextEditTest {
         }
 
     private fun createPdf() {
-        val document = PdfDocument()
-        try {
-            val page = document.startPage(PdfDocument.PageInfo.Builder(400, 240, 1).create())
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 28f }
-            page.canvas.drawText(ORIGINAL, 30f, 70f, paint)
-            paint.color = Color.BLUE
-            page.canvas.drawText(NEIGHBOR, 30f, 170f, paint)
-            document.finishPage(page)
-            source.outputStream().use(document::writeTo)
-        } finally { document.close() }
+        // Direct standard-font text objects avoid Skia's font subsetting and content grouping.
+        val content = "BT /F1 28 Tf 0 g 30 170 Td ($ORIGINAL) Tj ET\n" +
+            "BT /F1 28 Tf 0 0 1 rg 30 70 Td ($NEIGHBOR) Tj ET\n"
+        val bodies = listOf(
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 240] " +
+                "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            "<< /Length ${content.length} >>\nstream\n${content}endstream",
+        )
+        val pdf = StringBuilder("%PDF-1.4\n")
+        val offsets = bodies.mapIndexed { index, body ->
+            val offset = pdf.length
+            pdf.append("${index + 1} 0 obj\n$body\nendobj\n")
+            offset
+        }
+        val xref = pdf.length
+        pdf.append("xref\n0 ${bodies.size + 1}\n0000000000 65535 f \n")
+        offsets.forEach { pdf.append(it.toString().padStart(10, '0')).append(" 00000 n \n") }
+        pdf.append("trailer\n<< /Size ${bodies.size + 1} /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n")
+        check(pdf.all { it.code < 128 }) { "Fixture offsets require ASCII bytes" }
+        source.writeText(pdf.toString(), Charsets.US_ASCII)
     }
 
     private companion object {
