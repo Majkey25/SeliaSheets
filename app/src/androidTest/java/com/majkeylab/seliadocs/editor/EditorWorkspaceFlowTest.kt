@@ -45,6 +45,11 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
+import com.majkeylab.seliadocs.data.ElementDraft
+import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.documents.WordTextCodec
+import com.majkeylab.seliadocs.pdf.PdfSandboxClient
+import com.majkeylab.seliadocs.pdf.PdfTextSearcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -58,7 +63,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class EditorWorkspaceFlowTest {
-    @get:Rule val rule = createAndroidComposeRule<MainActivity>()
+    val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
     private val notebooks = mutableListOf<String>()
     private var failTrigger = false
     private fun repository() = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity))
@@ -406,6 +412,97 @@ class EditorWorkspaceFlowTest {
         rule.onNodeWithTag("workspace-retry").performClick()
         waitFor(hasTestTag("settings-top-bar"))
         runBlocking { assertEquals("Draft survives failed workspace save after recreation", repository().getBlocks(secondPage).single().text) }
+    }
+
+    @Test fun notebookExportsFlushOtherPaneAndRetainFailedWordDestination() {
+        val titles = fixture()
+        val firstPage = requireNotNull(editor(0).state.value.selectedPage).id
+        val secondPage = runBlocking { repository().addPage(notebooks.first()) }
+        rule.waitUntil(10_000) { editor(0).state.value.pages.size == 2 }
+        openBeside(titles.first)
+        val secondary = editor(1)
+        rule.runOnUiThread { secondary.selectPage(secondPage) }
+        rule.waitUntil(10_000) { holder(1).selectedPage.value == secondPage }
+        var workspace = rule.runOnIdle { ViewModelProvider(rule.activity)["editor-workspace", EditorWorkspaceHolder::class.java] }
+        rule.waitUntil(10_000) { workspace.pending == null }
+        val secondHolder = holder(1)
+        val unsaved = InlineTextDraft(secondPage, null, CanvasPoint(48f, 100f), "Unsaved secondary Word text")
+        rule.runOnUiThread { assertTrue(secondHolder.beginInlineText(unsaved)) }
+        runBlocking { assertTrue(repository().getElements(secondPage).isEmpty()) }
+        runBlocking(Dispatchers.IO) {
+            SeliaDocsDatabase.get(rule.activity).openHelper.writableDatabase.execSQL(
+                "CREATE TEMP TRIGGER qa_workspace_save_failure BEFORE INSERT ON elements " +
+                    "WHEN NEW.pageId = '$secondPage' BEGIN SELECT RAISE(ABORT, 'Forced export save failure'); END",
+            )
+        }
+        failTrigger = true
+        val probe = runBlocking {
+            runCatching { repository().addElement(secondPage, ElementDraft(ElementKind.TEXT, 48f, 100f, 300f, 60f, text = "Failure probe")) }
+        }
+        assertTrue("The failure trigger must reject a real element write", probe.isFailure)
+        val word = java.io.File.createTempFile("workspace-word-", ".docx", rule.activity.cacheDir)
+        val pdf = java.io.File.createTempFile("workspace-pdf-", ".pdf", rule.activity.cacheDir)
+        try {
+            val action = EditorAction.ExportWordText(Uri.fromFile(word))
+            rule.runOnUiThread { workspace.requestExport(0, action) }
+            rule.waitUntil(10_000) { workspace.failed && workspace.pending == null }
+            assertEquals(action, workspace.failedRequest?.exportAction)
+            assertEquals(0, workspace.failedRequest?.exportPane)
+            assertEquals(0L, word.length())
+            assertEquals(unsaved, secondHolder.inlineTextDraft.value)
+            runBlocking { assertTrue(repository().getElements(secondPage).isEmpty()) }
+
+            rule.activityRule.scenario.recreate()
+            waitFor(hasTestTag("workspace-save-failed"))
+            workspace = rule.runOnIdle { ViewModelProvider(rule.activity)["editor-workspace", EditorWorkspaceHolder::class.java] }
+            assertEquals(action, workspace.failedRequest?.exportAction)
+            removeFailure()
+            rule.onNodeWithTag("workspace-retry").performClick()
+            rule.waitUntil(30_000) { word.length() > 0 && workspace.pending == null }
+            assertFalse(workspace.failed)
+            assertTrue(WordTextCodec.read(word).paragraphs.joinToString("\n").contains(unsaved.text))
+            runBlocking { assertEquals(unsaved.text, repository().getElements(secondPage).single().text) }
+
+            val primary = editor(0)
+            val firstHolder = holder(0)
+            val pdfDraft = InlineTextDraft(firstPage, null, CanvasPoint(48f, 100f), "Unsaved primary PDF text")
+            rule.runOnUiThread {
+                primary.dismissWordDocumentMessage()
+                assertTrue(firstHolder.beginInlineText(pdfDraft))
+                workspace.requestExport(1, EditorAction.ExportPdf(Uri.fromFile(pdf)))
+            }
+            rule.waitUntil(30_000) { pdf.length() > 0 && workspace.pending == null }
+            assertFalse(workspace.failed)
+            runBlocking {
+                assertEquals(pdfDraft.text, repository().getElements(firstPage).single().text)
+                assertEquals(2, PdfSandboxClient(rule.activity).inspect(pdf).pages.size)
+                if (android.os.Build.VERSION.SDK_INT >= 35) {
+                    assertTrue(PdfTextSearcher(rule.activity).search(pdf, 0, pdfDraft.text, allowOcr = false).isNotEmpty())
+                }
+            }
+            rule.runOnUiThread {
+                workspace.requestExport(0, EditorAction.ExportWordText(Uri.parse("content://missing-export-provider/output.docx")))
+            }
+            rule.waitUntil(30_000) {
+                workspace.pending == null && primary.state.value.wordDocumentMessage ==
+                    rule.activity.getString(com.majkeylab.seliadocs.R.string.word_export_failed)
+            }
+            assertFalse("Export failure belongs to the exporter, not draft-save retry", workspace.failed)
+            assertEquals(null, workspace.failedRequest)
+            rule.runOnUiThread { workspace.retry() }
+            assertEquals(null, workspace.pending)
+            assertTrue(primary.state.value.failed)
+            rule.runOnUiThread {
+                primary.dismissWordDocumentMessage()
+                workspace.requestExport(0, EditorAction.ExportWordText(Uri.fromFile(word)))
+            }
+            rule.waitUntil(10_000) { workspace.pending == null }
+            assertFalse(primary.state.value.failed)
+            assertTrue(WordTextCodec.read(word).paragraphs.joinToString("\n").contains(pdfDraft.text))
+        } finally {
+            word.delete()
+            pdf.delete()
+        }
     }
 
     @Test fun savedDraftFromPreviousPageCannotOverwriteOtherPaneEdits() {

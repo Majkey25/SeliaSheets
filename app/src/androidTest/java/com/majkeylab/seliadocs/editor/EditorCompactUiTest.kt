@@ -88,8 +88,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class EditorCompactUiTest {
-    @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
 
     @Test
     fun savingFirstHighlightDoesNotHideSecondPendingHighlight() = assertPendingHighlightGroup(eraseBetween = false)
@@ -504,6 +504,8 @@ class EditorCompactUiTest {
         val actions = listOf(
             EditorAction.ImportPdf(source),
             EditorAction.ExportPdf(destination),
+            EditorAction.ImportWordText(source),
+            EditorAction.ExportWordText(destination),
             EditorAction.ImportImage("image-page", source, ocr = true),
         )
         actions.forEach { action ->
@@ -532,6 +534,8 @@ class EditorCompactUiTest {
     fun executingImportSurvivesRecreationAndKeepsBackQueuedUntilCompletion() {
         listOf(
             EditorAction.ImportPdf(Uri.parse("content://test/import.pdf")),
+            EditorAction.ImportWordText(Uri.parse("content://test/import.docx")),
+            EditorAction.ExportWordText(Uri.parse("content://test/export.docx")),
             EditorAction.ImportImage("page", Uri.parse("content://test/image.png"), ocr = false),
         ).forEach { action ->
             val holder = EditorSessionHolder()

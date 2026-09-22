@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="import_word_text">Import Word text (.docx)</string>
+    <string name="export_word_text">Export text document (.docx)</string>
+    <string name="word_text_copy">Word text copy</string>
+    <string name="word_import_detail">Editable body text only. Keep the original Word file for images and formatting. Maximum 16 MiB.</string>
+    <string name="word_import_complete">Imported an editable plain-text copy. The original Word file is unchanged. Images, layout, styles, notes and headers remain only in the original and are not included in notebook backups.</string>
+    <string name="word_import_failed">Word text could not be imported. Use an ordinary, unencrypted .docx up to 16 MiB. Damaged, unsafe or unsupported content and text exceeding 2,000 pages are rejected before any new pages are saved.</string>
+    <string name="word_export_detail">Creates a new Word file with typed page text and typed text boxes, separated by page breaks. Ink, images, PDF backgrounds, math, layout and styles are excluded. Use PDF for page appearance or notebook backup for editable notebook content.</string>
+    <string name="word_export_complete">Text document exported. Only typed page text and typed text boxes are included. Ink, images, PDF backgrounds, math, layout and styles are excluded.</string>
+    <string name="word_export_failed">The text document could not be exported. Check destination access and space. Text conversion is limited to 1,000,000 text characters plus line, page and tab separators. Your notebook is unchanged.</string>
+</resources>

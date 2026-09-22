@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.majkeylab.seliadocs.editor.clampElementTransform
 import com.majkeylab.seliadocs.editor.minimumTransformSize
 import com.majkeylab.seliadocs.editor.transform
+import com.majkeylab.seliadocs.documents.MAX_WORD_TEXT_PAGES
 import com.majkeylab.seliadocs.recognition.MAX_OCR_REGION_DATA_LENGTH
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -185,6 +186,49 @@ internal class SeliaDocsRepository(
             touch(notebook)
         }
         return PdfImportResult(sourceId, pageIds)
+    }
+
+    suspend fun importWordText(
+        notebookId: String,
+        texts: List<String>,
+        widthPoints: Int,
+        heightPoints: Int,
+        afterPageId: String? = null,
+    ): List<String> {
+        require(texts.isNotEmpty() && texts.size <= MAX_WORD_TEXT_PAGES)
+        require(widthPoints in 1..14_400 && heightPoints in 1..14_400)
+        require(texts.all { pageTextFits(it, widthPoints, heightPoints) }) { "Word text exceeds printable area" }
+        return database.withTransaction {
+            val notebook = getNotebook(notebookId)
+            val anchor = makeRoomAfterPage(notebookId, afterPageId, texts.size)
+            val (defaultWidth, defaultHeight) = pageSize(PageOrientation.valueOf(notebook.orientation))
+            require(widthPoints == (anchor?.widthPoints ?: defaultWidth) &&
+                heightPoints == (anchor?.heightPoints ?: defaultHeight)) { "Page dimensions changed during import" }
+            val firstIndex = anchor?.let { it.pageIndex + 1 }
+                ?: ((notebooks.getMaxPageIndex(notebookId) ?: -1) + 1)
+            val now = clock()
+            val pageIds = texts.mapIndexed { index, text ->
+                val pageId = idFactory()
+                notebooks.insertPage(PageEntity(
+                    id = pageId,
+                    notebookId = notebookId,
+                    pageIndex = firstIndex + index,
+                    paper = anchor?.paper ?: notebook.defaultPaper,
+                    widthPoints = widthPoints,
+                    heightPoints = heightPoints,
+                    chapterId = anchor?.chapterId,
+                    createdAt = now,
+                    updatedAt = now,
+                ))
+                if (text.isNotEmpty()) pageContent.insertBlock(BlockEntity(
+                    id = idFactory(), pageId = pageId, orderIndex = 0, kind = BlockKind.PARAGRAPH.name,
+                    text = text, checked = false, indent = 0, alignment = "START", payloadId = null,
+                ))
+                pageId
+            }
+            touch(notebook)
+            pageIds
+        }
     }
 
     suspend fun updatePageText(pageId: String, text: String) {
@@ -653,7 +697,7 @@ internal class SeliaDocsRepository(
         touch(requireNotNull(notebooks.getNotebook(page.notebookId)))
     }
 
-    private fun pageSize(orientation: PageOrientation): Pair<Int, Int> =
+    internal fun pageSize(orientation: PageOrientation): Pair<Int, Int> =
         if (orientation == PageOrientation.PORTRAIT) 595 to 842 else 842 to 595
 
     private fun validateElement(draft: ElementDraft) {

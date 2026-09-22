@@ -73,8 +73,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PdfStudyEditorFlowTest {
-    @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
     private var notebookId: String? = null
     private val additionalNotebookIds = mutableListOf<String>()
     private val capturedAssetIds = mutableSetOf<String>()
@@ -442,6 +442,10 @@ class PdfStudyEditorFlowTest {
             settings.update { it.copy(imageOcr = true, highlighterColorArgb = 0x66FFD54F) }
         }
         title = "PDF study ${System.nanoTime()}"
+        // DataStore loading/updates are outside Compose's idling clock.
+        rule.waitUntil(10_000) {
+            runCatching { rule.onNodeWithContentDescription("New notebook").assertIsDisplayed().assertIsEnabled() }.isSuccess
+        }
         rule.onNodeWithContentDescription("New notebook").performClick()
         rule.onNodeWithContentDescription("Notebook name").performTextReplacement(title)
         rule.onNodeWithText("Create notebook").performClick()

@@ -18,8 +18,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SystemBarAppearanceTest {
-    @get:Rule
     val rule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
 
     @Test
     @SdkSuppress(minSdkVersion = 29)

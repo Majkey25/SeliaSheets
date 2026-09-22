@@ -27,6 +27,8 @@ import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.StrokePayload
+import com.majkeylab.seliadocs.documents.WordTextExporter
+import com.majkeylab.seliadocs.documents.WordTextImporter
 import com.majkeylab.seliadocs.pdf.PdfImporter
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import com.majkeylab.seliadocs.pdf.PdfTextSelection
@@ -91,6 +93,7 @@ internal data class EditorUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
+    val wordDocumentMessage: String? = null,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
     val handwritingCandidates: List<String> = emptyList(),
@@ -221,6 +224,7 @@ private data class EditorControls(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val failed: Boolean = false,
+    val wordDocumentMessage: String? = null,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
     val handwritingCandidates: List<String> = emptyList(),
@@ -318,6 +322,7 @@ internal class EditorViewModel(
     private var pdfSelectionJob: Job? = null
     private var pdfSelectionEpoch = 0L
     private val pdfImporter = PdfImporter(application.contentResolver, assets, repository, pdfSandbox)
+    private val wordTextImporter = WordTextImporter(application.contentResolver, application.cacheDir, repository)
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls(tool = initialTool))
     private val pendingRecognitionStrokeIds = mutableListOf<String>()
@@ -411,6 +416,7 @@ internal class EditorViewModel(
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
+                    wordDocumentMessage = editorControls.wordDocumentMessage,
                     recognitionMessage = editorControls.recognitionMessage,
                     ambiguousMathCandidates = editorControls.ambiguousMathCandidates,
                     handwritingCandidates = editorControls.handwritingCandidates,
@@ -1416,6 +1422,41 @@ internal class EditorViewModel(
         }
     }
 
+    fun importWordText(uri: Uri, onComplete: (Boolean) -> Unit = {}) {
+        val afterPageId = state.value.selectedPage?.id
+        controls.value = controls.value.copy(wordDocumentMessage = null)
+        mutate(onComplete = { succeeded ->
+            controls.value = controls.value.copy(wordDocumentMessage = getApplication<Application>().getString(
+                if (succeeded) R.string.word_import_complete else R.string.word_import_failed,
+            ))
+            onComplete(succeeded)
+        }) {
+            val pageIds = wordTextImporter.import(notebookId, uri, afterPageId)
+            selectedPageId.value = pageIds.first()
+            controls.value = controls.value.copy(tool = EditorTool.TYPE)
+            showHistoryControls(pageIds.first())
+        }
+    }
+
+    fun exportWordText(uri: Uri, onComplete: (Boolean) -> Unit = {}) {
+        val application = getApplication<Application>()
+        controls.value = controls.value.copy(wordDocumentMessage = null)
+        mutate(onComplete = { succeeded ->
+            controls.value = controls.value.copy(wordDocumentMessage = application.getString(
+                if (succeeded) R.string.word_export_complete else R.string.word_export_failed,
+            ))
+            onComplete(succeeded)
+        }) {
+            withContext(Dispatchers.IO) {
+                WordTextExporter.export(repository.loadNotebook(notebookId), application.cacheDir, application.contentResolver, uri)
+            }
+        }
+    }
+
+    fun dismissWordDocumentMessage() {
+        controls.value = controls.value.copy(wordDocumentMessage = null)
+    }
+
     fun assetFile(id: String): File = assets.file(id)
 
     suspend fun loadPagePreview(pageId: String): PagePreviewData {
@@ -1713,12 +1754,16 @@ internal class EditorViewModel(
         controls.value = controls.value.copy(ambiguousMathCandidates = emptyList())
     }
 
-    fun exportPdf(uri: Uri) {
+    fun exportPdf(uri: Uri, onComplete: (Boolean) -> Unit = {}) {
         clearRecognition()
-        if (!mutationAllowed()) return
+        if (!mutationAllowed()) {
+            onComplete(false)
+            return
+        }
         val application = getApplication<Application>()
         val resolver = application.contentResolver
         viewModelScope.launch {
+            var succeeded = false
             try {
                 withContext(Dispatchers.IO) {
                     withPdfExportSnapshot(
@@ -1750,10 +1795,13 @@ internal class EditorViewModel(
                         )
                     }
                 }
+                succeeded = true
             } catch (failure: CancellationException) {
                 throw failure
             } catch (_: Exception) {
                 controls.value = controls.value.copy(failed = true)
+            } finally {
+                onComplete(succeeded)
             }
         }
     }

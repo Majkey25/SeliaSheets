@@ -175,6 +175,26 @@ class HandwrittenMathFlowTest {
     }
 
     @Test
+    fun rapidPageSelectionsKeepTheLastRequestedPageAndItsInk() = runBlocking {
+        val provider = ControlledProvider()
+        withEditor(provider::create) { viewModel, firstPageId ->
+            onMain(viewModel::addPage)
+            val secondPageId = await(viewModel, "second page") {
+                it.pages.size == 2 && it.selectedPage?.id != firstPageId
+            }.pages.single { it.id != firstPageId }.id
+            onMain {
+                viewModel.selectPage(firstPageId)
+                viewModel.selectPage(secondPageId)
+                viewModel.addStroke(secondPageId, rawStroke(), shapeAssist = false, handwritingRecognition = false)
+            }
+            val state = await(viewModel, "last requested page ink") {
+                it.selectedPage?.id == secondPageId && it.strokes.size == 1
+            }
+            assertEquals(secondPageId, state.strokes.single().pageId)
+        }
+    }
+
+    @Test
     fun pageSwitchDropsInFlightHandwritingConversion() = runBlocking {
         val provider = ControlledProvider()
         val invocation = provider.enqueue()
@@ -182,6 +202,7 @@ class HandwrittenMathFlowTest {
             onMain(viewModel::addPage)
             val secondPageId =
                 await(viewModel, "second page") { it.pages.size == 2 }.pages.single { it.id != firstPageId }.id
+            await(viewModel, "new page selected") { it.selectedPage?.id == secondPageId }
             onMain { viewModel.selectPage(firstPageId) }
             await(viewModel, "first page selected") { it.selectedPage?.id == firstPageId }
             onMain {
@@ -193,6 +214,8 @@ class HandwrittenMathFlowTest {
                 )
             }
             await(viewModel, "conversion source") { it.strokes.size == 1 }
+            val application = ApplicationProvider.getApplicationContext<Application>()
+            assertEquals(1, SeliaDocsRepository(SeliaDocsDatabase.get(application)).getStrokes(firstPageId).size)
             onMain {
                 viewModel.selectContent(
                     firstPageId,
@@ -1153,7 +1176,7 @@ class HandwrittenMathFlowTest {
         if (result != null) return result
         val state = viewModel.state.value
         throw AssertionError(
-            "Timed out waiting for $label: strokes=${state.strokes.size}, " +
+            "Timed out waiting for $label: selectedPage=${state.selectedPage?.id}, pages=${state.pages.size}, strokes=${state.strokes.size}, " +
                 "elements=${state.elements.size}, canUndo=${state.canUndo}, " +
                 "canRedo=${state.canRedo}, failed=${state.failed}",
         )

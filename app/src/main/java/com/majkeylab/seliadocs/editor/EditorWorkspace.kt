@@ -58,8 +58,14 @@ import com.majkeylab.seliadocs.recognition.RecognitionModelManager
 import com.majkeylab.seliadocs.settings.AppSettings
 
 internal data class WorkspacePane(val notebookId: String, val requestedPageId: String? = null)
-internal enum class WorkspaceChange { BACK, SETTINGS, PRIMARY, SECONDARY, CLOSE_SECONDARY, SHARED_PAGE }
-internal data class WorkspaceSave(val id: Long, val change: WorkspaceChange, val target: WorkspacePane? = null)
+internal enum class WorkspaceChange { BACK, SETTINGS, PRIMARY, SECONDARY, CLOSE_SECONDARY, SHARED_PAGE, EXPORT }
+internal data class WorkspaceSave(
+    val id: Long,
+    val change: WorkspaceChange,
+    val target: WorkspacePane? = null,
+    val exportAction: EditorAction.NotebookExport? = null,
+    val exportPane: Int = 0,
+)
 
 /** Two fixed panes and one pending operation survive activity recreation. No editor data is copied here. */
 internal class EditorWorkspaceHolder : ViewModel() {
@@ -68,6 +74,8 @@ internal class EditorWorkspaceHolder : ViewModel() {
     var primary by mutableStateOf<WorkspacePane?>(null)
     var secondary by mutableStateOf<WorkspacePane?>(null)
     var pending by mutableStateOf<WorkspaceSave?>(null)
+        private set
+    var exporting by mutableStateOf(false)
         private set
     var failed by mutableStateOf(false)
     var failedRequest: WorkspaceSave? = null
@@ -83,6 +91,7 @@ internal class EditorWorkspaceHolder : ViewModel() {
         primary = WorkspacePane(notebookId, pageId)
         secondary = null
         pending = null
+        exporting = false
         failed = false
         failedRequest = null
         activePane = 0
@@ -90,16 +99,37 @@ internal class EditorWorkspaceHolder : ViewModel() {
         sharedPageSaved = null
     }
 
-    fun request(change: WorkspaceChange, target: WorkspacePane? = null) {
+    fun request(
+        change: WorkspaceChange,
+        target: WorkspacePane? = null,
+        exportAction: EditorAction.NotebookExport? = null,
+        exportPane: Int = 0,
+    ) {
         if (pending != null) return
+        require((change == WorkspaceChange.EXPORT) == (exportAction != null))
+        require(exportPane in 0..1)
         failed = false
-        pending = WorkspaceSave(++nextRequest, change, target)
+        pending = WorkspaceSave(++nextRequest, change, target, exportAction, exportPane)
+    }
+
+    fun requestExport(pane: Int, action: EditorAction.NotebookExport) {
+        request(WorkspaceChange.EXPORT, exportAction = action, exportPane = pane)
+    }
+
+    fun retry() {
+        failedRequest?.let { request(it.change, it.target, it.exportAction, it.exportPane) }
+    }
+
+    fun startExport() {
+        check(pending?.change == WorkspaceChange.EXPORT)
+        exporting = true
     }
 
     fun finish(saved: Boolean) {
         failed = !saved
         failedRequest = if (saved) null else pending
         pending = null
+        exporting = false
     }
 
     fun synchronizeSharedPage(pageId: String?) {
@@ -140,6 +170,7 @@ internal fun EditorWorkspace(
     }
     LaunchedEffect(operation) {
         val request = operation ?: return@LaunchedEffect
+        if (workspace.exporting) return@LaunchedEffect
         if (request.change != WorkspaceChange.CLOSE_SECONDARY && request.change != WorkspaceChange.SHARED_PAGE) {
             primaryHolder.requestAction(EditorAction.WorkspaceSave(request.id))
         }
@@ -177,6 +208,14 @@ internal fun EditorWorkspace(
                 workspace.activePane = 0
             }
             WorkspaceChange.SHARED_PAGE -> workspace.sharedPageSaved = sharedPage
+            WorkspaceChange.EXPORT -> {
+                if (!workspace.exporting) {
+                    workspace.startExport()
+                    val holder = if (request.exportPane == 0) primaryHolder else secondaryHolder
+                    if (!holder.dispatchSavedExport(requireNotNull(request.exportAction))) workspace.finish(false)
+                }
+                return@LaunchedEffect
+            }
         }
         workspace.finish(true)
     }
@@ -218,9 +257,7 @@ internal fun EditorWorkspace(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.workspace_save_failed), color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.weight(1f).padding(12.dp).testTag("workspace-save-failed"))
-                    TextButton(onClick = {
-                        workspace.failedRequest?.let { workspace.request(it.change, it.target) }
-                    }, modifier = Modifier.testTag("workspace-retry")) { Text(stringResource(R.string.retry)) }
+                    TextButton(onClick = workspace::retry, modifier = Modifier.testTag("workspace-retry")) { Text(stringResource(R.string.retry)) }
                 }
             }
             if (workspace.secondary != null) Row(Modifier.fillMaxWidth().testTag("workspace-pane-header"), verticalAlignment = Alignment.CenterVertically) {
@@ -247,6 +284,12 @@ internal fun EditorWorkspace(
                 editable = sharedPage == null || (index == 0 && workspace.sharedPageSaved == sharedPage),
                 ownsTextFocus = workspace.activePane == index,
                 handleSystemBack = false, onWorkspaceClose = ::close,
+                onWorkspaceExport = { action -> workspace.requestExport(index, action) },
+                onWorkspaceExportComplete = {
+                    // Drafts were saved. The exporter owns errors and may have deleted the failed output URI.
+                    if (operation?.change == WorkspaceChange.EXPORT && operation.exportPane == index &&
+                        workspace.pending?.id == operation.id) workspace.finish(true)
+                },
                 onOpenBeside = { workspace.pickerPane = 1 }, workspaceBusy = busy,
                 readOnlyPageId = if (index == 1) primaryPage
                     else secondaryPage?.takeIf { workspace.secondary != null }?.takeUnless { workspace.sharedPageSaved == it },
