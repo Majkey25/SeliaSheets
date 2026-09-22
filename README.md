@@ -16,15 +16,19 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 - Android 10 and later (`minSdk 29`; compiled and targeted for API 37).
 - AndroidX Ink with pressure, stylus eraser, palm cancellation, and motion prediction.
 - Pen, pencil, highlighter, segment and whole-stroke erasers, polygon lasso selection, and up to 100-step undo/redo.
+- Custom RGB/hex brush colors, continuous width controls, and pen/pencil/highlighter opacity with live previews.
 - Multiple notebooks with covers, chapters, page titles, bookmarks, search across stored titles, text, and math, favorites, and trash.
+- Second-notebook workspace with a resizable tablet split or a keyboard-aware phone dialog. Each pane keeps its own page, draft, and zoom; a shared page has one writable pane.
+- Add a note page or PDF slides after the current page. Inserted notes preserve the current page dimensions and chapter.
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
 - Private image import through Android Photo Picker with MIME, dimension, allocation, and corruption checks.
 - Bundled on-device Latin OCR makes imported image text searchable and can be disabled in Settings.
 - Direct full-page typing plus movable text boxes and private Photo Picker image import.
 - Isolated-process PDF import, text selection, and editable highlights, underlines, and strikeouts. Scanned pages and Android 10–14 use local OCR when enabled.
+- Search PDF body text and stored text marks, then open the matching page region. Search is bounded to 100 results and reports pages it cannot search.
 - Linked text excerpts and cropped page images, including annotations and ink, with navigation back to their source page.
-- Draw-and-hold lines, arrows, ellipses, rectangles, and triangles with raw-ink Undo and shape Redo.
+- Draw-and-hold lines, arrows, ellipses, rectangles, and triangles with preserved pen color, opacity, width, raw-ink Undo, and shape Redo.
 - PDF export containing every page, paper pattern, ink, text, image, shape, math result, and imported PDF background.
 - PDF export is flattened. Editable annotations and original PDF sources remain in notebook backups.
 - Portable `.seliasheets` backups with validation, merge, replace, and rollback protection.
@@ -56,7 +60,11 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 ## Verification
 
-The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Format-6 backups require an updated reader; formats 1–5 remain readable.
+The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Current backups use format 7 for shape styles and require an updated reader; formats 1–6 remain readable.
+
+Workspace and PDF-search changes target the unreleased `0.8.0-beta.2` candidate. See the [workspace/search verification record](docs/qa/2026-09-12-workspace-search.md) for completed checks, pending acceptance, and limits.
+
+The [September 19 capability comparison](docs/qa/2026-09-19-notes-and-drawing-comparison.md) separates documented competitor workflows, current changes, and missing graphics/study features. Name fields use native Compose text-input behavior; direct stylus handwriting requires a compatible Android 14+ device and keyboard.
 
 Live highlighter checks compare native screen pixels before pen-up and after handoff at fit, zoom, pan, and after pinching. A separate editor test checks visibility after saving without a tool switch. See the [highlighter regression record](docs/qa/2026-09-12-highlighter-visibility.md).
 
@@ -64,7 +72,7 @@ Live highlighter checks compare native screen pixels before pen-up and after han
 
 ## Scope
 
-This beta does not include split/pop-up workspaces, FLOW pages, Quick Note and Inbox, rich-text styles, tables, graphs, study sets, masking tape, audio, accounts, cloud sync, or collaboration. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific pressure, tilt, hover, eraser, and side-button behavior still requires QA on a compatible active-stylus device.
+This beta does not include movable/resizable phone pop-ups, process-death workspace restoration, FLOW pages, Quick Note and Inbox, rich-text styles, tables, graphs, study sets, masking tape, audio, accounts, cloud sync, or collaboration. Native PDF search does not OCR embedded scanned regions on mixed-content pages. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific pressure, tilt, hover, eraser, and side-button behavior still requires QA on a compatible active-stylus device.
 
 ## Support
 

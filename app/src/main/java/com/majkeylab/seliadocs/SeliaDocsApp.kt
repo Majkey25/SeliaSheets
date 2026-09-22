@@ -24,7 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.majkeylab.seliadocs.backup.BackupRoute
 import com.majkeylab.seliadocs.backup.BackupViewModel
 import com.majkeylab.seliadocs.backup.LibraryReplacementReporter
-import com.majkeylab.seliadocs.editor.EditorRoute
+import com.majkeylab.seliadocs.editor.EditorWorkspace
 import com.majkeylab.seliadocs.library.LibraryScreen
 import com.majkeylab.seliadocs.library.LibraryViewModel
 import com.majkeylab.seliadocs.recognition.RecognitionModelManager
@@ -143,14 +143,10 @@ internal fun SeliaDocsApp(
                 )
             }
             else ->
-                EditorRoute(
+                EditorWorkspace(
                     notebookId = requireNotNull(notebookId),
                     initialPageId = requestedPageId,
                     onInitialPageOpened = { requestedPageId = null },
-                    onOpenPage = { targetNotebookId, targetPageId ->
-                        requestedPageId = targetPageId
-                        notebookId = targetNotebookId
-                    },
                     libraryGeneration = libraryGeneration,
                     recognitionModelManager = rootRecognitionModelManager,
                     settings = settings,

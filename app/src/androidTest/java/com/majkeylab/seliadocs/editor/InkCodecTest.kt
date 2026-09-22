@@ -16,6 +16,19 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class InkCodecTest {
     @Test
+    fun translucentCustomColorsSurvivePenAndPencilStrokeStorage() {
+        val inputs = MutableStrokeInputBatch()
+            .add(InputToolType.STYLUS, 10f, 20f, 0L, 0.01f, 0.2f, 0.1f, 0f)
+            .add(InputToolType.STYLUS, 30f, 40f, 16L, 0.01f, 0.9f, 1.1f, 1.4f)
+        listOf(BrushKind.RESPONSIVE_PEN, BrushKind.PENCIL).forEach { kind ->
+            listOf(0x03123456, 0x80123456.toInt(), 0xFF123456.toInt()).forEach { color ->
+                val stroke = Stroke(InkCodec.createBrush(kind, color, 4f), inputs)
+                assertEquals(color, InkCodec.decode(InkCodec.encode(stroke)).brush.colorIntArgb)
+            }
+        }
+    }
+
+    @Test
     fun segmentEraserKeepsPencilOrientationAcrossZeroInBothDirections() {
         val fullTurn = (Math.PI * 2).toFloat()
         listOf(fullTurn - 0.2f to 0.2f, 0.2f to fullTurn - 0.2f).forEach { (start, end) ->

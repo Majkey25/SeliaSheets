@@ -459,6 +459,7 @@ internal object BackupJson {
         writeNullableString("annotationRects", record.annotationRects)
         writeNullableString("sourcePageId", record.sourcePageId)
         writeNullableString("sourceRect", record.sourceRect)
+        name("strokeWidth").value(record.strokeWidth?.toDouble())
     }
 
     private fun JsonWriter.writeBlock(record: BackupBlock) {
@@ -710,6 +711,7 @@ internal object BackupJson {
         var annotationRects: String? = null
         var sourcePageId: String? = null
         var sourceRect: String? = null
+        var strokeWidth: Float? = null
         beginObject()
         while (hasNext()) {
             when (nextName()) {
@@ -736,6 +738,7 @@ internal object BackupJson {
                 "annotationRects" -> annotationRects = nextNullableString("annotationRects", MAX_ANNOTATION_DATA_LENGTH)
                 "sourcePageId" -> sourcePageId = nextNullableString("sourcePageId", MAX_SHORT_TEXT_CHARS)
                 "sourceRect" -> sourceRect = nextNullableString("sourceRect", MAX_SHORT_TEXT_CHARS)
+                "strokeWidth" -> strokeWidth = if (peek() == JsonToken.NULL) { nextNull(); null } else nextFiniteFloat("strokeWidth")
                 else -> skipValue()
             }
         }
@@ -760,6 +763,7 @@ internal object BackupJson {
             annotationRects = annotationRects,
             sourcePageId = sourcePageId,
             sourceRect = sourceRect,
+            strokeWidth = strokeWidth,
         ).also(::validate)
     }
 
@@ -1005,7 +1009,7 @@ internal object BackupJson {
                 }
                 val elementKind = enumValue<ElementKind>(record.kind)
                 try {
-                    validateAnnotationFields(elementKind, record.colorArgb, record.annotationRects, record.sourcePageId, record.sourceRect)
+                    validateAnnotationFields(elementKind, record.colorArgb, record.annotationRects, record.sourcePageId, record.sourceRect, record.strokeWidth)
                 } catch (failure: IllegalArgumentException) {
                     throw BackupFailure.Malformed(failure)
                 }

@@ -6,6 +6,24 @@ import org.junit.Test
 
 class AnnotationGeometryTest {
     @Test
+    fun shapesAcceptStoredBrushColorWithoutAnnotationRectangles() {
+        validateAnnotationFields(ElementKind.SHAPE, 0x803156D9.toInt(), null, null, null, 12f)
+        validateAnnotationFields(ElementKind.SHAPE, null, null, null, null)
+    }
+
+    @Test
+    fun shapeStyleRejectsInvalidWidthsInvisibleColorsAndFieldsOnOtherKinds() {
+        listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.MAX_VALUE, MAX_STROKE_WIDTH + 1f, 0f, -1f).forEach { width ->
+            assertTrue(runCatching {
+                validateAnnotationFields(ElementKind.SHAPE, 0x803156D9.toInt(), null, null, null, width)
+            }.isFailure)
+        }
+        assertTrue(runCatching { validateAnnotationFields(ElementKind.SHAPE, 0x00123456, null, null, null, 4f) }.isFailure)
+        assertTrue(runCatching { validateAnnotationFields(ElementKind.TEXT, null, null, null, null, 4f) }.isFailure)
+        assertTrue(runCatching { validateAnnotationFields(ElementKind.SHAPE, null, "0,0,1,1", null, null) }.isFailure)
+    }
+
+    @Test
     fun legacySourceIdsRemainOpaqueRoomKeys() {
         listOf("page.legacy", "page.legacy · Řeč: 1", "https://example.com/legacy-id").forEach { id ->
             validateAnnotationFields(ElementKind.TEXT, null, null, id, "0,0,1,1")

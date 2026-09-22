@@ -23,5 +23,4 @@ finish_run() {
 trap finish_run EXIT
 
 python .github/scripts/run_emulator_stylus_ci.py
-./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.notClass=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
-./gradlew connectedDebugAndroidTest --console=plain "-Pandroid.testInstrumentationRunnerArguments.class=com.majkeylab.seliadocs.editor.PageViewportFlowTest,com.majkeylab.seliadocs.editor.StylusRoutingTest"
+sh .github/scripts/run_android_instrumentation.sh

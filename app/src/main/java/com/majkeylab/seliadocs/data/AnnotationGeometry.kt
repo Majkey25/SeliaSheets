@@ -42,13 +42,18 @@ internal fun validateAnnotationFields(
     annotationRects: String?,
     sourcePageId: String?,
     sourceRect: String?,
+    strokeWidth: Float? = null,
 ) {
     if (kind.isPdfMarkup()) {
         require(colorArgb != null && colorArgb ushr 24 != 0)
         require(decodeAnnotationRects(annotationRects).isNotEmpty())
+    } else if (kind == ElementKind.SHAPE) {
+        require(colorArgb == null || colorArgb ushr 24 != 0)
+        require(annotationRects == null)
     } else {
         require(colorArgb == null && annotationRects == null)
     }
+    if (strokeWidth != null) require(kind == ElementKind.SHAPE && strokeWidth.isFinite() && strokeWidth > 0f && strokeWidth <= MAX_STROKE_WIDTH)
     require((sourcePageId == null) == (sourceRect == null))
     if (sourcePageId != null) {
         // Legacy page IDs are resolved only as Room keys, never opened as URLs or filesystem paths.

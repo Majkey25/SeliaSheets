@@ -37,19 +37,26 @@ class SmartShapeFlowTest {
             onMain { viewModel = EditorViewModel(application, notebookId) }
             val pageId = await(viewModel, "page") { it.selectedPage != null }.selectedPage!!.id
 
-            onMain { viewModel.addStroke(pageId, heldLine(), shapeAssist = true) }
+            onMain { viewModel.addStroke(pageId, heldLine(colorArgb = 0x803156D9.toInt(), width = 12f), shapeAssist = true) }
             val shape = await(viewModel, "smart line") {
                 it.elements.size == 1 && it.strokes.isEmpty() && it.canUndo
             }
             assertEquals(ShapeKind.LINE.name, shape.elements.single().shapeKind)
+            assertEquals(0x803156D9.toInt(), shape.elements.single().colorArgb)
+            assertEquals(12f, shape.elements.single().strokeWidth)
+            assertEquals(0x803156D9.toInt(), repository.getElements(pageId).single().colorArgb)
             assertEquals(shape.elements.single().id, shape.smartShapePreviewId)
             assertEquals(0, shape.strokes.size)
 
             onMain(viewModel::undo)
             val original = await(viewModel, "smart line undo") { it.elements.isEmpty() && it.strokes.size == 1 }
             assertEquals(BrushKind.PRESSURE_PEN.name, original.strokes.single().brushKind)
+            assertEquals(0x803156D9.toInt(), original.strokes.single().colorArgb)
+            assertEquals(12f, original.strokes.single().size)
             onMain(viewModel::redo)
-            await(viewModel, "smart line redo") { it.elements.size == 1 && it.strokes.isEmpty() }
+            val redone = await(viewModel, "smart line redo") { it.elements.size == 1 && it.strokes.isEmpty() }
+            assertEquals(0x803156D9.toInt(), redone.elements.single().colorArgb)
+            assertEquals(12f, redone.elements.single().strokeWidth)
             onMain(viewModel::undo)
             await(viewModel, "smart line undo to original") { it.elements.isEmpty() && it.strokes.size == 1 }
             onMain(viewModel::undo)
@@ -57,6 +64,37 @@ class SmartShapeFlowTest {
             onMain { viewModel.addStroke(pageId, heldLine(), shapeAssist = false) }
             val raw = await(viewModel, "disabled assist") { it.strokes.size == 1 }
             assertEquals(0, raw.elements.size)
+        } finally {
+            repository.deleteNotebook(notebookId)
+        }
+    }
+
+    @Test
+    fun manualShapeUsesTheEarliestSelectedStrokeStyleAndUndoRestoresBoth() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(request())
+        try {
+            lateinit var viewModel: EditorViewModel
+            onMain { viewModel = EditorViewModel(application, notebookId) }
+            val pageId = await(viewModel, "page") { it.selectedPage != null }.selectedPage!!.id
+            onMain { viewModel.addStroke(pageId, heldLine(0x80E53935.toInt(), 9f), shapeAssist = false) }
+            await(viewModel, "first ink") { it.strokes.size == 1 }
+            onMain { viewModel.addStroke(pageId, heldLine(0xFF3156D9.toInt(), 3f), shapeAssist = false) }
+            await(viewModel, "second ink") { it.strokes.size == 2 }
+            onMain {
+                viewModel.selectStrokes(pageId, listOf(CanvasPoint(20f, 60f), CanvasPoint(240f, 60f),
+                    CanvasPoint(240f, 100f), CanvasPoint(20f, 100f), CanvasPoint(20f, 60f)))
+            }
+            await(viewModel, "both selected") { it.selectedStrokeIds.size == 2 }
+            onMain { viewModel.cleanSelectedShape(ShapeKind.LINE) }
+            val clean = await(viewModel, "manual shape") { it.strokes.isEmpty() && it.elements.size == 1 }
+            assertEquals(0x80E53935.toInt(), clean.elements.single().colorArgb)
+            assertEquals(9f, clean.elements.single().strokeWidth)
+            onMain(viewModel::undo)
+            val restored = await(viewModel, "manual undo") { it.elements.isEmpty() && it.strokes.size == 2 }
+            assertEquals(listOf(0x80E53935.toInt(), 0xFF3156D9.toInt()), restored.strokes.map { it.colorArgb })
+            assertEquals(listOf(9f, 3f), restored.strokes.map { it.size })
         } finally {
             repository.deleteNotebook(notebookId)
         }
@@ -119,9 +157,9 @@ class SmartShapeFlowTest {
         }
     }
 
-    private fun heldLine(): Stroke =
+    private fun heldLine(colorArgb: Int = 0xFF202124.toInt(), width: Float = 4f): Stroke =
         Stroke(
-            InkCodec.createBrush(BrushKind.PRESSURE_PEN, 0xFF202124.toInt(), 4f),
+            InkCodec.createBrush(BrushKind.PRESSURE_PEN, colorArgb, width),
             MutableStrokeInputBatch()
                 .add(InputToolType.STYLUS, 40f, 80f, 0L, 0.01f, 0.7f, 0.2f, 0.3f)
                 .add(InputToolType.STYLUS, 120f, 81f, 160L, 0.01f, 0.7f, 0.2f, 0.3f)

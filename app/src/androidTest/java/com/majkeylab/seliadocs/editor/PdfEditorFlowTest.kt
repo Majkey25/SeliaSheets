@@ -8,6 +8,11 @@ import android.net.Uri
 import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -30,6 +35,58 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PdfEditorFlowTest {
+    @Test
+    fun notePagesAndAdditionalSlidesFollowTheSelectedPage() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val book = repository.createNotebook(request())
+        val first = repository.getPages(book).single().id
+        val last = repository.addPage(book)
+        val source = File(application.cacheDir, "insert-slides-${System.nanoTime()}.pdf")
+        createPdf(source)
+        val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
+        try {
+            lateinit var editor: EditorViewModel
+            onMain {
+                editor = ViewModelProvider(owner, viewModelFactory {
+                    initializer { EditorViewModel(application, book) }
+                })[EditorViewModel::class.java]
+            }
+            editor.await("initial page") { it.selectedPage?.id == first }
+            onMain { editor.importPdf(Uri.fromFile(source)) }
+            val imported = editor.await("first slide") { it.pages.size == 3 && it.selectedPage?.pageMode == PageMode.PDF.name }
+            val slide = requireNotNull(imported.selectedPage)
+            assertEquals(listOf(first, slide.id, last), imported.pages.map { it.id })
+
+            val existingPageIds = imported.pages.mapTo(mutableSetOf()) { it.id }
+            onMain { editor.addPage() }
+            val withNote = editor.await("selected new note after slide") {
+                it.pages.size == 4 && it.selectedPage?.let { page ->
+                    page.pageMode == PageMode.PAPER.name && page.id !in existingPageIds
+                } == true
+            }
+            val note = requireNotNull(withNote.selectedPage)
+            assertEquals(listOf(first, slide.id, note.id, last), withNote.pages.map { it.id })
+            assertEquals(slide.widthPoints, note.widthPoints)
+            assertEquals(slide.heightPoints, note.heightPoints)
+
+            onMain { editor.selectPage(slide.id) }
+            editor.await("selected slide") { it.selectedPage?.id == slide.id }
+            onMain { editor.importPdf(Uri.fromFile(source)) }
+            val withMoreSlides = editor.await("additional slides") {
+                it.pages.size == 5 && it.selectedPage?.let { page -> page.pageMode == PageMode.PDF.name && page.id != slide.id } == true
+            }
+            assertEquals(listOf(first, slide.id, withMoreSlides.selectedPage!!.id, note.id, last), withMoreSlides.pages.map { it.id })
+        } finally {
+            onMain { owner.viewModelStore.clear() }
+            val assets = repository.getPdfSources(book).map { it.assetId }
+            repository.deleteNotebook(book)
+            val store = AssetStore(File(application.filesDir, "assets"))
+            assets.forEach { store.file(it).delete() }
+            source.delete()
+        }
+    }
+
     @Test
     fun importedPdfPageAcceptsInkAndSurvivesEditorReopen() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()

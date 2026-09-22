@@ -1,5 +1,10 @@
 package com.majkeylab.seliadocs.library
 
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.rememberTextFieldState
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -381,12 +386,13 @@ private fun ActionButton(label: Int, onClick: () -> Unit) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun RenameNotebookDialog(
     notebook: NotebookEntity,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit,
 ) {
-    var title by remember(notebook.id) { mutableStateOf(notebook.title) }
+    val title = rememberTextFieldState(notebook.title)
     val fallback = stringResource(R.string.untitled_notebook)
     val nameDescription = stringResource(R.string.notebook_name)
     AlertDialog(
@@ -394,10 +400,10 @@ private fun RenameNotebookDialog(
         title = { Text(stringResource(R.string.rename)) },
         text = {
             OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
+                state = title,
+                inputTransformation = InputTransformation.maxLength(120),
                 label = { Text(stringResource(R.string.notebook_name)) },
-                singleLine = true,
+                lineLimits = TextFieldLineLimits.SingleLine,
                 modifier =
                     Modifier.fillMaxWidth().semantics {
                         contentDescription = nameDescription
@@ -405,7 +411,7 @@ private fun RenameNotebookDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = { onRename(normalizeTitle(title, fallback)) }) {
+            TextButton(onClick = { onRename(normalizeTitle(title.text.toString(), fallback)) }) {
                 Text(stringResource(R.string.save))
             }
         },

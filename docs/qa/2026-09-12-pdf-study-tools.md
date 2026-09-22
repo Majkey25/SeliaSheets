@@ -24,6 +24,11 @@ Version 19 was an unsubmitted Play draft. Android 17 CI caught off-region native
 - A clean version-19 build passed all JVM/lint tasks and produced signed APK/AAB outputs. APK verification confirms one expected signer, package `com.majkeylab.seliadocs`, version `0.7.0-beta.1`, minSdk 29, targetSdk 37, and 16 KB alignment. AAB verification reports the existing self-signed-certificate, timestamp, POSIX-attribute, and JAR stream-order warnings.
 - Huawei version 19, `device-qa-20260912-191714-168.log`: all 28 final PDF study, capture, export, legacy-ID, migration, and backup tests passed.
 - Signed version 19 passed `ReleaseInkSmokeTest` with explicit stylus pressure events, first at fit and then with `pinchBeforeStroke=true`. The test checks foreground package, visible blue pixels, and stability after handoff. Existing signed-app notes survived the upgrade. The temporary smoke-test page was removed afterward.
+- Clean version 20 passed 119 JVM tests, lint, signed APK/AAB verification, and the expected package/certificate/alignment checks. Huawei `device-qa-20260912-202625-929.log` passed 12 PDF UI/backend tests with three expected API-35 skips. Signed version 20 passed cold and post-pinch `ReleaseInkSmokeTest`; existing notes remained intact.
+- Final version-20 [CI run 34710873293](https://github.com/Majkey25/SeliaSheets/actions/runs/34710873293) passed build, Android 10 instrumentation, and Android 17 instrumentation. [PR 29](https://github.com/Majkey25/SeliaSheets/pull/29) merged as `fe5e950eccd487b04075ba1ca386efdcab677a08` with an identical source tree to the tested release commit.
+- [GitHub prerelease 0.7.0-beta.2](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.7.0-beta.2) contains APK SHA-256 `e9ffcfe8d35ec3050fe6ba0eb4251a4584850a4e9f499d9d29c47debc2c62386` and AAB SHA-256 `fda3dab3ded9f625acc570f39a482fccf72161693f16b67bc10522f6ea79dccd`. GitHub asset digests match the local frozen artifacts.
+- Google Play closed Alpha version 20 was submitted on September 12. At 21:10 CEST, quick checks had finished and Play reported the changes under review. This does not establish tester availability. The superseded version-19 bundle remains only in the artifact library.
+- On September 19, Play Console confirmed version 20 available to selected Alpha testers, with a September 12 21:25 release time. Version 21 had not been uploaded.
 
 ## Bugs and test defects found
 
@@ -37,10 +42,10 @@ Version 19 was an unsubmitted Play draft. Android 17 CI caught off-region native
 - Captures use 2048-pixel page rasters and a 4MP inserted-image decode budget. Ordinary PDF export retains its 4096-pixel/16MP limits. The capture bitmap-buffer calculation is at most 64 MiB; this is not a measured heap peak.
 - Android 10 CI exposed an existing deletion-test race: Room emitted the deleted stroke list before selection/history controls updated. The test now awaits the complete state and retains its kept-stroke and Undo assertions.
 - The integrated Android 10 run completed 371 tests with one existing history-toolbar synchronization failure and four expected skips. That test now waits for asynchronous Undo completion and settled tool state. Its focused Huawei rerun passed in `device-qa-20260912-194155-230.log`.
-- The integrated Android 17 run failed before app input because a SystemUI boot ANR dialog held focus. CI now builds APKs before starting the emulator to separate compilation from boot load. Native focus checks and stylus assertions remain unchanged; a fresh CI run must verify the change.
+- The integrated Android 17 run failed before app input because a SystemUI boot ANR dialog held focus. CI now builds APKs before starting the emulator to separate compilation from boot load. Native focus checks and stylus assertions remain unchanged; the final version-20 run passed.
 
 ## Remaining acceptance
 
-Verify the final version-19 signed artifacts and re-run final compatibility/allocation checks. Full CI for the integrated UI changes remains pending. Split/pop-up workspaces, audio-linked notes, study masking, annotation-preserving PDF export, and other parity items remain open in the [implementation checklist](../superpowers/specs/2026-09-12-flexcil-parity.md).
+Version 20 is published on GitHub and available to Google Play closed Alpha testers. Split/pop-up workspace and PDF body-search work remain separate, unshipped changes. Audio-linked notes, study masking, annotation-preserving PDF export, and other parity items remain open in the [implementation checklist](../superpowers/specs/2026-09-12-flexcil-parity.md).
 
 Injected stylus events exercise Android input routing. They do not certify a physical active pen's pressure, tilt, palm rejection, or vendor buttons. The shared Huawei has no attached active pen.

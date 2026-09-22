@@ -58,6 +58,18 @@ internal fun fitPageWidth(viewportWidth: Float, pageWidth: Float): PageViewport 
     return PageViewport(zoom = (viewportWidth / pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM))
 }
 
+internal fun revealPagePoint(
+    current: PageViewport, x: Float, y: Float,
+    viewportWidth: Float, viewportHeight: Float, pageWidth: Float, pageHeight: Float,
+): PageViewport {
+    require(x in 0f..1f && y in 0f..1f)
+    return updatePageViewport(
+        current.copy(panX = 0f, panY = 0f), 1f,
+        (0.5f - x) * pageWidth * current.zoom, (0.5f - y) * pageHeight * current.zoom,
+        0f, 0f, viewportWidth, viewportHeight, pageWidth, pageHeight,
+    )
+}
+
 internal fun viewportCoordinateToPage(
     coordinate: Float,
     viewSize: Float,

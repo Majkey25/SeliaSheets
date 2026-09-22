@@ -23,6 +23,12 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -71,7 +77,8 @@ internal fun CreateNotebookDialog(
     onDismiss: () -> Unit,
     onCreate: (CreateNotebookRequest) -> Unit,
 ) {
-    var title by remember { mutableStateOf("") }
+    val titleState = rememberTextFieldState()
+    val title = titleState.text.toString()
     var coverColor by
         remember(defaults.defaultCoverColor) { mutableStateOf(defaults.defaultCoverColor) }
     var coverPattern by
@@ -130,8 +137,7 @@ internal fun CreateNotebookDialog(
                             )
                             VerticalDivider()
                             ConfigurationPane(
-                                title = title,
-                                onTitleChange = { title = it.take(120) },
+                                titleState = titleState,
                                 coverColor = coverColor,
                                 coverPattern = coverPattern,
                                 paper = paper,
@@ -171,8 +177,7 @@ internal fun CreateNotebookDialog(
                             )
                             HorizontalDivider()
                             ConfigurationPane(
-                                title = title,
-                                onTitleChange = { title = it.take(120) },
+                                titleState = titleState,
                                 coverColor = coverColor,
                                 coverPattern = coverPattern,
                                 paper = paper,
@@ -277,9 +282,9 @@ private fun PreviewPane(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ConfigurationPane(
-    title: String,
-    onTitleChange: (String) -> Unit,
+    titleState: TextFieldState,
     coverColor: CoverColor,
     coverPattern: CoverPattern,
     paper: PaperTemplate,
@@ -303,11 +308,11 @@ private fun ConfigurationPane(
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         OutlinedTextField(
-            value = title,
-            onValueChange = onTitleChange,
+            state = titleState,
+            inputTransformation = InputTransformation.maxLength(120),
             label = { Text(stringResource(R.string.notebook_name)) },
             placeholder = { Text(stringResource(R.string.untitled_notebook)) },
-            singleLine = true,
+            lineLimits = TextFieldLineLimits.SingleLine,
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = nameDescription },
         )
         SectionTitle(stringResource(R.string.start_with_template))

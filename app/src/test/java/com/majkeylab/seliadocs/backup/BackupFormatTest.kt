@@ -6,8 +6,8 @@ import org.junit.Test
 
 class BackupFormatTest {
     @Test
-    fun pdfMarkupBackupsRequireVersionSixWithoutDroppingLegacyReaders() {
-        assertEquals(6, BACKUP_FORMAT_VERSION)
+    fun shapeStyleBackupsRequireVersionSevenWithoutDroppingLegacyReaders() {
+        assertEquals(7, BACKUP_FORMAT_VERSION)
         assertEquals(1, MIN_BACKUP_FORMAT_VERSION)
     }
 

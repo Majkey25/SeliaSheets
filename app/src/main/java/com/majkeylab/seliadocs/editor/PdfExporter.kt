@@ -33,8 +33,6 @@ import java.io.File
 import java.io.OutputStream
 import java.nio.file.Files
 import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -343,31 +341,23 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
         val kind = element.shapeKind?.let { runCatching { ShapeKind.valueOf(it) }.getOrNull() } ?: return
         val paint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(32, 33, 36)
+                color = element.colorArgb ?: Color.rgb(32, 33, 36)
                 style = Paint.Style.STROKE
-                strokeWidth = 3f
+                strokeWidth = element.strokeWidth ?: 3f
             }
         val bounds = RectF(element.x, element.y, element.x + element.width, element.y + element.height)
         when (kind) {
             ShapeKind.LINE -> canvas.drawLine(bounds.left, bounds.centerY(), bounds.right, bounds.centerY(), paint)
             ShapeKind.ARROW -> {
-                canvas.drawLine(bounds.left, bounds.centerY(), bounds.right, bounds.centerY(), paint)
                 val head = minOf(18f, element.width / 3f)
-                val angle = 0.5f
-                canvas.drawLine(
-                    bounds.right,
-                    bounds.centerY(),
-                    bounds.right - head * cos(angle),
-                    bounds.centerY() - head * sin(angle),
-                    paint,
-                )
-                canvas.drawLine(
-                    bounds.right,
-                    bounds.centerY(),
-                    bounds.right - head * cos(angle),
-                    bounds.centerY() + head * sin(angle),
-                    paint,
-                )
+                val path = Path().apply {
+                    moveTo(bounds.left, bounds.centerY())
+                    lineTo(bounds.right, bounds.centerY())
+                    moveTo(bounds.right - head, bounds.centerY() - head * 0.55f)
+                    lineTo(bounds.right, bounds.centerY())
+                    lineTo(bounds.right - head, bounds.centerY() + head * 0.55f)
+                }
+                canvas.drawPath(path, paint)
             }
             ShapeKind.ELLIPSE -> canvas.drawOval(bounds, paint)
             ShapeKind.RECTANGLE -> canvas.drawRect(bounds, paint)

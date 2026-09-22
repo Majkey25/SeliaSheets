@@ -11,6 +11,7 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInputBatch
 import com.majkeylab.seliadocs.data.StrokeEntity
+import com.majkeylab.seliadocs.data.MAX_STROKE_WIDTH
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.math.ceil
@@ -187,7 +188,7 @@ internal fun transformStrokeSelection(
     val points = selected.flatMap { it.toStrokePath().points }
     if (
         points.isEmpty() ||
-            selected.any { it.size * scale !in MIN_TRANSFORMED_BRUSH_SIZE..MAX_TRANSFORMED_BRUSH_SIZE }
+            selected.any { it.size * scale !in MIN_TRANSFORMED_BRUSH_SIZE..MAX_STROKE_WIDTH }
     ) {
         return null
     }
@@ -238,7 +239,6 @@ internal fun strokeSelectionBounds(
 }
 
 private const val MIN_TRANSFORMED_BRUSH_SIZE = 0.5f
-private const val MAX_TRANSFORMED_BRUSH_SIZE = 128f
 
 internal fun StrokeEntity.eraseSegments(
     eraser: List<CanvasPoint>,

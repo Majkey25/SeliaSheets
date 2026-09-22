@@ -300,6 +300,7 @@ internal class BackupImporter(
             annotationRects = annotationRects,
             sourcePageId = sourcePageId?.let { mappings.pages[it] ?: it },
             sourceRect = sourceRect,
+            strokeWidth = strokeWidth,
         )
 
     private fun BackupBlock.toEntity(mappings: IdMappings) =

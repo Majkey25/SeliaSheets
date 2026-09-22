@@ -42,6 +42,10 @@ class PageFlowTest {
         } else {
             rule.onNodeWithContentDescription("Add page").performClick()
         }
+        rule.onNodeWithTag("insert-note-page").assertIsDisplayed()
+        rule.onNodeWithTag("insert-pdf-slides").assertIsDisplayed()
+        rule.onNodeWithText("After page 1").assertIsDisplayed()
+        rule.onNodeWithTag("insert-note-page").performClick()
         if (usesSheet) openContents(compact)
         waitForPageCount(2)
         rule.onNodeWithContentDescription("Page 2 actions").performClick()

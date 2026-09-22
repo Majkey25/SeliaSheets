@@ -13,6 +13,9 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal data class ImportedPdf(
@@ -28,7 +31,7 @@ internal class PdfImporter(
     private val sandbox: PdfSandboxClient,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
-    suspend fun import(notebookId: String, uri: Uri): ImportedPdf =
+    suspend fun import(notebookId: String, uri: Uri, afterPageId: String? = null): ImportedPdf =
         withContext(Dispatchers.IO) {
             assets.prepare()
             val token = idFactory()
@@ -41,16 +44,22 @@ internal class PdfImporter(
                 requirePdfHeader(temporary)
                 val info = sandbox.inspect(temporary)
                 if (!temporary.renameTo(destination)) throw IOException("PDF could not be installed")
-                val result: PdfImportResult =
-                    repository.importPdf(
+                val sourceName = displayName(uri)
+                currentCoroutineContext().ensureActive()
+                val result: PdfImportResult = withContext(NonCancellable) {
+                    val imported = repository.importPdf(
                         notebookId = notebookId,
                         assetId = destination.name,
-                        displayName = displayName(uri),
+                        displayName = sourceName,
                         byteSize = byteSize,
                         sha256 = digest.digest().toHex(),
                         pages = info.pages.map { PdfPageSpec(it.width, it.height) },
+                        afterPageId = afterPageId,
                     )
-                committed = true
+                    // Keep ownership in sync even if the caller is cancelled as the transaction commits.
+                    committed = true
+                    imported
+                }
                 ImportedPdf(result.sourceId, result.pageIds, info.pages.size)
             } finally {
                 temporary.delete()

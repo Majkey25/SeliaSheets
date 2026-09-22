@@ -31,6 +31,8 @@ import com.majkeylab.seliadocs.pdf.PdfImporter
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import com.majkeylab.seliadocs.pdf.PdfTextSelection
 import com.majkeylab.seliadocs.pdf.PdfTextSelector
+import com.majkeylab.seliadocs.pdf.PdfTextSearcher
+import com.majkeylab.seliadocs.pdf.PdfTextSearchMatch
 import com.majkeylab.seliadocs.recognition.ImageOcrResult
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkMathDecision
@@ -80,8 +82,11 @@ internal data class EditorUiState(
     val eraserMode: EraserMode = EraserMode.SEGMENT,
     val smartShapePreviewId: String? = null,
     val searchQuery: String = "",
-    val searchResults: List<PageTextMatch> = emptyList(),
+    val searchResults: List<NotebookSearchResult> = emptyList(),
     val searchFailed: Boolean = false,
+    val searching: Boolean = false,
+    val searchMessage: String? = null,
+    val pdfSearchHighlight: PdfSearchHighlight? = null,
     val ocrSearchHighlight: OcrSearchHighlight? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -131,7 +136,17 @@ private data class PageSnapshot(
     val strokes: List<StrokeEntity>,
     val elements: List<ElementEntity>,
     val blocks: List<BlockEntity>,
-)
+) {
+    fun hasSameContent(other: PageSnapshot): Boolean =
+        elements == other.elements && blocks == other.blocks && strokes.size == other.strokes.size &&
+            strokes.indices.all { index ->
+                val left = strokes[index]
+                val right = other.strokes[index]
+                left.id == right.id && left.pageId == right.pageId && left.zIndex == right.zIndex &&
+                    left.brushKind == right.brushKind && left.colorArgb == right.colorArgb &&
+                    left.size == right.size && left.epsilon == right.epsilon && left.inputs.contentEquals(right.inputs)
+            }
+}
 
 internal fun estimatePageSnapshotWeight(
     strokes: List<StrokeEntity>,
@@ -181,6 +196,7 @@ private fun String?.estimatedBytes(): Long = orEmpty().length * PAGE_HISTORY_BYT
 
 private const val PAGE_HISTORY_BYTES_PER_CHAR = 2L
 private const val PAGE_HISTORY_ENTITY_OVERHEAD_BYTES = 64L
+private const val NOTEBOOK_SEARCH_LIMIT = 100
 
 internal data class PagePreviewData(
     val strokes: List<StrokeEntity>,
@@ -196,8 +212,11 @@ private data class EditorControls(
     val eraserMode: EraserMode = EraserMode.SEGMENT,
     val smartShapePreviewId: String? = null,
     val searchQuery: String = "",
-    val searchResults: List<PageTextMatch> = emptyList(),
+    val searchResults: List<NotebookSearchResult> = emptyList(),
     val searchFailed: Boolean = false,
+    val searching: Boolean = false,
+    val searchMessage: String? = null,
+    val pdfSearchHighlight: PdfSearchHighlight? = null,
     val ocrSearchHighlight: OcrSearchHighlight? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -288,6 +307,7 @@ internal class EditorViewModel(
     private val recognitionWriteBoundary: suspend () -> Unit = {},
     private val recognitionCommitBoundary: suspend () -> Unit = {},
     private val imageOcrRecognizer: suspend (File) -> ImageOcrResult = ::recognizeImage,
+    private val pdfPageSearcher: suspend (File, Int, String, Boolean) -> List<PdfTextSearchMatch> = PdfTextSearcher(application)::search,
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -309,7 +329,6 @@ internal class EditorViewModel(
     private val imageOcrInFlight = mutableSetOf<String>()
     private var imageOcrFeedback: Pair<String, Long>? = null
     private var latestSearchQuery = ""
-    private var latestSearchIncludesImageOcr = true
     private var recognitionGeneration = 0L
     private var recognitionInvalidationEpoch = 0L
     private var appliedRecognitionGeneration: Long? = null
@@ -385,6 +404,9 @@ internal class EditorViewModel(
                     searchQuery = editorControls.searchQuery,
                     searchResults = editorControls.searchResults,
                     searchFailed = editorControls.searchFailed,
+                    searching = editorControls.searching,
+                    searchMessage = editorControls.searchMessage,
+                    pdfSearchHighlight = editorControls.pdfSearchHighlight,
                     ocrSearchHighlight = editorControls.ocrSearchHighlight,
                     canUndo = editorControls.canUndo,
                     canRedo = editorControls.canRedo,
@@ -402,7 +424,7 @@ internal class EditorViewModel(
 
     fun selectPage(id: String) {
         dismissPdfSelection()
-        controls.value = controls.value.copy(ocrSearchHighlight = null)
+        controls.value = controls.value.copy(ocrSearchHighlight = null, pdfSearchHighlight = null)
         if (state.value.selectedPage?.id == id) return
         clearRecognition()
         selectedPageId.value = id
@@ -435,10 +457,13 @@ internal class EditorViewModel(
             )
     }
 
-    fun addPage() = mutate {
-        val id = repository.addPage(notebookId)
-        selectedPageId.value = id
-        showHistoryControls(id)
+    fun addPage() {
+        val afterPageId = state.value.selectedPage?.id
+        mutate {
+            val id = repository.addPage(notebookId, afterPageId)
+            selectedPageId.value = id
+            showHistoryControls(id)
+        }
     }
 
     fun setEraserMode(mode: EraserMode) {
@@ -571,6 +596,8 @@ internal class EditorViewModel(
                             height = recognition.transform.height,
                             rotation = recognition.transform.rotation,
                             shapeKind = recognition.kind.name,
+                            colorArgb = encoded.colorArgb,
+                            strokeWidth = encoded.size,
                         ),
                     )
                 showSmartShapePreview(id)
@@ -1053,42 +1080,68 @@ internal class EditorViewModel(
 
     fun searchPageText(query: String, includeImageOcr: Boolean = true) {
         latestSearchQuery = query
-        latestSearchIncludesImageOcr = includeImageOcr
         searchJob?.cancel()
         if (query.isBlank()) {
             clearSearch()
             return
         }
         if (!mutationAllowed()) return
+        controls.value = controls.value.copy(
+            searchQuery = query, searchResults = emptyList(), searchFailed = false,
+            searching = true, searchMessage = null, pdfSearchHighlight = null,
+        )
         searchJob =
             viewModelScope.launch {
-                val result = runCatching {
-                    repository.searchPageText(notebookId, query, includeImageOcr)
-                }
-                if (latestSearchQuery != query || latestSearchIncludesImageOcr != includeImageOcr) return@launch
-                result
-                    .onSuccess { matches ->
-                        controls.value =
-                            controls.value.copy(
-                                searchQuery = query,
-                                searchResults = matches,
-                                searchFailed = false,
-                            )
-                    }.onFailure { failure ->
-                        if (failure is CancellationException) throw failure
-                        controls.value =
-                            controls.value.copy(
-                                searchQuery = query,
-                                searchResults = emptyList(),
-                                searchFailed = true,
-                            )
+                try {
+                    val normalized = query.trim()
+                    require(normalized.length <= 256)
+                    val matches = repository.searchPageText(notebookId, query, includeImageOcr)
+                        .mapTo(mutableListOf()) { NotebookSearchResult(it) }
+                    currentCoroutineContext().ensureActive()
+                    controls.value = controls.value.copy(searchResults = matches.toList())
+                    val sources = repository.getPdfSources(notebookId).associateBy { it.id }
+                    for (page in repository.getPages(notebookId)) {
+                        currentCoroutineContext().ensureActive()
+                        if (matches.size >= NOTEBOOK_SEARCH_LIMIT) {
+                            controls.value = controls.value.copy(searchMessage = getApplication<Application>().getString(R.string.search_result_limit))
+                            break
+                        }
+                        val sourceId = page.pdfSourceId ?: continue
+                        try {
+                            val source = requireNotNull(sources[sourceId])
+                            val found = pdfPageSearcher(assets.requireFile(source.assetId), requireNotNull(page.pdfPageIndex), normalized, includeImageOcr)
+                            currentCoroutineContext().ensureActive()
+                            for (match in found.take(NOTEBOOK_SEARCH_LIMIT - matches.size)) {
+                                matches += NotebookSearchResult(
+                                    PageTextMatch(page.id, page.pageIndex, normalized),
+                                    PdfTextSelection(normalized, match.bounds, match.isOcr),
+                                )
+                            }
+                            controls.value = controls.value.copy(searchResults = matches.sortedBy { it.page.pageIndex })
+                        } catch (failure: Exception) {
+                            if (failure is CancellationException) throw failure
+                            currentCoroutineContext().ensureActive()
+                            controls.value = controls.value.copy(searchMessage = getApplication<Application>().getString(
+                                if (failure is UnsupportedOperationException) R.string.search_pdf_requires_ocr else R.string.search_pdf_incomplete,
+                            ))
+                        }
                     }
+                    currentCoroutineContext().ensureActive()
+                    controls.value = controls.value.copy(
+                        searching = false,
+                        searchMessage = if (matches.size >= NOTEBOOK_SEARCH_LIMIT)
+                            getApplication<Application>().getString(R.string.search_result_limit) else controls.value.searchMessage,
+                    )
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    currentCoroutineContext().ensureActive()
+                    controls.value = controls.value.copy(searchFailed = true, searching = false)
+                }
             }
     }
 
     fun clearSearch() {
         latestSearchQuery = ""
-        latestSearchIncludesImageOcr = true
         searchJob?.cancel()
         searchJob = null
         controls.value =
@@ -1096,22 +1149,25 @@ internal class EditorViewModel(
                 searchQuery = "",
                 searchResults = emptyList(),
                 searchFailed = false,
+                searching = false,
+                searchMessage = null,
             )
     }
 
-    fun openSearchResult(result: PageTextMatch) {
+    fun openSearchResult(result: NotebookSearchResult) {
         val highlight =
-            result.elementId?.let { elementId ->
+            result.page.elementId?.let { elementId ->
                 OcrSearchHighlight(elementId, latestSearchQuery.trim())
             }
-        selectPage(result.pageId)
+        selectPage(result.page.pageId)
         controls.value =
             controls.value.copy(
                 selectedStrokeIds = emptySet(),
-                selectedElementId = result.elementId,
+                selectedElementId = result.page.elementId,
                 ocrSearchHighlight = highlight,
+                pdfSearchHighlight = result.pdfMatch?.let { PdfSearchHighlight(result.page.pageId, it) },
             )
-        result.elementId?.let(::regenerateMissingOcrRegions)
+        result.page.elementId?.let(::regenerateMissingOcrRegions)
         clearSearch()
     }
 
@@ -1199,8 +1255,8 @@ internal class EditorViewModel(
         onComplete: (Boolean) -> Unit = {},
     ) = mutate(onComplete = onComplete) {
         val page = requireNotNull(state.value.pages.firstOrNull { it.id == pageId })
-        val asset = imageImporter.importImage(uri).getOrThrow()
         val history = history(pageId)
+        val asset = imageImporter.importImage(uri).getOrThrow()
         val elementId =
             runCatching {
                 val scale =
@@ -1210,17 +1266,21 @@ internal class EditorViewModel(
                     )
                 val width = asset.width * scale
                 val height = asset.height * scale
-                repository.addElement(
-                    pageId,
-                    ElementDraft(
-                        kind = ElementKind.IMAGE,
-                        x = (page.widthPoints - width) / 2f,
-                        y = (page.heightPoints - height) / 2f,
-                        width = width,
-                        height = height,
-                        assetId = asset.id,
-                    ),
-                )
+                currentCoroutineContext().ensureActive()
+                // Do not treat cancellation after a committed insert as an unowned asset.
+                withContext(NonCancellable) {
+                    repository.addElement(
+                        pageId,
+                        ElementDraft(
+                            kind = ElementKind.IMAGE,
+                            x = (page.widthPoints - width) / 2f,
+                            y = (page.heightPoints - height) / 2f,
+                            width = width,
+                            height = height,
+                            assetId = asset.id,
+                        ),
+                    )
+                }
             }
             .getOrElse {
                 asset.file.delete()
@@ -1346,11 +1406,14 @@ internal class EditorViewModel(
         }
     }
 
-    fun importPdf(uri: Uri, onComplete: (Boolean) -> Unit = {}) = mutate(onComplete = onComplete) {
-        val imported = pdfImporter.import(notebookId, uri)
-        val firstPageId = imported.pageIds.first()
-        selectedPageId.value = firstPageId
-        showHistoryControls(firstPageId)
+    fun importPdf(uri: Uri, onComplete: (Boolean) -> Unit = {}) {
+        val afterPageId = state.value.selectedPage?.id
+        mutate(onComplete = onComplete) {
+            val imported = pdfImporter.import(notebookId, uri, afterPageId)
+            val firstPageId = imported.pageIds.first()
+            selectedPageId.value = firstPageId
+            showHistoryControls(firstPageId)
+        }
     }
 
     fun assetFile(id: String): File = assets.file(id)
@@ -1387,10 +1450,10 @@ internal class EditorViewModel(
             val selectedIds = controls.value.selectedStrokeIds
             if (selectedIds.isEmpty()) return@mutate
             val history = history(page.id)
-            val paths =
-                history.current.strokes
-                    .filter { it.id in selectedIds }
-                    .map(StrokeEntity::toStrokePath)
+            val selectedStrokes = history.current.strokes.filter { it.id in selectedIds }
+            // Match the existing geometry order: the earliest selected stroke supplies the style.
+            val style = selectedStrokes.firstOrNull() ?: return@mutate
+            val paths = selectedStrokes.map(StrokeEntity::toStrokePath)
             val box = shapeBox(paths) ?: return@mutate
             val draft =
                 if (kind == ShapeKind.LINE || kind == ShapeKind.ARROW) {
@@ -1418,7 +1481,8 @@ internal class EditorViewModel(
                         shapeKind = kind.name,
                     )
                 }
-            repository.replaceStrokesWithElement(page.id, selectedIds, draft)
+            repository.replaceStrokesWithElement(page.id, selectedIds,
+                draft.copy(colorArgb = style.colorArgb, strokeWidth = style.size))
             history.push(snapshot(page.id))
             controls.value =
                 controls.value.copy(selectedStrokeIds = emptySet(), selectedElementId = null)
@@ -1736,8 +1800,22 @@ internal class EditorViewModel(
         }
     }
 
-    private suspend fun history(pageId: String): PageHistory<PageSnapshot> =
-        pageHistories.existing(pageId) ?: pageHistories.history(pageId, snapshot(pageId))
+    private suspend fun history(pageId: String): PageHistory<PageSnapshot> {
+        val latest = snapshot(pageId)
+        val existing = pageHistories.existing(pageId)
+        if (existing != null && existing.current.hasSameContent(latest)) return existing
+        if (existing != null) {
+            pageHistories.remove(pageId)
+            if (state.value.selectedPage?.id == pageId) {
+                controls.value = controls.value.copy(
+                    canUndo = false,
+                    canRedo = false,
+                    recognitionMessage = getApplication<Application>().getString(R.string.editor_history_refreshed),
+                )
+            }
+        }
+        return pageHistories.history(pageId, latest)
+    }
 
     private fun showHistoryControls(pageId: String?) {
         dismissPdfSelection()

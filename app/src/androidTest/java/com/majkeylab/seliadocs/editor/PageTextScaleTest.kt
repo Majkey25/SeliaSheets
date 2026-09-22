@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.editor
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
@@ -24,12 +25,57 @@ import com.majkeylab.seliadocs.data.TEXT_ELEMENT_MAX_LENGTH
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 class PageTextScaleTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun committedTextRefreshCannotReplayStaleTextWhileInputIsBlocked() {
+        val block = mutableStateOf(BlockEntity("block", "page", 0, "PARAGRAPH", "Old text", false, 0, "START", null))
+        val enabled = mutableStateOf(false)
+        val shown = mutableStateOf(true)
+        val saves = mutableListOf<String>()
+        compose.setContent {
+            if (shown.value) PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = emptyList(),
+                elements = emptyList(),
+                blocks = listOf(block.value),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = null,
+                fingerDrawing = false,
+                tool = EditorTool.PEN,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, _ -> },
+                onEraseFinished = { _, _ -> },
+                onSelectContent = { _, _ -> },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { _, text -> saves += text },
+                onPageTextDraftChanged = { _, _ -> false },
+                pageTextInputEnabled = enabled.value,
+                onCommitElementTransform = {},
+                assetFile = { File(it) },
+                modifier = Modifier.size(360.dp, 640.dp),
+            )
+        }
+        compose.onAllNodesWithText("Old text")[0].assertIsDisplayed()
+        compose.runOnIdle { block.value = block.value.copy(text = "Committed text") }
+        compose.onAllNodesWithText("Committed text")[0].assertIsDisplayed()
+        compose.runOnIdle { enabled.value = true }
+        compose.onAllNodesWithText("Committed text")[0].assertIsDisplayed()
+        compose.runOnIdle { shown.value = false }
+        compose.runOnIdle { assertTrue("Clean committed text must not be saved again: $saves", saves.isEmpty()) }
+    }
 
     @Test
     fun pageTextGeometryIgnoresSystemFontScale() {

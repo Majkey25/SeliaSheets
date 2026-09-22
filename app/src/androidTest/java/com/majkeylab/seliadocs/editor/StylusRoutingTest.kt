@@ -6,9 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.core.view.descendants
 import androidx.ink.strokes.Stroke
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.test.core.app.ActivityScenario
@@ -24,6 +27,142 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class StylusRoutingTest {
+    @Test
+    fun resizingDuringInkKeepsInputUntilLiftAndCommitsOnce() {
+        val verified = CountDownLatch(1)
+        val strokes = mutableListOf<Stroke>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            var stopWaiting: (() -> Unit)? = null
+            scenario.onActivity { activity ->
+                val view = InkCanvasView(activity)
+                view.setPageSize(500, 500)
+                view.setVisibleViewport(300, 300, 0f, 0f)
+                activity.setContentView(view, FrameLayout.LayoutParams(500, 500))
+                view.listener = object : InkCanvasView.Listener {
+                    override fun onStrokeFinished(stroke: Stroke) {
+                        strokes += stroke
+                        if (strokes.size == 2) verified.countDown()
+                    }
+                    override fun onStrokeCanceled(pointerId: Int) = Unit
+                }
+                val exercise = Runnable {
+                    fun layout() {
+                        val exact = View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY)
+                        view.measure(exact, exact)
+                        view.layout(0, 0, 500, 500)
+                    }
+                    fun live() = (0 until view.childCount).map(view::getChildAt)
+                        .filterIsInstance<androidx.ink.authoring.InProgressStrokesView>().single()
+                    val time = android.os.SystemClock.uptimeMillis()
+                    fun input(action: Int, elapsed: Long, x: Float, y: Float = 150f) {
+                        val event = stylusEvent(time, time + elapsed, action, x, y)
+                        try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+                    }
+                    layout()
+                    val original = live()
+                    input(MotionEvent.ACTION_DOWN, 0, 100f)
+                    input(MotionEvent.ACTION_MOVE, 16, 150f)
+                    view.setVisibleViewport(300, 200, 0f, 0f)
+                    layout()
+                    assertTrue("Do not replace an active stroke's authoring view", original === live())
+                    assertEquals("Do not resize its native buffer mid-stroke", 300, live().height)
+                    input(MotionEvent.ACTION_UP, 32, 200f)
+                    layout()
+                    assertEquals("Only the V33 backend needs a fresh authoring instance",
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU, original !== live())
+                    assertEquals(200, live().height)
+                    val resized = live()
+                    view.setVisibleViewport(300, 200, 25f, -20f)
+                    layout()
+                    assertTrue("Pan must not replace the renderer", resized === live())
+                    assertTrue("The next stroke must lie inside the visible live surface",
+                        live().left <= 250 && live().right > 300 && live().top <= 250 && live().bottom > 250)
+                    input(MotionEvent.ACTION_DOWN, 48, 250f, 250f)
+                    input(MotionEvent.ACTION_UP, 64, 300f, 250f)
+                }
+                view.post {
+                    val surface = view.descendants.filterIsInstance<SurfaceView>().single()
+                    val callback = object : SurfaceHolder.Callback {
+                        private var scheduled = false
+                        fun startWhenReady() {
+                            if (!scheduled && surface.width > 0 && surface.height > 0 && surface.holder.surface.isValid) {
+                                scheduled = true
+                                surface.holder.removeCallback(this)
+                                // Run after the library's surfaceChanged callback, without a delay or warmup input.
+                                view.post(exercise)
+                            }
+                        }
+                        override fun surfaceCreated(holder: SurfaceHolder) = Unit
+                        override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            if (width > 0 && height > 0) startWhenReady()
+                        }
+                    }
+                    stopWaiting = {
+                        surface.holder.removeCallback(callback)
+                        view.removeCallbacks(exercise)
+                    }
+                    surface.holder.addCallback(callback)
+                    callback.startWhenReady()
+                }
+            }
+            try {
+                assertTrue("Drawing did not hand off both strokes after resize", verified.await(10, TimeUnit.SECONDS))
+                scenario.onActivity {
+                    assertEquals("Each completed stroke must be saved once", 2, strokes.size)
+                    assertEquals(100f, strokes.first().inputs[0].x, 0.1f)
+                    assertEquals(200f, strokes.first().inputs[strokes.first().inputs.size - 1].x, 0.1f)
+                }
+            } finally {
+                scenario.onActivity { stopWaiting?.invoke() }
+            }
+        }
+    }
+
+    @Test
+    fun resumedCanvasCommitsAfterItsSurfaceWasHidden() {
+        val first = CountDownLatch(1)
+        val second = CountDownLatch(1)
+        val strokes = mutableListOf<Stroke>()
+        lateinit var view: InkCanvasView
+        fun draw() = view.postWhenReady {
+            val time = android.os.SystemClock.uptimeMillis()
+            listOf(
+                stylusEvent(time, time, MotionEvent.ACTION_DOWN, 40f, 50f),
+                stylusEvent(time, time + 16, MotionEvent.ACTION_UP, 80f, 90f),
+            ).forEach { event ->
+                try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+            }
+        }
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                view = InkCanvasView(activity)
+                view.listener = object : InkCanvasView.Listener {
+                    override fun onStrokeFinished(stroke: Stroke) {
+                        strokes += stroke
+                        view.setStrokes(strokes)
+                        if (strokes.size == 1) first.countDown() else second.countDown()
+                    }
+                    override fun onStrokeCanceled(pointerId: Int) = Unit
+                }
+                activity.setContentView(view)
+                draw()
+            }
+            assertTrue(first.await(10, TimeUnit.SECONDS))
+            val original = AtomicReference<View>()
+            scenario.onActivity { original.set(view.getChildAt(1)) }
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            scenario.onActivity {
+                assertEquals("Only the V33 backend needs a fresh authoring instance",
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU, original.get() !== view.getChildAt(1))
+                draw()
+            }
+            assertTrue(second.await(10, TimeUnit.SECONDS))
+            scenario.onActivity { assertEquals(2, strokes.size) }
+        }
+    }
+
     @Test
     fun barrelTransitionUsesThePenPointerWhenPalmIsIndexZero() {
         val committed = CountDownLatch(3)
