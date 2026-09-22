@@ -61,3 +61,7 @@ The September 19 runs below supersede the initial pending recreation, split-inse
 Search currently caps combined results at 100. On Android 15+, a page with native text does not OCR its embedded scanned regions after an unsuccessful native query. Search reports unreadable pages instead of silently presenting an exhaustive result. Workspace activity recreation is covered; process-death workspace restoration and movable/resizable phone pop-ups are not implemented.
 
 References: [Flexcil document search](https://support.flexcil.com/hc/en-us/articles/8155027675545-Search-text-in-the-document), [Android PDF search](https://developer.android.com/reference/android/graphics/pdf/PdfRenderer.Page#searchText(java.lang.String)), and [Compose dialog window behavior](https://developer.android.com/reference/kotlin/androidx/compose/ui/window/DialogProperties#decorFitsSystemWindows()).
+
+## Final acceptance
+
+[Run 35450867117](https://github.com/Majkey25/SeliaSheets/actions/runs/35450867117), commit `407e6da`, passed build and the complete Android 10/17 instrumentation jobs. Production source is unchanged from signed build `9f4a995`; the final follow-up only corrects the callback-result test expectation and documentation. PR #31 merged as `f17da55` on September 22. Physical active-pen hardware certification remains separate from the successful injected-input and signed Huawei checks above.

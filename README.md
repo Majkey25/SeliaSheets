@@ -62,7 +62,7 @@ The default release bundle is unsigned. Publication uses an external upload keys
 
 The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Current backups use format 7 for shape styles and require an updated reader; formats 1–6 remain readable.
 
-Workspace and PDF-search changes target the unreleased `0.8.0-beta.2` candidate. See the [workspace/search verification record](docs/qa/2026-09-12-workspace-search.md) for completed checks, pending acceptance, and limits.
+Version `0.8.0-beta.2` adds workspace, PDF search, shape-style preservation, and import recovery. See the [workspace/search verification record](docs/qa/2026-09-12-workspace-search.md) for completed checks and limits.
 
 The [September 19 capability comparison](docs/qa/2026-09-19-notes-and-drawing-comparison.md) separates documented competitor workflows, current changes, and missing graphics/study features. Name fields use native Compose text-input behavior; direct stylus handwriting requires a compatible Android 14+ device and keyboard.
 
