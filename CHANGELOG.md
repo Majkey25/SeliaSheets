@@ -2,6 +2,28 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.0-beta.1] - 2026-09-27
+
+### Added
+
+- Import ordinary PPTX slides locally as annotatable notebook pages, preserving chapter placement.
+- Import TXT and literal Markdown as editable page text, and BMP/GIF files as still images.
+- Read bundled renderer licenses offline in Settings.
+
+### Fixed
+
+- Keep content from the previous page out of a newly opened page's draft. Editing waits for the matching page data; save and Back remain available while loading.
+- Open notebooks by tapping their titles, with a separate accessible actions button.
+- Clear old search results before showing the selected result's highlight.
+- Stop cancelled PDF exports before publishing incomplete output.
+- Reject incomplete images during import and backup restore.
+- Render presentations on older Android WebViews and preserve chart category labels.
+
+### Limits
+
+- PPTX conversion creates static, rasterized PDF backgrounds, not editable PowerPoint objects. It supports up to 100 slides and 32 MiB input. Fonts and some effects may differ; export from PowerPoint to PDF when exact layout matters.
+- Legacy Office, OpenDocument, spreadsheets, and SVG are not general import formats. See [supported formats](docs/IMPORT_FORMATS.md).
+
 ## [0.9.0-beta.1] - 2026-09-23
 
 ### Added
