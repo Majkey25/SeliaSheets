@@ -128,7 +128,7 @@ class ElementFlowTest {
             onMain { viewModel = ViewModelProvider(holder, factory)[EditorViewModel::class.java] }
             val pageId = viewModel.awaitState("import page load") { it.selectedPage != null }.selectedPage!!.id
             val missing = Uri.fromFile(File(application.cacheDir, "missing-import-${System.nanoTime()}"))
-            listOf(EditorAction.ImportPdf(missing), EditorAction.ImportWordText(missing), EditorAction.ImportImage(pageId, missing, ocr = false))
+            listOf(EditorAction.ImportPdf(missing), EditorAction.ImportWordText(missing), EditorAction.ImportPowerPoint(missing), EditorAction.ImportPlainText(missing), EditorAction.ImportImage(pageId, missing, ocr = false))
                 .forEach { action ->
                     holder.requestAction(action)
                     val epoch = requireNotNull(holder.beginActionSave())
@@ -153,6 +153,9 @@ class ElementFlowTest {
                             when (action) {
                                 is EditorAction.ImportPdf -> viewModel.importPdf(action.uri, onComplete)
                                 is EditorAction.ImportWordText -> viewModel.importWordText(action.uri, onComplete)
+                                // Missing source fails before rendering, so no attached window is needed here.
+                                is EditorAction.ImportPowerPoint -> viewModel.importPowerPoint(action.uri, android.widget.FrameLayout(application), onComplete)
+                                is EditorAction.ImportPlainText -> viewModel.importPlainText(action.uri, onComplete)
                                 is EditorAction.ImportImage ->
                                     viewModel.importImage(action.pageId, action.uri, action.ocr, onComplete)
                                 else -> error("Expected an import action")

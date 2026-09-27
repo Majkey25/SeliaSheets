@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
@@ -44,6 +45,9 @@ class PageFlowTest {
         }
         rule.onNodeWithTag("insert-note-page").assertIsDisplayed()
         rule.onNodeWithTag("insert-pdf-slides").assertIsDisplayed()
+        rule.onNodeWithTag("insert-powerpoint-slides").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("insert-plain-text").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("insert-note-page").performScrollTo()
         rule.onNodeWithText("After page 1").assertIsDisplayed()
         rule.onNodeWithTag("insert-note-page").performClick()
         if (usesSheet) openContents(compact)

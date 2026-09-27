@@ -3,11 +3,15 @@ package com.majkeylab.seliadocs.editor
 import android.content.ContentResolver
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.webkit.MimeTypeMap
 import com.majkeylab.seliadocs.data.AssetStore
 import java.io.File
+import java.io.IOException
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal data class ImportedAsset(
@@ -23,15 +27,14 @@ internal class ImageImporter(
     private val assets: AssetStore,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
-    suspend fun importImage(uri: Uri): Result<ImportedAsset> =
-        withContext(Dispatchers.IO) {
-            var temporary: File? = null
-            runCatching {
-                    val declaredMime = declaredMimeType(uri)
-                    require(declaredMime in ALLOWED_MIME_TYPES) { "Unsupported image type" }
-                    assets.prepare()
-                    temporary = assets.file(".${idFactory()}.tmp")
-                    require(!temporary.exists()) { "Asset already exists" }
+    suspend fun importImage(uri: Uri): Result<ImportedAsset> {
+        var imported: ImportedAsset? = null
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                assets.prepare()
+                val temporary = assets.file(".${idFactory()}.tmp")
+                require(!temporary.exists()) { "Asset already exists" }
+                try {
                     resolver.openInputStream(uri).use { input ->
                         requireNotNull(input) { "Image unavailable" }
                         temporary.outputStream().use { output -> copyBounded(input, output) }
@@ -54,24 +57,32 @@ internal class ImageImporter(
                     val (width, height) = orientedImageDimensions(temporary, bounds.outWidth, bounds.outHeight)
                     val id = "${idFactory()}.${extensionFor(requireNotNull(actualMime))}"
                     val destination = assets.file(id)
+                    currentCoroutineContext().ensureActive()
                     require(!destination.exists() && temporary.renameTo(destination)) {
                         "Image could not be stored"
                     }
-                    ImportedAsset(id, actualMime, width, height, destination)
+                    ImportedAsset(id, actualMime, width, height, destination).also { imported = it }
+                } finally {
+                    temporary.delete()
                 }
-                .also { result -> if (result.isFailure) temporary?.delete() }
+            }
+        }.onFailure { failure ->
+            if (failure is CancellationException) {
+                // The IO result may be discarded before its caller receives asset ownership.
+                withContext(NonCancellable + Dispatchers.IO) { imported?.file?.delete() }
+                throw failure
+            }
         }
+    }
 
-    private fun declaredMimeType(uri: Uri): String? =
-        resolver.getType(uri)?.substringBefore(';')?.lowercase()
-            ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(uri.lastPathSegment?.substringAfterLast('.'))
-
-    private fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream) {
+    private suspend fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var total = 0L
         while (true) {
+            currentCoroutineContext().ensureActive()
             val read = input.read(buffer)
             if (read < 0) return
+            if (read == 0) throw IOException("Image source could not be read")
             total += read
             require(total <= MAX_ENCODED_BYTES) { "Image file is too large" }
             output.write(buffer, 0, read)

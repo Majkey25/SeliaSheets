@@ -1,0 +1,3 @@
+# Preserve the pinned vendor checksum on Windows checkouts.
+app/src/main/assets/presentation/renderer.js -text linguist-vendored
+*.pptx binary

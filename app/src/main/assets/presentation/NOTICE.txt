@@ -1,0 +1,91 @@
+PowerPoint presentation renderer
+
+SeliaSheets includes a locally modified standalone browser bundle from
+@aiden0z/pptx-renderer 1.3.0. No Microsoft Office code or fonts are included.
+
+Bundle: renderer.js
+SHA-256: 75dd2e64028e4d325188f1589042474b8747839101dd05e18dfb7cdaf58498b6
+Upstream SHA-256: 46b61afa1435de0c194f93324c9467ca392c891c6e07517727c8ffb5e51c376b
+Package: https://registry.npmjs.org/@aiden0z/pptx-renderer/-/pptx-renderer-1.3.0.tgz
+Source: https://github.com/aiden0z/pptx-renderer/tree/v1.3.0
+License: licenses/pptx-renderer-Apache-2.0.txt
+
+Local changes (2026-09-26): report missing/unsupported charts, chart
+initialization failures, and previously swallowed template/group errors through
+the supplied onNodeError callback. Dispose chart instances when initialization
+fails. This prevents importing failed chart placeholders as successful slides.
+Read single-level multiLvlStrCache category labels using their declared count
+and sparse point indexes. Reject multiple category hierarchy levels explicitly
+because this renderer has no matching hierarchical axis layout.
+Exact patch: docs/third-party/pptx-renderer-1.3.0.patch in the SeliaSheets source.
+Only Apache-2.0 renderer code changed; the bundled MPL-2.0 mtx-decompressor
+component and all other third-party components remain unchanged.
+
+The browser bundle contains the following third-party software. Its licenses
+apply to those components, not to the user's imported presentations or notes.
+Bundling does not replace or restrict the rights granted by these licenses.
+
+mtx-decompressor 1.4.2
+License: Mozilla Public License 2.0, licenses/mtx-decompressor-MPL-2.0.txt
+The bundled component is an executable form of unchanged MPL-covered source.
+Corresponding source is available under MPL-2.0 at no charge:
+https://github.com/ChristopherVR/mtx-decompressor/archive/refs/tags/v1.4.2.tar.gz
+Human-readable source: https://github.com/ChristopherVR/mtx-decompressor/tree/v1.4.2
+The MPL-covered source remains available under its own license even when the
+component is distributed as part of SeliaSheets.
+
+JSZip 3.10.1
+License: MIT, selected from the upstream MIT OR GPL-3.0-or-later choice.
+License copy: licenses/jszip-MIT.txt
+Source: https://github.com/Stuk/jszip/tree/v3.10.1
+
+pako 1.0.11, included by JSZip
+License: MIT and the zlib license for the ported zlib implementation.
+License copies: licenses/pako-MIT.txt and licenses/pako-zlib.txt
+Source: https://github.com/nodeca/pako/tree/1.0.11
+
+lie 3.3.0, included by JSZip
+License: MIT, licenses/lie-MIT.txt
+Source: https://github.com/calvinmetcalf/lie/tree/v3.3.0
+
+immediate 3.0.6, included by lie
+License: MIT, licenses/immediate-MIT.txt
+Source: https://github.com/calvinmetcalf/immediate/tree/v3.0.6
+
+setimmediate 1.0.5, included by JSZip
+License: MIT, licenses/setimmediate-MIT.txt
+Source: https://github.com/YuzuJS/setImmediate/tree/1.0.5
+
+Apache ECharts 6.0.0
+License: Apache-2.0, licenses/echarts-LICENSE.txt
+Notice: licenses/echarts-NOTICE.txt
+Source: https://github.com/apache/echarts/tree/6.0.0
+Apache ECharts
+Copyright 2017-2025 The Apache Software Foundation
+This product includes software developed at
+The Apache Software Foundation (https://www.apache.org/).
+ECharts also contains d3-derived code under the BSD 3-Clause license.
+License copy: licenses/echarts-d3-BSD-3-Clause.txt
+
+zrender 6.0.0, included by ECharts
+License: BSD 3-Clause, licenses/zrender-BSD-3-Clause.txt
+Source: https://github.com/ecomfe/zrender/tree/6.0.0
+The bundle retains its Copyright (c) 2013, Baidu Inc. notice; the upstream
+license file carries Copyright (c) 2017, Baidu Inc. Both are preserved.
+
+tslib 2.3.0, included by ECharts and zrender
+License: 0BSD, licenses/tslib-0BSD.txt
+Source: https://github.com/microsoft/tslib/tree/2.3.0
+
+ECMA-376 DrawingML geometry definitions
+Copyright Ecma International. The renderer includes mechanically derived
+metadata for 28 preset shapes, not the original standards archive.
+Notice and terms: licenses/ECMA-text-copyright-notice.txt
+Standard: https://ecma-international.org/publications-and-standards/standards/ecma-376/
+Policy: https://ecma-international.org/policies/by-ipr/ecma-text-copyright-policy/
+Provenance: https://github.com/aiden0z/pptx-renderer/blob/v1.3.0/scripts/ooxml-geometry/source-manifest.json
+
+License texts were copied from the pinned upstream versions. The renderer's
+runtime dependency versions are recorded in its v1.3.0 pnpm-lock.yaml. The
+standalone browser bundle uses JSZip's browser stream shim, not Node.js
+readable-stream. PDF.js is optional and is not included in this bundle.

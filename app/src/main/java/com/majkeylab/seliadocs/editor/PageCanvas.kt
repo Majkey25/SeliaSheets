@@ -764,12 +764,15 @@ private fun Paper(
                             }
                         }
                 }
-                Text(
-                    text = stringResource(R.string.page_number, pageNumber),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF7A7770),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).zIndex(5f),
-                )
+                if (!isPdfPage) {
+                    Text(
+                        text = stringResource(R.string.page_number, pageNumber),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF7A7770),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).zIndex(5f)
+                            .testTag("paper-page-number"),
+                    )
+                }
             }
         }
     }

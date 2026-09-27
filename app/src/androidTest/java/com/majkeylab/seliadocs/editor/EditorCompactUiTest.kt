@@ -505,6 +505,8 @@ class EditorCompactUiTest {
             EditorAction.ImportPdf(source),
             EditorAction.ExportPdf(destination),
             EditorAction.ImportWordText(source),
+            EditorAction.ImportPowerPoint(source),
+            EditorAction.ImportPlainText(source),
             EditorAction.ExportWordText(destination),
             EditorAction.ImportImage("image-page", source, ocr = true),
         )
@@ -535,6 +537,8 @@ class EditorCompactUiTest {
         listOf(
             EditorAction.ImportPdf(Uri.parse("content://test/import.pdf")),
             EditorAction.ImportWordText(Uri.parse("content://test/import.docx")),
+            EditorAction.ImportPowerPoint(Uri.parse("content://test/import.pptx")),
+            EditorAction.ImportPlainText(Uri.parse("content://test/import.md")),
             EditorAction.ExportWordText(Uri.parse("content://test/export.docx")),
             EditorAction.ImportImage("page", Uri.parse("content://test/image.png"), ocr = false),
         ).forEach { action ->

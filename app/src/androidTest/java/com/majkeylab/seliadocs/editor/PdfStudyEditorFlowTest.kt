@@ -112,10 +112,12 @@ class PdfStudyEditorFlowTest {
     @Test
     fun notebookSearchFindsUnannotatedPdfTextAndKeepsTypedDraft() {
         openImportedPdf(imageOnly = false)
+        rule.onNodeWithTag("paper-page-number").assertDoesNotExist()
         val pdfPage = requireNotNull(editor.state.value.selectedPage)
         val writingPage = editor.state.value.pages.first { it.pageMode != PageMode.PDF.name }
         rule.runOnUiThread { editor.selectPage(writingPage.id) }
         rule.waitUntil(10_000) { editor.state.value.selectedPage?.id == writingPage.id }
+        rule.onNodeWithTag("paper-page-number").assertIsDisplayed()
         selectTool("type")
         rule.onNodeWithTag("page-text").performTextInput("Saved before PDF search")
         if (hasTag("compact-more")) {

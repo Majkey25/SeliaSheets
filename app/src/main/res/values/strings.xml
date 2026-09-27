@@ -73,7 +73,7 @@
     <string name="insert_note_page">Note page</string>
     <string name="insert_note_page_detail">Same paper size and chapter, ready for notes.</string>
     <string name="insert_pdf_slides">Import PDF slides</string>
-    <string name="insert_pdf_slides_detail">Insert pages from a PDF. Export presentations to PDF first.</string>
+    <string name="insert_pdf_slides_detail">Keep the original page layout and fonts. Add notes above the PDF.</string>
     <string name="more">More</string>
     <string name="more_options">More options</string>
     <string name="page_number">Page %1$d</string>
@@ -330,4 +330,13 @@
     <string name="contents_page_range">Enter a page from 1 to %1$d.</string>
     <string name="contents_page_slider">Page navigation</string>
     <string name="contents_go">Go</string>
+    <string name="import_powerpoint">PowerPoint slides</string>
+    <string name="powerpoint_import_detail">PPTX → pages you can annotate. Static slides, system fonts; up to 100 slides / 32 MiB. For exact layout, export to PDF first.</string>
+    <string name="presentation_import_progress">Converting slides on this device. The original file stays unchanged. Imported pages keep the slide appearance; PowerPoint objects are not editable.</string>
+    <string name="presentation_import_timeout">Conversion took too long. Try a smaller presentation, or export it as PDF first.</string>
+    <string name="presentation_import_failed">Could not import this presentation. %1$s</string>
+    <string name="import_document">Import document</string>
+    <string name="import_plain_text">Text or Markdown</string>
+    <string name="plain_text_import_detail">TXT / MD → editable pages. Markdown syntax stays as text. UTF-8 or BOM-marked UTF-16; up to 4 MiB.</string>
+    <string name="plain_text_import_failed">Could not import this text file. %1$s</string>
 </resources>
