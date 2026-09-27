@@ -10,7 +10,7 @@ Open a notebook and choose **Add page** to append document pages after the selec
 | PowerPoint `.pptx` | Static slides converted locally to PDF-backed pages | 32 MiB; up to 100 slides; system fonts; no PowerPoint object editing |
 | Word `.docx` | Editable body text | 16 MiB; excludes source layout, pictures, headers, and notes |
 | `.txt`, `.md` | Editable text, including literal Markdown syntax | 4 MiB; 1,000,000 UTF-16 code units; UTF-8 or BOM-marked UTF-16 |
-| JPEG, PNG, WebP, HEIF, HEIC | Movable, resizable image on the current page | Device decoder support; bounded file size, dimensions, and decoded allocation |
+| JPEG, PNG, WebP, HEIF, HEIC, BMP, GIF | Movable, resizable still image on the current page | Device decoder support; bounded file size, dimensions, and decoded allocation |
 
 PowerPoint conversion needs a current Android System WebView. It blocks remote document resources and does not upload the presentation. Conversion uses one slide at a time, and cancellation removes the temporary rendering view and private file copies. The original presentation stays unchanged. Notebook backups contain the converted PDF and editable annotations, not the original PPTX.
 
@@ -21,3 +21,5 @@ PowerPoint layout can differ because of font substitution and renderer compatibi
 Legacy `.ppt`, `.doc`, Keynote, OpenDocument, spreadsheets, SVG, and arbitrary binary files are not general import formats. Do not rename their extensions to bypass the picker. Export them to a supported format first.
 
 PDF export is flattened. Use a `.seliasheets` backup to retain editable notebook annotations.
+
+Image annotations do not play animations: GIF and animated WebP use the first frame; PNG uses the native decoder's still image. Original image bytes are retained in backups. Import and restore reject incomplete image data through Android's [strict image decoder](https://developer.android.com/reference/android/graphics/ImageDecoder).

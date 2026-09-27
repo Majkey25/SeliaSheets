@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.editor
 
 import android.content.ContentResolver
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
 import com.majkeylab.seliadocs.data.AssetStore
 import java.io.File
@@ -21,6 +22,24 @@ internal data class ImportedAsset(
     val height: Int,
     val file: File,
 )
+
+internal val IMAGE_MIME_EXTENSIONS = mapOf(
+    "image/jpeg" to "jpg",
+    "image/png" to "png",
+    "image/webp" to "webp",
+    "image/heif" to "heif",
+    "image/heic" to "heic",
+    "image/bmp" to "bmp",
+    "image/gif" to "gif",
+)
+
+internal fun validateStillImageDecode(file: File, sampleSize: Int) {
+    // Unlike BitmapFactory, ImageDecoder rejects incomplete pixel data by default.
+    ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, _, _ ->
+        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        decoder.setTargetSampleSize(sampleSize)
+    }.recycle()
+}
 
 internal class ImageImporter(
     private val resolver: ContentResolver,
@@ -42,7 +61,7 @@ internal class ImageImporter(
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(temporary.path, bounds)
                     val actualMime = bounds.outMimeType?.lowercase()
-                    require(actualMime in ALLOWED_MIME_TYPES) { "Corrupt or unsupported image" }
+                    require(actualMime in IMAGE_MIME_EXTENSIONS.keys) { "Corrupt or unsupported image" }
                     require(bounds.outWidth in 1..MAX_DIMENSION && bounds.outHeight in 1..MAX_DIMENSION) {
                         "Image dimensions are unsupported"
                     }
@@ -53,9 +72,9 @@ internal class ImageImporter(
                     while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) {
                         sample *= 2
                     }
-                    decodeOrientedImage(temporary, sample).recycle()
+                    validateStillImageDecode(temporary, sample)
                     val (width, height) = orientedImageDimensions(temporary, bounds.outWidth, bounds.outHeight)
-                    val id = "${idFactory()}.${extensionFor(requireNotNull(actualMime))}"
+                    val id = "${idFactory()}.${IMAGE_MIME_EXTENSIONS.getValue(requireNotNull(actualMime))}"
                     val destination = assets.file(id)
                     currentCoroutineContext().ensureActive()
                     require(!destination.exists() && temporary.renameTo(destination)) {
@@ -89,20 +108,9 @@ internal class ImageImporter(
         }
     }
 
-    private fun extensionFor(mimeType: String): String =
-        when (mimeType) {
-            "image/jpeg" -> "jpg"
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            "image/heif" -> "heif"
-            "image/heic" -> "heic"
-            else -> error("Unsupported image type")
-        }
-
     private companion object {
         const val MAX_DIMENSION = 16_384
         const val MAX_DECODED_BYTES = 128L * 1024 * 1024
         const val MAX_ENCODED_BYTES = 128L * 1024 * 1024
-        val ALLOWED_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/heif", "image/heic")
     }
 }

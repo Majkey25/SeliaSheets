@@ -215,7 +215,7 @@
     <string name="image_ocr_running">Recognizing image text…</string>
     <string name="image_ocr_ready">Image text is searchable.</string>
     <string name="image_ocr_failed">Image text recognition failed. Try again.</string>
-    <string name="image_ocr_hint">Uses the bundled on-device Latin OCR model. Failed recognition never blocks image import.</string>
+    <string name="image_ocr_hint">Animated images use the first frame. Latin text recognition runs on-device; failure does not block import.</string>
     <string name="export_details">PDF export includes every page, paper, ink, text, images, shapes, and math blocks.</string>
     <string name="theme">Theme</string>
     <string name="theme_system">System</string>

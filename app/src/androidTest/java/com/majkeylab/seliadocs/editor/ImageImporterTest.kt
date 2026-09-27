@@ -10,11 +10,13 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.data.AssetStore
 import java.io.File
-import java.util.Base64
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -114,17 +116,43 @@ class ImageImporterTest {
     }
 
     @Test
-    fun gifWithPngFileNameRemainsUnsupported() = runTest {
-        val source = File(context.cacheDir, "unsupported-${System.nanoTime()}.png")
-        source.writeBytes(Base64.getDecoder().decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"))
-        try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(source.path, bounds)
-            assertEquals("image/gif", bounds.outMimeType)
-            assertTrue(importer.importImage(Uri.fromFile(source)).isFailure)
-            assertTrue(root.listFiles().orEmpty().isEmpty())
-        } finally {
-            source.delete()
+    fun bmpAndAnimatedGifUseDecodedFormatAndFirstFramePixels() = runTest {
+        for ((extension, bytes) in listOf("bmp" to stillBmpFixture(), "gif" to animatedGifFixture())) {
+            val source = File(context.cacheDir, "still-${System.nanoTime()}.png").apply { writeBytes(bytes) }
+            try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(source.path, bounds)
+                assertEquals("image/$extension", bounds.outMimeType)
+                val asset = importer.importImage(Uri.fromFile(source)).getOrThrow()
+                assertEquals("image/$extension", asset.mimeType)
+                assertEquals("asset.$extension", asset.id)
+                assertEquals(2, asset.width)
+                assertEquals(1, asset.height)
+                assertArrayEquals(bytes, asset.file.readBytes())
+                val bitmap = decodeOrientedImage(asset.file, 1)
+                try {
+                    assertEquals(Color.RED, bitmap.getPixel(0, 0))
+                    assertEquals(Color.BLUE, bitmap.getPixel(1, 0))
+                } finally {
+                    bitmap.recycle()
+                }
+                assertTrue(asset.file.delete())
+            } finally {
+                source.delete()
+            }
+        }
+    }
+
+    @Test
+    fun bmpAndGifWithoutPixelDataAreRejectedAndCleaned() = runTest {
+        for ((extension, bytes) in listOf("bmp" to stillBmpFixture().copyOf(54), "gif" to animatedGifFixture().copyOf(19))) {
+            val source = File(context.cacheDir, "corrupt-${System.nanoTime()}.$extension").apply { writeBytes(bytes) }
+            try {
+                assertTrue(importer.importImage(Uri.fromFile(source)).isFailure)
+                assertTrue(root.listFiles().orEmpty().isEmpty())
+            } finally {
+                source.delete()
+            }
         }
     }
 
@@ -154,3 +182,18 @@ class ImageImporterTest {
         }
     }
 }
+
+// Two 24-bit pixels: red, blue. BMP rows are padded to four-byte boundaries.
+internal fun stillBmpFixture(): ByteArray = ByteBuffer.allocate(62).order(ByteOrder.LITTLE_ENDIAN).apply {
+    put('B'.code.toByte()).put('M'.code.toByte()).putInt(62).putInt(0).putInt(54)
+    putInt(40).putInt(2).putInt(1).putShort(1).putShort(24).putInt(0).putInt(8)
+    putInt(0).putInt(0).putInt(0).putInt(0)
+    put(byteArrayOf(0, 0, 0xff.toByte(), 0xff.toByte(), 0, 0, 0, 0))
+}.array()
+
+// GIF89a, two 2x1 frames. LZW codes [clear, red, blue, end], then reversed colors.
+internal fun animatedGifFixture(): ByteArray = (
+    "47494638396102000100800000ff00000000ff" +
+        "21f904040a0000002c0000000002000100000202440a00" +
+        "21f904040a0000002c00000000020001000002020c0a003b"
+    ).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
