@@ -1,21 +1,28 @@
 # PowerPoint renderer security assessment
 
-Reviewed: 2026-09-26. Review again by 2026-10-26, or whenever the renderer bundle,
+Reviewed: 2026-09-27. Review again by 2026-10-27, or whenever the renderer bundle,
 chart registry, import options, or WebView restrictions change.
 
 ## Audited artifact
 
-- Component: `@aiden0z/pptx-renderer` 1.3.0, locally patched browser bundle.
+- Component: `@aiden0z/pptx-renderer` 1.3.0, locally patched browser bundle with
+  JavaScript syntax transformed for Chrome 74.
 - Dependency: `echarts` 6.0.0, a selected set of chart modules, not the full package.
 - File: `app/src/main/assets/presentation/renderer.js`.
-- Reviewed SHA-256: `75dd2e64028e4d325188f1589042474b8747839101dd05e18dfb7cdaf58498b6`.
+- Reviewed SHA-256: `e521a425d945696bfcdb2ada6502b59fe1dcf63103e0239a7c888a762d02c136`.
 - Upstream SHA-256: `46b61afa1435de0c194f93324c9467ca392c891c6e07517727c8ffb5e51c376b`.
 - Local patch: [pptx-renderer-1.3.0.patch](pptx-renderer-1.3.0.patch).
+- Build source: [tools/presentation](../../tools/presentation/README.md), with
+  esbuild 0.28.2 and a conditional `Promise.allSettled` shim.
 - Licenses and source links: [bundled NOTICE](../../app/src/main/assets/presentation/NOTICE.txt).
 
 The local patch changes renderer error reporting and chart category parsing.
-It does not update or modify ECharts. This assessment applies to the reviewed
-artifact, not to every package named `echarts` or every build of the renderer.
+The build verifies the upstream bundle checksum, applies that patch, transforms
+JavaScript syntax with `target: chrome74`, and prepends the compatibility shim.
+It preserves legal comments. It does not rebundle or upgrade the embedded
+ECharts 6.0.0 implementation from installed dependencies. This assessment applies
+to the reviewed artifact, not to every package named `echarts` or every build of
+the renderer.
 
 ## CVE-2026-45249 / GHSA-fgmj-fm8m-jvvx
 
@@ -56,7 +63,7 @@ if the affected module is included, ECharts 6.1.0 or a verified upstream fix.
 
 ## Dependency audit result
 
-On 2026-09-26, this command ran against the local audit lockfile in
+On 2026-09-27, this command ran against the local audit lockfile in
 `.reference/tmp/presentation-audit`:
 
 ```text
@@ -72,6 +79,21 @@ The audit pinned renderer 1.3.0, ECharts 6.0.0, JSZip 3.10.1,
 mtx-decompressor 1.4.2, pako 1.0.11, tslib 2.3.0, and zrender 6.0.0.
 That scratch lockfile describes packages for advisory lookup. It is not an
 application build lockfile and does not reconstruct the vendored bundle.
+
+A separate build-tool audit ran on 2026-09-27 in `tools/presentation`:
+
+```text
+npm audit --package-lock-only --ignore-scripts --json
+```
+
+That command returned exit code 0 and zero advisories, including development
+dependencies. Its lockfile resolves ECharts 6.1.0 and zrender 6.1.0 as transitive
+build-package dependencies. The build reads the checksum-pinned prebuilt browser
+artifact instead of those installed chart modules. The clean build-tool audit
+therefore does not clear or update the runtime ECharts 6.0.0 advisory above.
+
+`npm test` in `tools/presentation` passed all five shim tests on 2026-09-27.
+Those Node tests do not establish Android WebView rendering compatibility.
 
 The static bundle checks used these commands from the repository root:
 

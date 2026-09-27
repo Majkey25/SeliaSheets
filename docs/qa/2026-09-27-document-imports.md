@@ -22,11 +22,15 @@ See [format limits](../IMPORT_FORMATS.md). Original PPTX objects are not editabl
 - Real Android picker roundtrip: `SeliaSheets-lecture-QA.pptx` imported into `PowerPoint-QA-26Sep`; the notebook contained its initial note page plus both slides. The system save picker exported a three-page PDF. An ADB swipe with an unspecified tool type did not create ink; it is not counted as a successful manual pen test.
 - Independent integration review found no additional blocking defect. Universal format support and a full professional graphics suite were not certified.
 
-Final tested debug APK SHA-256: `f62218b30fac630a1a6e6cd85b354e78d9c4117765e8f4084f27696c30c5f830`.
+After the Chrome 74 compatibility rebuild, 30 focused document tests passed again on Huawei, including the 100-slide fixture. The input batch again reported 63 cases: 60 passed and the same 3 hardware/API assumptions. Five Node compatibility checks passed, and regenerating the renderer reproduced its pinned checksum. These checks do not establish old-WebView compatibility; the API 29 CI run remains the runtime gate.
+
+Latest tested debug APK SHA-256: `65e9f771e639efe022b6c890e7734ca2f95a8cd98d26d9180ac80f5cb6775f62`. The earlier 64-test batch used `f62218b30fac630a1a6e6cd85b354e78d9c4117765e8f4084f27696c30c5f830`.
 
 [Huawei screenshot after reopening the imported slides](screenshots/2026-09-27-powerpoint-phone.png). The app page-number overlay is absent from the slide; the toolbar still shows its position in the notebook.
 
 Local logs: `.reference/tmp/device-qa-20260926-220410-259.log` (64 tests), `device-qa-20260927-101642-583.log` (input batch), and `device-qa-20260926-214358-144.log` (batched large deck). Earlier batches overlap these checks and are not added to their totals.
+
+Compatibility rebuild logs: `device-qa-20260927-110725-468.log` (30 document tests) and `device-qa-20260927-110954-509.log` (input batch).
 
 ## Problems found and corrected
 
@@ -39,6 +43,8 @@ Native preflight initially rejected harmless, unused video MIME declarations fou
 One lint invocation stalled while files were changing; only its task-owned daemon was stopped. A standalone rerun completed. Later verification resumed after an overnight pause, so its wall-clock duration is not a build-performance measurement.
 
 CI run `36306118850` passed the build job. Its Android 17 stylus preflight failed before any injection marker: the emulator's Nexus Launcher ANR dialog owned `mCurrentFocus`, so both test activities timed out waiting for window focus. The coordinator now recovers that specific boot dialog once, before the first marker. It cannot target a physical serial and does not dismiss SeliaSheets or other app failures. Seven coordinator tests and Ruff checks pass locally. Live CI confirmation remains pending; stylus assertions and timeouts are unchanged.
+
+The same run's Android 10 primary batch reported 527 cases, 11 failures, and 7 skips. All failures were PowerPoint startup on its WebView 74 provider: the original browser bundle used unsupported JavaScript syntax and `Promise.allSettled`. The checked-in renderer now has a reproducible Chrome 74 syntax transform and a conditional shim. CI rebuilds the asset and checks its checksum without removing any Android rendering tests. Node checks are not a substitute for that pending Android 10 rerun.
 
 ## Security and remaining limits
 

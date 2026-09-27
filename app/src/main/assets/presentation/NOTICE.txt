@@ -4,7 +4,7 @@ SeliaSheets includes a locally modified standalone browser bundle from
 @aiden0z/pptx-renderer 1.3.0. No Microsoft Office code or fonts are included.
 
 Bundle: renderer.js
-SHA-256: 75dd2e64028e4d325188f1589042474b8747839101dd05e18dfb7cdaf58498b6
+SHA-256: e521a425d945696bfcdb2ada6502b59fe1dcf63103e0239a7c888a762d02c136
 Upstream SHA-256: 46b61afa1435de0c194f93324c9467ca392c891c6e07517727c8ffb5e51c376b
 Package: https://registry.npmjs.org/@aiden0z/pptx-renderer/-/pptx-renderer-1.3.0.tgz
 Source: https://github.com/aiden0z/pptx-renderer/tree/v1.3.0
@@ -18,8 +18,13 @@ Read single-level multiLvlStrCache category labels using their declared count
 and sparse point indexes. Reject multiple category hierarchy levels explicitly
 because this renderer has no matching hierarchical axis layout.
 Exact patch: docs/third-party/pptx-renderer-1.3.0.patch in the SeliaSheets source.
-Only Apache-2.0 renderer code changed; the bundled MPL-2.0 mtx-decompressor
-component and all other third-party components remain unchanged.
+Functional vendor edits affect only Apache-2.0 renderer code. The full bundle
+is mechanically transpiled for Chrome 74 using esbuild 0.28.2 (MIT, build-time
+only), with legal comments preserved. A conditional Promise.allSettled shim
+is included; existing native implementations are left unchanged.
+Reproducible build and shim source: tools/presentation/ in the SeliaSheets source.
+The MPL-2.0 mtx-decompressor and other bundled components retain their unchanged
+upstream source; their emitted JavaScript syntax is transformed by the build.
 
 The browser bundle contains the following third-party software. Its licenses
 apply to those components, not to the user's imported presentations or notes.

@@ -1,7 +1,7 @@
-diff --git a/.reference/tmp/package/dist/aiden0z-pptx-renderer.browser.es.js b/app/src/main/assets/presentation/renderer.js
+diff --git a/renderer.js b/renderer.js
 index aa03aaa..6c2f653 100644
---- a/.reference/tmp/package/dist/aiden0z-pptx-renderer.browser.es.js
-+++ b/app/src/main/assets/presentation/renderer.js
+--- a/renderer.js
++++ b/renderer.js
 @@ -20175,7 +20175,8 @@ function uI(e, t, r) {
          y: $.h > 0 ? S.size.h / $.h : 1
        }, M = r(S, { ...u, groupChildScale: C });
