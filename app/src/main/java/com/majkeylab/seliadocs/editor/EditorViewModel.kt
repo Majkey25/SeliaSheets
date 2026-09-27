@@ -1177,6 +1177,7 @@ internal class EditorViewModel(
                 OcrSearchHighlight(elementId, latestSearchQuery.trim())
             }
         selectPage(result.page.pageId)
+        clearSearch()
         controls.value =
             controls.value.copy(
                 selectedStrokeIds = emptySet(),
@@ -1185,7 +1186,6 @@ internal class EditorViewModel(
                 pdfSearchHighlight = result.pdfMatch?.let { PdfSearchHighlight(result.page.pageId, it) },
             )
         result.page.elementId?.let(::regenerateMissingOcrRegions)
-        clearSearch()
     }
 
     fun recognizeSelectedImage() {
