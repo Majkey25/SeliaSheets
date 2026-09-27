@@ -56,9 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -287,7 +285,10 @@ private fun NotebookCover(
         tonalElevation = 2.dp,
         modifier = Modifier.fillMaxWidth().aspectRatio(0.76f),
     ) {
-        Box {
+        Box(
+            Modifier.clickable(role = Role.Button, onClick = onOpen)
+                .semantics { contentDescription = openDescription },
+        ) {
             CoverPatternOverlay(notebook.coverPattern, Modifier.fillMaxSize())
             NotebookBinding(Modifier.align(Alignment.CenterStart).width(34.dp).fillMaxHeight())
             Surface(
@@ -295,11 +296,6 @@ private fun NotebookCover(
                 shape = RoundedCornerShape(bottomStart = 7.dp, bottomEnd = 7.dp),
                 modifier = Modifier.align(Alignment.TopCenter).size(width = 48.dp, height = 22.dp),
             ) {}
-            Box(
-                Modifier.matchParentSize()
-                    .clickable(role = Role.Button, onClick = onOpen)
-                    .semantics { contentDescription = openDescription },
-            )
             Column(modifier = Modifier.padding(start = 28.dp, top = 14.dp, end = 14.dp, bottom = 16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (notebook.favorite) Text("★", color = Color(0xFFE07B67))
@@ -307,12 +303,8 @@ private fun NotebookCover(
                     TextButton(
                         onClick = onActions,
                         modifier =
-                            Modifier.clearAndSetSemantics {
+                            Modifier.semantics {
                                 contentDescription = actionsDescription
-                                onClick {
-                                    onActions()
-                                    true
-                                }
                             },
                     ) {
                         Text("•••")

@@ -30,6 +30,8 @@ import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.pageTextLayout
 import com.majkeylab.seliadocs.pdf.fitPdfRenderSize
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
 import kotlin.math.ceil
@@ -59,6 +61,7 @@ internal suspend fun withPdfExportSnapshot(
     loadContent: suspend () -> NotebookContent,
     export: suspend (NotebookContent, AssetStore) -> Unit,
 ) {
+    currentCoroutineContext().ensureActive()
     val directory = Files.createTempDirectory(cacheDir.toPath(), "pdf-export-").toFile()
     try {
         val exportAssets = AssetStore(directory)
@@ -69,7 +72,9 @@ internal suspend fun withPdfExportSnapshot(
                 snapshot.pdfSources.filter { it.id in pdfSourceIds }.map(PdfSourceEntity::assetId)
             assetIds.forEach { id ->
                 currentCoroutineContext().ensureActive()
-                assets.requireFile(id).copyTo(exportAssets.file(id))
+                assets.requireFile(id).inputStream().use { input ->
+                    exportAssets.file(id).outputStream().use { output -> copyPdfExportBytes(input, output) }
+                }
             }
             snapshot
         }
@@ -89,11 +94,14 @@ internal suspend fun writePdfToDestination(
     var temporaryPdf: File? = null
     var destinationOpened = false
     try {
+        currentCoroutineContext().ensureActive()
         temporaryPdf = File.createTempFile("seliasheets-", ".pdf", cacheDir)
         temporaryPdf.outputStream().use { render(it) }
+        currentCoroutineContext().ensureActive()
         val destination = openDestination() ?: error("PDF destination unavailable")
         destinationOpened = true
-        destination.use { output -> temporaryPdf.inputStream().use { it.copyTo(output) } }
+        destination.use { output -> temporaryPdf.inputStream().use { copyPdfExportBytes(it, output) } }
+        currentCoroutineContext().ensureActive()
     } catch (failure: Throwable) {
         if (destinationOpened) {
             try {
@@ -108,6 +116,18 @@ internal suspend fun writePdfToDestination(
     }
 }
 
+private suspend fun copyPdfExportBytes(input: InputStream, output: OutputStream) {
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    while (true) {
+        currentCoroutineContext().ensureActive()
+        val count = input.read(buffer)
+        if (count < 0) return
+        if (count == 0) throw IOException("PDF export source could not be read")
+        currentCoroutineContext().ensureActive()
+        output.write(buffer, 0, count)
+    }
+}
+
 internal class PdfExporter(private val assets: AssetStore, private val maxImageDecodePixels: Long = MAX_IMAGE_DECODE_PIXELS) {
     suspend fun write(
         content: NotebookContent,
@@ -115,6 +135,7 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
         renderPdfPage: suspend (PdfSourceEntity, PageEntity, Int, Int) -> android.graphics.Bitmap? =
             { _, _, _, _ -> null },
     ) {
+        currentCoroutineContext().ensureActive()
         require(content.pages.isNotEmpty())
         val pdfSources = content.pdfSources.associateBy(PdfSourceEntity::id)
         val strokesByPage = content.strokes.groupBy { it.pageId }
@@ -124,6 +145,7 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
         var documentFailure: Throwable? = null
         try {
             content.pages.sortedBy(PageEntity::pageIndex).forEachIndexed { index, page ->
+                currentCoroutineContext().ensureActive()
                 val info =
                     PdfDocument.PageInfo.Builder(
                             page.widthPoints,
@@ -140,6 +162,7 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
                             val size = fitPdfRenderSize(page.widthPoints, page.heightPoints)
                             renderPdfPage(source, page, size.width, size.height)
                         }
+                    currentCoroutineContext().ensureActive()
                     renderPage(
                         pdfPage.canvas,
                         page,
@@ -161,7 +184,9 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
                     }
                 }
             }
+            currentCoroutineContext().ensureActive()
             document.writeTo(output)
+            currentCoroutineContext().ensureActive()
         } catch (failure: Throwable) {
             documentFailure = failure
             throw failure

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="presentation_licenses_title">Open-source licenses</string>
+    <string name="presentation_licenses_loading">Loading bundled licenses…</string>
+    <string name="presentation_licenses_failed">The bundled license files could not be opened.</string>
+</resources>

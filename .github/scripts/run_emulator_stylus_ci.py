@@ -226,6 +226,28 @@ def _display_size(serial: str) -> tuple[int, int]:
     return int(width), int(height)
 
 
+def _recover_boot_launcher_anr(serial: str) -> bool:
+    if re.fullmatch(r"emulator-\d+", serial) is None:
+        raise ValueError("Launcher recovery is restricted to a CI emulator")
+    windows = _run_adb(serial, "shell", "dumpsys", "window", capture_output=True).stdout
+    if (
+        re.search(
+            r"^\s*mCurrentFocus=Window\{[^\r\n}]* Application Not Responding: "
+            r"com\.google\.android\.apps\.nexuslauncher\}",
+            windows,
+            re.MULTILINE,
+        )
+        is None
+    ):
+        return False
+    # A cold image can leave its launcher ANR above the test activity. Never dismiss app ANRs.
+    _run_adb(
+        serial, "shell", "am", "force-stop", "com.google.android.apps.nexuslauncher"
+    )
+    print("Closed the CI emulator's boot-time launcher ANR", flush=True)
+    return True
+
+
 def _load_grpc_api() -> tuple[GrpcApi, MessageApi, ServiceApi]:
     sdk_root = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     if not sdk_root:
@@ -363,6 +385,8 @@ def run() -> int:
 
     process = subprocess.Popen(_gradle_command(repo), cwd=repo)
     seen: set[str] = set()
+    boot_recovered = False
+    next_boot_check = 0.0
     deadline = time.monotonic() + 900
     try:
         with grpc.insecure_channel(f"127.0.0.1:{endpoint.port}") as channel:
@@ -379,6 +403,13 @@ def run() -> int:
                     raise RuntimeError(
                         f"Timed out waiting for stylus markers: {sorted(EXPECTED_MARKERS - seen)}"
                     )
+                if (
+                    not seen
+                    and not boot_recovered
+                    and time.monotonic() >= next_boot_check
+                ):
+                    boot_recovered = _recover_boot_launcher_anr(serial)
+                    next_boot_check = time.monotonic() + 1
                 for line in _logcat(serial).splitlines():
                     marker = parse_marker(line)
                     if marker is None or marker.name in seen:

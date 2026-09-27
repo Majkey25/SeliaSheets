@@ -8,12 +8,15 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import com.majkeylab.seliadocs.data.MAX_PDF_IMPORT_SOURCES
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -63,25 +66,32 @@ internal class PdfSandboxClient(context: Context) {
         }
     }
 
-    suspend fun inspect(file: File): PdfDocumentInfo =
-        withService { service ->
+    suspend fun inspect(file: File): PdfDocumentInfo = inspectMany(listOf(file)).single()
+
+    suspend fun inspectMany(files: List<File>): List<PdfDocumentInfo> {
+        require(files.size in 1..MAX_PDF_IMPORT_SOURCES)
+        return withService { service ->
             withContext(Dispatchers.IO) {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                    val result = service.inspect(descriptor)
-                    result.requireSuccess()
-                    val count = result.getInt(PdfProtocol.PAGE_COUNT)
-                    val widths = result.getIntArray(PdfProtocol.PAGE_WIDTHS) ?: throw IOException("PDF widths missing")
-                    val heights = result.getIntArray(PdfProtocol.PAGE_HEIGHTS) ?: throw IOException("PDF heights missing")
-                    val sandboxUid = result.getInt(PdfProtocol.SANDBOX_UID)
-                    require(count in 1..PdfProtocol.MAX_PAGES && widths.size == count && heights.size == count)
-                    require(sandboxUid > 0)
-                    PdfDocumentInfo(
-                        pages = List(count) { index -> PdfPageSize(widths[index], heights[index]) },
-                        sandboxUid = sandboxUid,
-                    )
+                files.map { file ->
+                    currentCoroutineContext().ensureActive()
+                    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                        val result = service.inspect(descriptor)
+                        result.requireSuccess()
+                        val count = result.getInt(PdfProtocol.PAGE_COUNT)
+                        val widths = result.getIntArray(PdfProtocol.PAGE_WIDTHS) ?: throw IOException("PDF widths missing")
+                        val heights = result.getIntArray(PdfProtocol.PAGE_HEIGHTS) ?: throw IOException("PDF heights missing")
+                        val sandboxUid = result.getInt(PdfProtocol.SANDBOX_UID)
+                        require(count in 1..PdfProtocol.MAX_PAGES && widths.size == count && heights.size == count)
+                        require(sandboxUid > 0)
+                        PdfDocumentInfo(
+                            pages = List(count) { index -> PdfPageSize(widths[index], heights[index]) },
+                            sandboxUid = sandboxUid,
+                        )
+                    }
                 }
             }
         }
+    }
 
     suspend fun renderPage(file: File, pageIndex: Int, width: Int, height: Int): Bitmap =
         withService { service ->

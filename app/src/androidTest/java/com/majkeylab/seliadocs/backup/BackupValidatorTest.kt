@@ -1,10 +1,17 @@
 package com.majkeylab.seliadocs.backup
 
 import android.content.Context
+import android.graphics.Color
+import android.net.Uri
 import android.util.JsonWriter
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
+import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.editor.ImageImporter
+import com.majkeylab.seliadocs.editor.animatedGifFixture
+import com.majkeylab.seliadocs.editor.decodeOrientedImage
+import com.majkeylab.seliadocs.editor.stillBmpFixture
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -18,6 +25,7 @@ import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -358,6 +366,49 @@ class BackupValidatorTest {
         assertFailure<BackupFailure.InvalidRelationship>(
             archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
         )
+    }
+
+    @Test
+    fun importedBmpAndAnimatedGifValidateWithBytesAndStillPixelsPreserved() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val inputRoot = File(stagingRoot, "image-inputs").apply { mkdirs() }
+        val importer = ImageImporter(context.contentResolver, AssetStore(File(inputRoot, "stored")))
+        try {
+            for ((extension, bytes) in listOf("bmp" to stillBmpFixture(), "gif" to animatedGifFixture())) {
+                val original = File(inputRoot, "image.$extension").apply { writeBytes(bytes) }
+                val asset = importer.importImage(Uri.fromFile(original)).getOrThrow()
+                val content = listOf(
+                    "manifest.json" to manifestBytes(1, 1, 1),
+                    "records.jsonl" to records(notebook(), page(), BackupElement(
+                        "image", "page", 0, "IMAGE", 0f, 0f, 20f, 10f, 0f, null, asset.id, null, null, null,
+                    )),
+                    "assets/${asset.id}" to asset.file.readBytes(),
+                )
+                val backupBytes = archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) })))
+                validator().validate(ByteArrayInputStream(backupBytes)).use { backup ->
+                    assertEquals(setOf(asset.id), backup.index.assetIds)
+                    val restored = backup.assetFiles.getValue(asset.id)
+                    assertArrayEquals(bytes, restored.readBytes())
+                    val bitmap = decodeOrientedImage(restored, 1)
+                    try {
+                        assertEquals(Color.RED, bitmap.getPixel(0, 0))
+                        assertEquals(Color.BLUE, bitmap.getPixel(1, 0))
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+                val corrupt = content.map { (name, data) ->
+                    name to if (name == "assets/${asset.id}") bytes.copyOf(if (extension == "bmp") 54 else 19) else data
+                }
+                val failure = runCatching {
+                    validator().validate(ByteArrayInputStream(archive(corrupt + ("checksums.json" to checksumBytes(corrupt.associate { it.first to sha256(it.second) })))))
+                }.exceptionOrNull()
+                assertTrue("Corrupt $extension must fail before restore", failure is BackupFailure.InvalidRelationship)
+            }
+        } finally {
+            inputRoot.deleteRecursively()
+        }
+        assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
     }
 
     @Test
