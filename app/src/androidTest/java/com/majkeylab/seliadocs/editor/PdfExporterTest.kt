@@ -24,11 +24,14 @@ import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.PdfSourceEntity
 import com.majkeylab.seliadocs.data.StrokeEntity
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -39,6 +42,47 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PdfExporterTest {
+    @Test
+    fun jobCancellationAfterBackgroundStopsExportAndRecyclesReturnedBitmap() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val assets = AssetStore(context.cacheDir)
+        val page = PageEntity("page", "notebook", 0, PaperTemplate.BLANK.name, 595, 842, pdfSourceId = "pdf", pdfPageIndex = 0)
+        val content = NotebookContent(
+            notebook = NotebookEntity(
+                "notebook", "Physics", CoverColor.PERIWINKLE.name, CoverPattern.SOLID.name,
+                PaperTemplate.BLANK.name, PageOrientation.PORTRAIT.name, false, false, 1L, 1L, null,
+            ),
+            pages = listOf(page, page.copy(id = "second", pageIndex = 1, pdfPageIndex = 1)),
+            strokes = emptyList(),
+            elements = emptyList(),
+            blocks = emptyList(),
+            pdfSources = listOf(PdfSourceEntity("pdf", "notebook", "source.pdf", "Source.pdf", 2, 100L, "0".repeat(64), 1L)),
+        )
+        val job = Job()
+        val backgrounds = mutableListOf<Bitmap>()
+        val output = ByteArrayOutputStream()
+        try {
+            val failure = runCatching {
+                withContext(job) {
+                    PdfExporter(assets).write(content, output) { _, _, _, _ ->
+                        Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).also {
+                            backgrounds += it
+                            job.cancel()
+                        }
+                    }
+                }
+            }.exceptionOrNull()
+
+            assertTrue(failure is CancellationException)
+            assertEquals(1, backgrounds.size)
+            assertTrue(backgrounds.single().isRecycled)
+            assertEquals(0, output.size())
+        } finally {
+            job.cancel()
+            backgrounds.filterNot { it.isRecycled }.forEach(Bitmap::recycle)
+        }
+    }
+
     @Test
     fun backgroundFailureIsNotMaskedByUnfinishedPageCleanup() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()

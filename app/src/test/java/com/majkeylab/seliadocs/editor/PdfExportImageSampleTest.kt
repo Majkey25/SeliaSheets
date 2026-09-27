@@ -6,11 +6,13 @@ import java.io.IOException
 import java.io.OutputStream
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -126,6 +128,130 @@ class PdfExportImageSampleTest {
             assertFalse(destinationDeleted)
             assertEquals(emptyList<File>(), cache.listFiles().orEmpty().toList())
         } finally {
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun jobCancelledByCompletedRenderDoesNotOpenDestination() {
+        val cache = Files.createTempDirectory("pdf-export-test-").toFile()
+        val job = Job()
+        var destinationOpened = false
+        var destinationDeleted = false
+        try {
+            val failure = runCatching {
+                runBlocking(job) {
+                    writePdfToDestination(
+                        cache,
+                        render = { output -> output.write(byteArrayOf(1, 2, 3)); job.cancel() },
+                        openDestination = { destinationOpened = true; ByteArrayOutputStream() },
+                        deleteDestination = { destinationDeleted = true },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(failure is CancellationException)
+            assertFalse(destinationOpened)
+            assertFalse(destinationDeleted)
+            assertEquals(emptyList<File>(), cache.listFiles().orEmpty().toList())
+        } finally {
+            job.cancel()
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun jobCancelledWhileOpeningDestinationClosesAndDeletesWithoutWriting() {
+        val cache = Files.createTempDirectory("pdf-export-test-").toFile()
+        val job = Job()
+        var destinationClosed = false
+        var destinationDeleted = false
+        val destination = object : ByteArrayOutputStream() {
+            override fun close() { destinationClosed = true }
+        }
+        try {
+            val failure = runCatching {
+                runBlocking(job) {
+                    writePdfToDestination(
+                        cache,
+                        render = { it.write(byteArrayOf(1, 2, 3)) },
+                        openDestination = { job.cancel(); destination },
+                        deleteDestination = { destinationDeleted = true },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(failure is CancellationException)
+            assertEquals(0, destination.size())
+            assertTrue(destinationClosed)
+            assertTrue(destinationDeleted)
+            assertEquals(emptyList<File>(), cache.listFiles().orEmpty().toList())
+        } finally {
+            job.cancel()
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun jobCancelledByFirstCopyWriteStopsAndDeletesEvenOnLastChunk() {
+        for (size in listOf(3, DEFAULT_BUFFER_SIZE * 3)) {
+            val cache = Files.createTempDirectory("pdf-export-test-").toFile()
+            val job = Job()
+            var destinationDeleted = false
+            val destination = object : ByteArrayOutputStream() {
+                override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                    super.write(bytes, offset, length)
+                    job.cancel()
+                }
+            }
+            try {
+                val failure = runCatching {
+                    runBlocking(job) {
+                        writePdfToDestination(
+                            cache,
+                            render = { it.write(ByteArray(size)) },
+                            openDestination = { destination },
+                            deleteDestination = { destinationDeleted = true },
+                        )
+                    }
+                }.exceptionOrNull()
+
+                assertTrue(failure is CancellationException)
+                assertEquals(minOf(size, DEFAULT_BUFFER_SIZE), destination.size())
+                assertTrue(destinationDeleted)
+                assertEquals(emptyList<File>(), cache.listFiles().orEmpty().toList())
+            } finally {
+                job.cancel()
+                cache.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun jobCancelledWhenDestinationClosesDeletesCompletedCopy() {
+        val cache = Files.createTempDirectory("pdf-export-test-").toFile()
+        val job = Job()
+        var destinationDeleted = false
+        val destination = object : ByteArrayOutputStream() {
+            override fun close() { job.cancel() }
+        }
+        try {
+            val failure = runCatching {
+                runBlocking(job) {
+                    writePdfToDestination(
+                        cache,
+                        render = { it.write(byteArrayOf(1, 2, 3)) },
+                        openDestination = { destination },
+                        deleteDestination = { destinationDeleted = true },
+                    )
+                }
+            }.exceptionOrNull()
+
+            assertTrue(failure is CancellationException)
+            assertTrue(destinationDeleted)
+            assertEquals(emptyList<File>(), cache.listFiles().orEmpty().toList())
+        } finally {
+            job.cancel()
             cache.deleteRecursively()
         }
     }
