@@ -250,6 +250,15 @@ class EditorCompactUiTest {
         openCompactEditor()
         selectTool("type")
         rule.onNodeWithTag("page-text").performTextInput("Text and highlights stay together.\n".repeat(12))
+        // The forced phone viewport does not resize the tablet's native IME window.
+        closeSoftKeyboard()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle {
+                ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+            }
+        }
+        settledPageGeometry(hasTestTag("compact-tool-highlighter"))
         selectTool("highlighter")
         val paper = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
         val offset = IntArray(2)
