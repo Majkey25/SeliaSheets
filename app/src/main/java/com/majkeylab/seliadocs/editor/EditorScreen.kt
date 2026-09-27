@@ -492,7 +492,7 @@ private fun EditorScreen(
     val textPlacementPageId = inlineTextDraft?.pageId
     val editingTextElementId = inlineTextDraft?.elementId
     val actionState by sessionHolder.actionState.collectAsStateWithLifecycle()
-    val inputEnabled = editable && !workspaceBusy && !actionState.busy && !closeState.closing
+    val inputEnabled = editable && state.pageContentReady && !workspaceBusy && !actionState.busy && !closeState.closing
     val contextActionsEnabled = inputEnabled && inlineTextDraft == null
     val toolbarState =
         if (state.tool == EditorTool.TYPE || inlineTextDraft != null || !inputEnabled) {
@@ -523,8 +523,9 @@ private fun EditorScreen(
     if (excerptDestinationOpen && (state.pdfSelection != null || state.pdfRegion != null)) {
         ExcerptDestinationDialog(viewModel, excerptAsImage) { excerptDestinationOpen = false }
     }
-    LaunchedEffect(actionState, state.selectedPage?.id) {
-        if (state.selectedPage == null) return@LaunchedEffect
+    LaunchedEffect(actionState, state.selectedPage?.id, state.pageContentReady) {
+        val savingOrClosing = actionState.pending is EditorAction.Close || actionState.pending is EditorAction.WorkspaceSave
+        if (state.selectedPage == null || (!state.pageContentReady && !savingOrClosing)) return@LaunchedEffect
         if (actionState.pending != null && !actionState.saving && !actionState.ready && actionState.executing == null) {
             inkCanvases.toList().forEach { it.awaitPendingCommits() }
         }
@@ -1172,8 +1173,11 @@ private fun EditorScreen(
                             onCommitElementTransform = viewModel::updateSelectedElement,
                             onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
-                            onPageTextDraftChanged = { pageId, value -> !editable || sessionHolder.acceptDraft(pageId, value) },
+                            onPageTextDraftChanged = { pageId, value ->
+                                state.pageContentReady && pageId == state.selectedPage?.id && (!editable || sessionHolder.acceptDraft(pageId, value))
+                            },
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
+                            pageContentReady = state.pageContentReady,
                             pageTextInputEnabled = inputEnabled,
                             pageTextFocusEnabled = ownsTextFocus && editable,
                             initialViewport = sessionHolder.viewportFor(state.selectedPage?.id),
@@ -1245,8 +1249,11 @@ private fun EditorScreen(
                             onCommitElementTransform = viewModel::updateSelectedElement,
                             onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
-                            onPageTextDraftChanged = { pageId, value -> !editable || sessionHolder.acceptDraft(pageId, value) },
+                            onPageTextDraftChanged = { pageId, value ->
+                                state.pageContentReady && pageId == state.selectedPage?.id && (!editable || sessionHolder.acceptDraft(pageId, value))
+                            },
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
+                            pageContentReady = state.pageContentReady,
                             pageTextInputEnabled = inputEnabled,
                             pageTextFocusEnabled = ownsTextFocus && editable,
                             initialViewport = sessionHolder.viewportFor(state.selectedPage?.id),

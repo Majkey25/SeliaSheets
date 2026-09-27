@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,6 +81,7 @@ internal data class EditorUiState(
     val elements: List<ElementEntity> = emptyList(),
     val blocks: List<BlockEntity> = emptyList(),
     val selectedPageId: String? = null,
+    val pageContentReady: Boolean = false,
     val tool: EditorTool = EditorTool.PEN,
     val selectedStrokeIds: Set<String> = emptySet(),
     val selectedElementId: String? = null,
@@ -132,6 +134,7 @@ private data class EditorContent(
     val strokes: List<StrokeEntity>,
     val elements: List<ElementEntity>,
     val blocks: List<BlockEntity>,
+    val pageId: String? = null,
 )
 
 private data class EditorStructure(
@@ -318,6 +321,7 @@ internal class EditorViewModel(
     private val recognitionCommitBoundary: suspend () -> Unit = {},
     private val imageOcrRecognizer: suspend (File) -> ImageOcrResult = ::recognizeImage,
     private val pdfPageSearcher: suspend (File, Int, String, Boolean) -> List<PdfTextSearchMatch> = PdfTextSearcher(application)::search,
+    private val pageContentLoadBoundary: suspend (String) -> Unit = {},
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -385,7 +389,8 @@ internal class EditorViewModel(
                     repository.observeStrokes(pageId),
                     repository.observeElements(pageId),
                     repository.observeBlocks(pageId),
-                ) { strokes, elements, blocks -> EditorContent(emptyList(), strokes, elements, blocks) }
+                ) { strokes, elements, blocks -> EditorContent(emptyList(), strokes, elements, blocks, pageId) }
+                    .onStart { pageContentLoadBoundary(pageId) }
             }
         }
     private val content =
@@ -401,15 +406,17 @@ internal class EditorViewModel(
                 structure,
                 controls,
             ) { notebook, document, selected, notebookStructure, editorControls ->
+                val contentReady = selected != null && document.pageId == selected
                 EditorUiState(
                     notebook = notebook,
                     pages = document.pages,
                     chapters = notebookStructure.chapters,
                     pdfSources = notebookStructure.pdfSources,
-                    strokes = document.strokes,
-                    elements = document.elements,
-                    blocks = document.blocks,
+                    strokes = if (contentReady) document.strokes else emptyList(),
+                    elements = if (contentReady) document.elements else emptyList(),
+                    blocks = if (contentReady) document.blocks else emptyList(),
                     selectedPageId = selected,
+                    pageContentReady = contentReady,
                     tool = editorControls.tool,
                     selectedStrokeIds = editorControls.selectedStrokeIds,
                     selectedElementId = editorControls.selectedElementId,
