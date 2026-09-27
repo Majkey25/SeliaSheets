@@ -24,6 +24,8 @@ See [format limits](../IMPORT_FORMATS.md). Original PPTX objects are not editabl
 
 Final tested debug APK SHA-256: `f62218b30fac630a1a6e6cd85b354e78d9c4117765e8f4084f27696c30c5f830`.
 
+[Huawei screenshot after reopening the imported slides](screenshots/2026-09-27-powerpoint-phone.png). The app page-number overlay is absent from the slide; the toolbar still shows its position in the notebook.
+
 Local logs: `.reference/tmp/device-qa-20260926-220410-259.log` (64 tests), `device-qa-20260927-101642-583.log` (input batch), and `device-qa-20260926-214358-144.log` (batched large deck). Earlier batches overlap these checks and are not added to their totals.
 
 ## Problems found and corrected
@@ -35,6 +37,8 @@ The published renderer resolved its chart-ready promise before chart animations 
 Native preflight initially rejected harmless, unused video MIME declarations found in ordinary Office packages. It now checks actual parts while preserving rejection of real audio/video content. ZIP parser-differential checks cover local/central records, payloads, and Unicode path aliases.
 
 One lint invocation stalled while files were changing; only its task-owned daemon was stopped. A standalone rerun completed. Later verification resumed after an overnight pause, so its wall-clock duration is not a build-performance measurement.
+
+CI run `36306118850` passed the build job. Its Android 17 stylus preflight failed before any injection marker: the emulator's Nexus Launcher ANR dialog owned `mCurrentFocus`, so both test activities timed out waiting for window focus. The coordinator now recovers that specific boot dialog once, before the first marker. It cannot target a physical serial and does not dismiss SeliaSheets or other app failures. Seven coordinator tests and Ruff checks pass locally. Live CI confirmation remains pending; stylus assertions and timeouts are unchanged.
 
 ## Security and remaining limits
 
