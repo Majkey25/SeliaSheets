@@ -13,6 +13,7 @@ import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -217,9 +218,12 @@ class LibraryFlowTest {
         rule.onNodeWithText(title, useUnmergedTree = true).performTouchInput { click() }
 
         rule.waitUntil(timeoutMillis = 5_000) {
-            rule.onAllNodes(hasText("Page 1 of 1")).fetchSemanticsNodes().isNotEmpty()
+            runCatching {
+                rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
+                rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextEquals(title)
+                rule.onNodeWithTag("page-paper").assertIsDisplayed()
+            }.isSuccess
         }
-        rule.onNodeWithText("Page 1 of 1").assertIsDisplayed()
     }
 
     private fun createNotebook(title: String) {
