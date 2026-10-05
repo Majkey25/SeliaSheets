@@ -1,8 +1,10 @@
 # SeliaSheets privacy policy
 
-Effective date: September 8, 2026
+Last updated: October 5, 2026
 
 SeliaSheets is an offline-first Android notebook published by Majkey25. This policy explains what the app processes and how users control their content.
+
+The publisher and controller for support correspondence is Matěj Teplý, publishing on Google Play as Majkey and on GitHub as Majkey25. Contact [majkeylab@gmail.com](mailto:majkeylab@gmail.com).
 
 ## Data collection and sharing
 
@@ -46,7 +48,13 @@ You may complain to your local data-protection authority. In the Czech Republic,
 
 ## Retention and deletion
 
-Notebook data remains on the device until the user deletes it or uninstalls the app. Moving a notebook to trash is reversible. Permanent deletion removes its database content and unreferenced private assets. Uninstalling SeliaSheets removes its private app data according to Android platform behavior.
+Moving a notebook to Trash is reversible and keeps its content. To remove it permanently, open Trash, choose the notebook's delete action, and confirm. Permanent deletion removes its database content and private image or PDF assets that are no longer referenced by another notebook.
+
+To remove all local notebooks, settings, downloaded models, and cache, use Android Settings → Apps → SeliaSheets → Storage → Clear storage, or uninstall SeliaSheets. Android's labels may differ by device. This cannot be undone without a backup.
+
+Exported PDFs, Word files, and editable backups remain in the destination you selected. Delete those copies through Android Files or the destination provider; also ask recipients to delete any copies you shared. Clearing app storage does not delete these external copies.
+
+There is no SeliaSheets account to delete. For support-message access or deletion, email [majkeylab@gmail.com](mailto:majkeylab@gmail.com?subject=SeliaSheets%20privacy%20request). Send only enough information to identify the correspondence, not private notebooks or identity documents.
 
 ## Security
 
