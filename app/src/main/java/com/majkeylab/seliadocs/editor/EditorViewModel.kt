@@ -29,6 +29,8 @@ import com.majkeylab.seliadocs.data.StrokeEntity
 import com.majkeylab.seliadocs.data.StrokePayload
 import com.majkeylab.seliadocs.documents.WordTextExporter
 import com.majkeylab.seliadocs.documents.WordTextImporter
+import com.majkeylab.seliadocs.documents.PowerPointImporter
+import com.majkeylab.seliadocs.documents.PlainTextImporter
 import com.majkeylab.seliadocs.pdf.PdfImporter
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import com.majkeylab.seliadocs.pdf.PdfTextSelection
@@ -65,6 +67,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +81,7 @@ internal data class EditorUiState(
     val elements: List<ElementEntity> = emptyList(),
     val blocks: List<BlockEntity> = emptyList(),
     val selectedPageId: String? = null,
+    val pageContentReady: Boolean = false,
     val tool: EditorTool = EditorTool.PEN,
     val selectedStrokeIds: Set<String> = emptySet(),
     val selectedElementId: String? = null,
@@ -94,6 +98,8 @@ internal data class EditorUiState(
     val canRedo: Boolean = false,
     val failed: Boolean = false,
     val wordDocumentMessage: String? = null,
+    val importMessage: String? = null,
+    val importingPresentation: Boolean = false,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
     val handwritingCandidates: List<String> = emptyList(),
@@ -128,6 +134,7 @@ private data class EditorContent(
     val strokes: List<StrokeEntity>,
     val elements: List<ElementEntity>,
     val blocks: List<BlockEntity>,
+    val pageId: String? = null,
 )
 
 private data class EditorStructure(
@@ -225,6 +232,8 @@ private data class EditorControls(
     val canRedo: Boolean = false,
     val failed: Boolean = false,
     val wordDocumentMessage: String? = null,
+    val importMessage: String? = null,
+    val importingPresentation: Boolean = false,
     val recognitionMessage: String? = null,
     val ambiguousMathCandidates: List<InkMathCandidate> = emptyList(),
     val handwritingCandidates: List<String> = emptyList(),
@@ -312,6 +321,7 @@ internal class EditorViewModel(
     private val recognitionCommitBoundary: suspend () -> Unit = {},
     private val imageOcrRecognizer: suspend (File) -> ImageOcrResult = ::recognizeImage,
     private val pdfPageSearcher: suspend (File, Int, String, Boolean) -> List<PdfTextSearchMatch> = PdfTextSearcher(application)::search,
+    private val pageContentLoadBoundary: suspend (String) -> Unit = {},
 ) :
     AndroidViewModel(application) {
     private val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
@@ -323,6 +333,9 @@ internal class EditorViewModel(
     private var pdfSelectionEpoch = 0L
     private val pdfImporter = PdfImporter(application.contentResolver, assets, repository, pdfSandbox)
     private val wordTextImporter = WordTextImporter(application.contentResolver, application.cacheDir, repository)
+    private val powerPointImporter = PowerPointImporter(application, pdfImporter)
+    private val plainTextImporter = PlainTextImporter(application.contentResolver, repository)
+    private var presentationImportJob: Job? = null
     private val selectedPageId = MutableStateFlow<String?>(null)
     private val controls = MutableStateFlow(EditorControls(tool = initialTool))
     private val pendingRecognitionStrokeIds = mutableListOf<String>()
@@ -376,7 +389,8 @@ internal class EditorViewModel(
                     repository.observeStrokes(pageId),
                     repository.observeElements(pageId),
                     repository.observeBlocks(pageId),
-                ) { strokes, elements, blocks -> EditorContent(emptyList(), strokes, elements, blocks) }
+                ) { strokes, elements, blocks -> EditorContent(emptyList(), strokes, elements, blocks, pageId) }
+                    .onStart { pageContentLoadBoundary(pageId) }
             }
         }
     private val content =
@@ -392,15 +406,17 @@ internal class EditorViewModel(
                 structure,
                 controls,
             ) { notebook, document, selected, notebookStructure, editorControls ->
+                val contentReady = selected != null && document.pageId == selected
                 EditorUiState(
                     notebook = notebook,
                     pages = document.pages,
                     chapters = notebookStructure.chapters,
                     pdfSources = notebookStructure.pdfSources,
-                    strokes = document.strokes,
-                    elements = document.elements,
-                    blocks = document.blocks,
+                    strokes = if (contentReady) document.strokes else emptyList(),
+                    elements = if (contentReady) document.elements else emptyList(),
+                    blocks = if (contentReady) document.blocks else emptyList(),
                     selectedPageId = selected,
+                    pageContentReady = contentReady,
                     tool = editorControls.tool,
                     selectedStrokeIds = editorControls.selectedStrokeIds,
                     selectedElementId = editorControls.selectedElementId,
@@ -417,6 +433,8 @@ internal class EditorViewModel(
                     canRedo = editorControls.canRedo,
                     failed = editorControls.failed,
                     wordDocumentMessage = editorControls.wordDocumentMessage,
+                    importMessage = editorControls.importMessage,
+                    importingPresentation = editorControls.importingPresentation,
                     recognitionMessage = editorControls.recognitionMessage,
                     ambiguousMathCandidates = editorControls.ambiguousMathCandidates,
                     handwritingCandidates = editorControls.handwritingCandidates,
@@ -1166,6 +1184,7 @@ internal class EditorViewModel(
                 OcrSearchHighlight(elementId, latestSearchQuery.trim())
             }
         selectPage(result.page.pageId)
+        clearSearch()
         controls.value =
             controls.value.copy(
                 selectedStrokeIds = emptySet(),
@@ -1174,7 +1193,6 @@ internal class EditorViewModel(
                 pdfSearchHighlight = result.pdfMatch?.let { PdfSearchHighlight(result.page.pageId, it) },
             )
         result.page.elementId?.let(::regenerateMissingOcrRegions)
-        clearSearch()
     }
 
     fun recognizeSelectedImage() {
@@ -1435,6 +1453,64 @@ internal class EditorViewModel(
             selectedPageId.value = pageIds.first()
             controls.value = controls.value.copy(tool = EditorTool.TYPE)
             showHistoryControls(pageIds.first())
+        }
+    }
+
+    fun importPowerPoint(uri: Uri, renderHost: android.view.ViewGroup, onComplete: (Boolean) -> Unit = {}) {
+        if (!mutationAllowed() || presentationImportJob?.isActive == true) {
+            onComplete(false)
+            return
+        }
+        clearRecognition()
+        val anchor = state.value.selectedPage?.id
+        controls.value = controls.value.copy(importingPresentation = true, importMessage = null, failed = false)
+        presentationImportJob = viewModelScope.launch {
+            var succeeded = false
+            try {
+                LibraryMutationGate.withLock {
+                    check(mutationAllowed()) { "Library is unavailable for import" }
+                    val firstPage = powerPointImporter.import(notebookId, uri, anchor, renderHost).first().pageIds.first()
+                    selectedPageId.value = firstPage
+                    showHistoryControls(firstPage)
+                    succeeded = true
+                }
+            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                controls.value = controls.value.copy(importMessage = getApplication<Application>().getString(R.string.presentation_import_timeout))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                controls.value = controls.value.copy(importMessage = getApplication<Application>().getString(
+                    R.string.presentation_import_failed, error.message.orEmpty().take(300)))
+            } finally {
+                controls.value = controls.value.copy(importingPresentation = false)
+                presentationImportJob = null
+                onComplete(succeeded)
+            }
+        }
+    }
+
+    fun cancelPresentationImport() { presentationImportJob?.cancel() }
+
+    fun dismissImportMessage() {
+        controls.value = controls.value.copy(importMessage = null)
+    }
+
+    fun importPlainText(uri: Uri, onComplete: (Boolean) -> Unit = {}) {
+        val anchor = state.value.selectedPage?.id
+        controls.value = controls.value.copy(importMessage = null)
+        mutate(onComplete = onComplete) {
+            try {
+                val pages = plainTextImporter.import(notebookId, uri, anchor)
+                selectedPageId.value = pages.first()
+                controls.value = controls.value.copy(tool = EditorTool.TYPE)
+                showHistoryControls(pages.first())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                controls.value = controls.value.copy(importMessage = getApplication<Application>().getString(
+                    R.string.plain_text_import_failed, error.message.orEmpty().take(300)))
+                throw error
+            }
         }
     }
 

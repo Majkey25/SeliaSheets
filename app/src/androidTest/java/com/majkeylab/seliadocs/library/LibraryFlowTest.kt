@@ -13,6 +13,8 @@ import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -202,6 +204,25 @@ class LibraryFlowTest {
             .performClick()
         rule.waitUntil(timeoutMillis = 10_000) {
             rule.onAllNodes(hasText("Move to trash")).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun titleTouchOpensNotebookWithoutStealingActionsTouch() {
+        val title = "Title touch ${System.nanoTime()}"
+        createNotebook(title)
+        rule.onNodeWithContentDescription("Notebook actions: $title").performTouchInput { click() }
+        rule.onNodeWithTag("notebook-actions-sheet").assertIsDisplayed()
+        rule.onNodeWithText("Cancel").performClick()
+
+        rule.onNodeWithText(title, useUnmergedTree = true).performTouchInput { click() }
+
+        rule.waitUntil(timeoutMillis = 5_000) {
+            runCatching {
+                rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
+                rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextEquals(title)
+                rule.onNodeWithTag("page-paper").assertIsDisplayed()
+            }.isSuccess
         }
     }
 

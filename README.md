@@ -13,6 +13,8 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 Download `0.9.0-beta.1`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SeliaSheets-0.9.0-beta.1.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.9.0-beta.1).
 
+Unreleased: offline PowerPoint slide conversion and editable TXT/Markdown import. See [supported import formats and limits](docs/IMPORT_FORMATS.md). These additions are not in the download above.
+
 ## Highlights
 
 - Android 10 and later (`minSdk 29`; compiled and targeted for API 37).

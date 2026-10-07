@@ -82,6 +82,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
@@ -114,6 +115,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.documents.WORD_DOCUMENT_MIME
+import com.majkeylab.seliadocs.documents.POWERPOINT_MIME
 import com.majkeylab.seliadocs.recognition.InkMathCandidate
 import com.majkeylab.seliadocs.recognition.InkTextRecognizer
 import com.majkeylab.seliadocs.recognition.RecognitionLanguage
@@ -162,6 +164,8 @@ internal sealed interface EditorAction {
     data class ImportPdf(val uri: Uri) : EditorAction
     data class ExportPdf(val uri: Uri) : NotebookExport
     data class ImportWordText(val uri: Uri) : EditorAction
+    data class ImportPowerPoint(val uri: Uri) : EditorAction
+    data class ImportPlainText(val uri: Uri) : EditorAction
     data class ExportWordText(val uri: Uri) : NotebookExport
     data class ImportImage(val pageId: String, val uri: Uri, val ocr: Boolean) : EditorAction
     data object AddText : EditorAction
@@ -330,7 +334,7 @@ internal class EditorSessionHolder : ViewModel(), ViewModelStoreOwner {
         val action = current.pending
         mutableActionState.value = EditorActionState(
             pending = current.deferredClose ?: current.deferredWorkspace,
-            executing = action?.takeIf { it is EditorAction.ImportPdf || it is EditorAction.ImportWordText || it is EditorAction.NotebookExport || it is EditorAction.ImportImage || it is EditorAction.OpenSource || it is EditorAction.WorkspaceSave },
+            executing = action?.takeIf { it is EditorAction.ImportPdf || it is EditorAction.ImportWordText || it is EditorAction.ImportPowerPoint || it is EditorAction.ImportPlainText || it is EditorAction.NotebookExport || it is EditorAction.ImportImage || it is EditorAction.OpenSource || it is EditorAction.WorkspaceSave },
         )
         return action
     }
@@ -488,7 +492,7 @@ private fun EditorScreen(
     val textPlacementPageId = inlineTextDraft?.pageId
     val editingTextElementId = inlineTextDraft?.elementId
     val actionState by sessionHolder.actionState.collectAsStateWithLifecycle()
-    val inputEnabled = editable && !workspaceBusy && !actionState.busy && !closeState.closing
+    val inputEnabled = editable && state.pageContentReady && !workspaceBusy && !actionState.busy && !closeState.closing
     val contextActionsEnabled = inputEnabled && inlineTextDraft == null
     val toolbarState =
         if (state.tool == EditorTool.TYPE || inlineTextDraft != null || !inputEnabled) {
@@ -500,6 +504,7 @@ private fun EditorScreen(
     val currentOwnsTextFocus by rememberUpdatedState(ownsTextFocus)
     val keyboard = LocalSoftwareKeyboardController.current
     val clipboard = LocalContext.current.getSystemService(ClipboardManager::class.java)
+    val renderHost = LocalView.current.rootView as android.view.ViewGroup
     val inkCanvases = remember { mutableSetOf<InkCanvasView>() }
     val onStrokeFinished: (String, androidx.ink.strokes.Stroke) -> Unit = { pageId, stroke ->
         inkCanvases.forEach { it.beginStrokeSave(stroke) }
@@ -518,8 +523,9 @@ private fun EditorScreen(
     if (excerptDestinationOpen && (state.pdfSelection != null || state.pdfRegion != null)) {
         ExcerptDestinationDialog(viewModel, excerptAsImage) { excerptDestinationOpen = false }
     }
-    LaunchedEffect(actionState, state.selectedPage?.id) {
-        if (state.selectedPage == null) return@LaunchedEffect
+    LaunchedEffect(actionState, state.selectedPage?.id, state.pageContentReady) {
+        val savingOrClosing = actionState.pending is EditorAction.Close || actionState.pending is EditorAction.WorkspaceSave
+        if (state.selectedPage == null || (!state.pageContentReady && !savingOrClosing)) return@LaunchedEffect
         if (actionState.pending != null && !actionState.saving && !actionState.ready && actionState.executing == null) {
             inkCanvases.toList().forEach { it.awaitPendingCommits() }
         }
@@ -591,6 +597,12 @@ private fun EditorScreen(
                 if (sessionHolder.sessionEpoch == actionEpoch) onWorkspaceExportComplete?.invoke(saved)
             }
             is EditorAction.ImportWordText -> viewModel.importWordText(action.uri) {
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+            }
+            is EditorAction.ImportPowerPoint -> viewModel.importPowerPoint(action.uri, renderHost) {
+                sessionHolder.completeExecutingAction(actionEpoch, action)
+            }
+            is EditorAction.ImportPlainText -> viewModel.importPlainText(action.uri) {
                 sessionHolder.completeExecutingAction(actionEpoch, action)
             }
             is EditorAction.ExportWordText -> viewModel.exportWordText(action.uri) { saved ->
@@ -673,6 +685,14 @@ private fun EditorScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) sessionHolder.requestAction(EditorAction.ImportWordText(uri))
         }
+    val powerPointPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) sessionHolder.requestAction(EditorAction.ImportPowerPoint(uri))
+        }
+    val textPicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) sessionHolder.requestAction(EditorAction.ImportPlainText(uri))
+        }
     val wordExporter =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(WORD_DOCUMENT_MIME)) { uri ->
             if (uri != null) {
@@ -744,6 +764,20 @@ private fun EditorScreen(
                         }
                     }
                     TextButton(
+                        modifier = Modifier.fillMaxWidth().testTag("insert-powerpoint-slides"),
+                        enabled = inputEnabled,
+                        onClick = {
+                            addPagesOpen = false
+                            powerPointPicker.launch(arrayOf(POWERPOINT_MIME))
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.ic_notebook), contentDescription = null)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(stringResource(R.string.import_powerpoint), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.powerpoint_import_detail), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    TextButton(
                         modifier = Modifier.fillMaxWidth().testTag("insert-word-text"),
                         enabled = inputEnabled,
                         onClick = {
@@ -757,11 +791,51 @@ private fun EditorScreen(
                             Text(stringResource(R.string.word_import_detail), style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth().testTag("insert-plain-text"),
+                        enabled = inputEnabled,
+                        onClick = {
+                            addPagesOpen = false
+                            textPicker.launch(arrayOf("text/plain", "text/markdown", "text/x-markdown"))
+                        },
+                    ) {
+                        Icon(painterResource(R.drawable.ic_text_fields), contentDescription = null)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(stringResource(R.string.import_plain_text), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.plain_text_import_detail), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             },
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { addPagesOpen = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+    if (state.importingPresentation) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.import_powerpoint)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.presentation_import_progress))
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = viewModel::cancelPresentationImport) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+    state.importMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissImportMessage,
+            title = { Text(stringResource(R.string.import_document)) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissImportMessage) { Text(stringResource(R.string.close)) }
             },
         )
     }
@@ -1099,8 +1173,11 @@ private fun EditorScreen(
                             onCommitElementTransform = viewModel::updateSelectedElement,
                             onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
-                            onPageTextDraftChanged = { pageId, value -> !editable || sessionHolder.acceptDraft(pageId, value) },
+                            onPageTextDraftChanged = { pageId, value ->
+                                state.pageContentReady && pageId == state.selectedPage?.id && (!editable || sessionHolder.acceptDraft(pageId, value))
+                            },
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
+                            pageContentReady = state.pageContentReady,
                             pageTextInputEnabled = inputEnabled,
                             pageTextFocusEnabled = ownsTextFocus && editable,
                             initialViewport = sessionHolder.viewportFor(state.selectedPage?.id),
@@ -1172,8 +1249,11 @@ private fun EditorScreen(
                             onCommitElementTransform = viewModel::updateSelectedElement,
                             onSelectElement = viewModel::selectElement,
                             assetFile = viewModel::assetFile,
-                            onPageTextDraftChanged = { pageId, value -> !editable || sessionHolder.acceptDraft(pageId, value) },
+                            onPageTextDraftChanged = { pageId, value ->
+                                state.pageContentReady && pageId == state.selectedPage?.id && (!editable || sessionHolder.acceptDraft(pageId, value))
+                            },
                             initialPageTextDraft = sessionHolder.draftFor(state.selectedPage?.id),
+                            pageContentReady = state.pageContentReady,
                             pageTextInputEnabled = inputEnabled,
                             pageTextFocusEnabled = ownsTextFocus && editable,
                             initialViewport = sessionHolder.viewportFor(state.selectedPage?.id),

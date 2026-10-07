@@ -80,6 +80,8 @@ class NotebookSearchFlowTest {
             val opened = withTimeout(10_000) { editor.state.first { it.selectedPage?.id == pages.last() && it.pdfSearchHighlight != null } }
             assertEquals(bounds, opened.pdfSearchHighlight?.selection?.bounds)
             assertTrue(opened.searchResults.isEmpty())
+            assertEquals("", opened.searchQuery)
+            assertFalse(opened.searching)
             withContext(Dispatchers.Main) { editor.searchPageText("chemistry", false) }
             val repeated = withTimeout(10_000) { editor.state.first { it.searchQuery == "chemistry" && !it.searching } }
             assertEquals(null, repeated.pdfSearchHighlight)

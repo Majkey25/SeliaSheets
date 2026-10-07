@@ -14,11 +14,14 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.MainActivity
@@ -46,6 +49,14 @@ class SettingsFlowTest {
         rule.onNodeWithText(version).assertIsDisplayed()
         rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Support this app → Buy Me a Coffee"))
         rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
+        rule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("open-source-licenses"))
+        rule.onNodeWithTag("open-source-licenses").performClick()
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodes(hasText("PowerPoint presentation renderer", substring = true)).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithTag("presentation-licenses-text").performTouchInput { swipeUp() }
+        rule.onNodeWithText("Close").performClick()
+        rule.onNodeWithTag("presentation-licenses-dialog").assertDoesNotExist()
     }
 
     @Test

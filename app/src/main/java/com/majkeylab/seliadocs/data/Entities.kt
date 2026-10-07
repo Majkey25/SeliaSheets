@@ -123,6 +123,18 @@ internal data class PdfSourceEntity(
 
 internal data class PdfPageSpec(val widthPoints: Int, val heightPoints: Int)
 
+internal const val MAX_PDF_IMPORT_SOURCES = 100
+internal const val MAX_PDF_IMPORT_PAGES = 2_000
+internal const val MAX_PDF_IMPORT_BYTES = 256L * 1024 * 1024
+
+internal data class PdfImportSpec(
+    val assetId: String,
+    val displayName: String,
+    val byteSize: Long,
+    val sha256: String,
+    val pages: List<PdfPageSpec>,
+)
+
 internal data class PdfImportResult(val sourceId: String, val pageIds: List<String>)
 
 @Entity(

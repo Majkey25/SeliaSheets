@@ -250,6 +250,15 @@ class EditorCompactUiTest {
         openCompactEditor()
         selectTool("type")
         rule.onNodeWithTag("page-text").performTextInput("Text and highlights stay together.\n".repeat(12))
+        // The forced phone viewport does not resize the tablet's native IME window.
+        closeSoftKeyboard()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle {
+                ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+            }
+        }
+        settledPageGeometry(hasTestTag("compact-tool-highlighter"))
         selectTool("highlighter")
         val paper = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
         val offset = IntArray(2)
@@ -505,6 +514,8 @@ class EditorCompactUiTest {
             EditorAction.ImportPdf(source),
             EditorAction.ExportPdf(destination),
             EditorAction.ImportWordText(source),
+            EditorAction.ImportPowerPoint(source),
+            EditorAction.ImportPlainText(source),
             EditorAction.ExportWordText(destination),
             EditorAction.ImportImage("image-page", source, ocr = true),
         )
@@ -535,6 +546,8 @@ class EditorCompactUiTest {
         listOf(
             EditorAction.ImportPdf(Uri.parse("content://test/import.pdf")),
             EditorAction.ImportWordText(Uri.parse("content://test/import.docx")),
+            EditorAction.ImportPowerPoint(Uri.parse("content://test/import.pptx")),
+            EditorAction.ImportPlainText(Uri.parse("content://test/import.md")),
             EditorAction.ExportWordText(Uri.parse("content://test/export.docx")),
             EditorAction.ImportImage("page", Uri.parse("content://test/image.png"), ocr = false),
         ).forEach { action ->

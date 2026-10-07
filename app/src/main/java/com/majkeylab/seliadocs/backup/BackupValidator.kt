@@ -8,6 +8,8 @@ import com.majkeylab.seliadocs.data.pageTextFits
 import com.majkeylab.seliadocs.editor.BrushKind
 import com.majkeylab.seliadocs.editor.EncodedStroke
 import com.majkeylab.seliadocs.editor.InkCodec
+import com.majkeylab.seliadocs.editor.IMAGE_MIME_EXTENSIONS
+import com.majkeylab.seliadocs.editor.validateStillImageDecode
 import com.majkeylab.seliadocs.pdf.PdfDocumentInfo
 import java.io.BufferedInputStream
 import java.io.File
@@ -506,7 +508,7 @@ internal class BackupValidator(
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         if (
-            bounds.outMimeType?.lowercase() !in IMAGE_MIME_TYPES ||
+            bounds.outMimeType?.lowercase() !in IMAGE_MIME_EXTENSIONS.keys ||
             bounds.outWidth !in 1..MAX_IMAGE_DIMENSION ||
             bounds.outHeight !in 1..MAX_IMAGE_DIMENSION ||
             bounds.outWidth.toLong() * bounds.outHeight * 4 > MAX_IMAGE_BYTES
@@ -515,9 +517,11 @@ internal class BackupValidator(
         }
         var sample = 1
         while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
-        val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?: throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
-        decoded.recycle()
+        try {
+            validateStillImageDecode(file, sample)
+        } catch (_: Exception) {
+            throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
+        }
     }
 
     private suspend fun validatePdfAsset(source: BackupPdfSource, file: File) {
@@ -597,7 +601,6 @@ internal class BackupValidator(
         const val MAX_LEGACY_ELEMENT_COORDINATE = 1_000_000f
         const val HEX = "0123456789abcdef"
         val PDF_HEADER = "%PDF-".toByteArray(Charsets.US_ASCII)
-        val IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/heif", "image/heic")
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
         val ASSET_ID = Regex("[A-Za-z0-9._-]+")
         val SHA_256 = Regex("[0-9a-fA-F]{64}")

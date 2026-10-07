@@ -1,0 +1,167 @@
+diff --git a/renderer.js b/renderer.js
+index aa03aaa..6c2f653 100644
+--- a/renderer.js
++++ b/renderer.js
+@@ -20175,7 +20175,8 @@ function uI(e, t, r) {
+         y: $.h > 0 ? S.size.h / $.h : 1
+       }, M = r(S, { ...u, groupChildScale: C });
+       f.appendChild(M);
+-    } catch {
++    } catch (error) {
++      t.onNodeError?.(e.id, error);
+       const S = document.createElement("div");
+       S.style.position = "absolute", S.style.border = "1px dashed #ff6b6b", S.style.backgroundColor = "rgba(255,107,107,0.1)", S.style.fontSize = "10px", S.style.color = "#cc0000", S.style.display = "flex", S.style.alignItems = "center", S.style.justifyContent = "center", S.style.padding = "2px", S.textContent = "Group child error", f.appendChild(S);
+     }
+@@ -20220,14 +20221,17 @@ function pd(e, t) {
+   return r.find((n) => n.children("pt").length > 0) ?? r.find((n) => n.exists()) ?? r[0];
+ }
+ function Wx(e) {
+-  const t = pd(e, "str");
++  const reference = e.child("multiLvlStrRef"), cache = reference.child("multiLvlStrCache"), levels = cache.children("lvl");
++  if (reference.exists() && (!cache.exists() || levels.length !== 1))
++    throw new Error("Missing chart category cache or unsupported multi-level category hierarchy");
++  const t = levels[0] ?? pd(e, "str");
+   if (t.children("pt").length === 0) {
+     const i = pd(e, "num");
+     if (i.exists() && (!t.exists() || i.children("pt").length > 0))
+       return gI(i);
+     if (!t.exists()) return [];
+   }
+-  const r = vm(t), n = new Array(r).fill("");
++  const r = Math.max(vm(t), cache.exists() ? vm(cache) : 0), n = new Array(r).fill("");
+   for (const i of t.children("pt")) {
+     const a = i.numAttr("idx");
+     if (gm(a, r)) {
+@@ -48303,8 +48307,10 @@ function _Y(e, t) {
+   const r = document.createElement("div");
+   r.style.position = "absolute", r.style.left = `${e.position.x}px`, r.style.top = `${e.position.y}px`, r.style.width = `${e.size.w}px`, r.style.height = `${e.size.h}px`, r.style.overflow = "hidden", r.style.display = "flex", r.style.flexDirection = "column";
+   const n = (p = t.presentation.charts) == null ? void 0 : p.get(e.chartPath);
+-  if (!n)
++  if (!n) {
++    t.onNodeError?.(e.id, new Error("Chart not found"));
+     return r.style.border = "1px dashed #ccc", r.style.display = "flex", r.style.alignItems = "center", r.style.justifyContent = "center", r.style.color = "#999", r.style.fontSize = "12px", r.textContent = "Chart not found", r;
++  }
+   const i = document.createElement("div");
+   i.style.width = "100%", i.style.flex = "1", i.style.minWidth = "0", i.style.minHeight = "0", i.style.overflow = "hidden", r.appendChild(i);
+   const a = (v = t.presentation.chartThemes) == null ? void 0 : v.get(e.chartPath), o = a ? { ...t, theme: a, colorCache: /* @__PURE__ */ new Map() } : t, { option: s, dataTable: l, chartFrameStyle: c } = SY(
+@@ -48313,6 +48319,10 @@ function _Y(e, t) {
+     e.chartPath,
+     e.size
+   );
++  if (!Array.isArray(s.series) || s.series.length === 0) {
++    t.onNodeError?.(e.id, new Error("Unsupported chart or missing series"));
++    return r;
++  }
+   xY(s, e.size), c && (r.style.boxSizing = "border-box", c.borderColor && c.borderWidth && c.borderStyle && (r.style.border = `${c.borderWidth}px ${c.borderStyle} ${c.borderColor}`));
+   const u = VV(s, e.size), h = of(s.legend);
+   if (u && h && (h.show = !1, r.appendChild(u)), l) {
+@@ -48330,7 +48340,7 @@ function _Y(e, t) {
+       x !== void 0 && cancelAnimationFrame(x), y == null || y.disconnect(), (C = t.signal) == null || C.removeEventListener("abort", b), g();
+     }, _ = () => {
+       var C, M;
+-      y == null || y.disconnect(), (C = t.signal) == null || C.removeEventListener("abort", b), !((M = t.signal) != null && M.aborted) && i.isConnected && $Y(i, s, f, t.signal), g();
++      y == null || y.disconnect(), (C = t.signal) == null || C.removeEventListener("abort", b), !((M = t.signal) != null && M.aborted) && i.isConnected && $Y(i, s, f, t.signal, (error) => t.onNodeError?.(e.id, error)), g();
+     };
+     if ((S = t.signal) != null && S.aborted) {
+       g();
+@@ -48363,9 +48373,10 @@ function _Y(e, t) {
+   });
+   return (m = t.asyncTasks) == null || m.push(d), r;
+ }
+-function $Y(e, t, r, n) {
++function $Y(e, t, r, n, onError) {
++  let i;
+   try {
+-    const i = Kz(e);
++    i = Kz(e);
+     i.setOption(t), r == null || r.add(i);
+     const a = () => {
+       o == null || o.disconnect(), i.isDisposed() || i.dispose(), r == null || r.delete(i), n == null || n.removeEventListener("abort", a);
+@@ -48379,8 +48390,11 @@ function $Y(e, t, r, n) {
+       e.isConnected ? i.resize() : a();
+     });
+     o == null || o.observe(e);
+-  } catch (i) {
+-    console.warn("Failed to initialize ECharts:", i), e.style.display = "flex", e.style.alignItems = "center", e.style.justifyContent = "center", e.style.color = "#999", e.style.fontSize = "12px", e.textContent = "Chart render error";
++  } catch (error) {
++    if (i && !i.isDisposed()) i.dispose();
++    r?.delete(i);
++    onError?.(error);
++    console.warn("Failed to initialize ECharts:", error), e.style.display = "flex", e.style.alignItems = "center", e.style.justifyContent = "center", e.style.color = "#999", e.style.fontSize = "12px", e.textContent = "Chart render error";
+   }
+ }
+ var rs = class gT {
+@@ -49568,7 +49582,7 @@ function xX(e) {
+   return t.style.position = "absolute", t.style.left = `${e.position.x}px`, t.style.top = `${e.position.y}px`, t.style.width = `${e.size.w}px`, t.style.height = `${e.size.h}px`, t.style.border = "2px dashed #ff4444", t.style.backgroundColor = "rgba(255,68,68,0.08)", t.style.display = "flex", t.style.alignItems = "center", t.style.justifyContent = "center", t.style.color = "#cc0000", t.style.fontSize = "11px", t.style.fontFamily = "monospace", t.style.overflow = "hidden", t.style.boxSizing = "border-box", t.style.padding = "4px", t.textContent = "Render Error", t.title = `Failed to render node: ${e.id} (${e.name})`, t;
+ }
+ const F$ = /* @__PURE__ */ new WeakMap();
+-function bX(e, t, r, n) {
++function bX(e, t, r, n, onNodeError) {
+   const i = [];
+   if (!e || !e.exists || !e.exists()) return i;
+   const a = {
+@@ -49580,15 +49594,16 @@ function bX(e, t, r, n) {
+     try {
+       for (const s of ff(o, a))
+         Q0(s.source) || (s.size.w > 0 || s.size.h > 0) && i.push(s);
+-    } catch {
++    } catch (error) {
++      onNodeError?.("__template__", error);
+     }
+   return i;
+ }
+-function I$(e, t, r, n) {
++function I$(e, t, r, n, onNodeError) {
+   const i = F$.get(e);
+   if (i && i.rels === t && i.partPath === r && i.diagramDrawings === n)
+     return i.nodes;
+-  const a = bX(e, t, r, n);
++  const a = bX(e, t, r, n, onNodeError);
+   return F$.set(e, {
+     nodes: a,
+     rels: t,
+@@ -49624,7 +49639,7 @@ function Zv(e, t, r) {
+     r == null ? void 0 : r.pdfjs,
+     o.signal
+   );
+-  l.asyncTasks = a, r != null && r.onNavigate && (l.onNavigate = r.onNavigate);
++  l.asyncTasks = a, l.onNodeError = r?.onNodeError, r != null && r.onNavigate && (l.onNavigate = r.onNavigate);
+   const c = document.createElement("div");
+   c.style.position = "relative", c.style.width = `${e.width}px`, c.style.height = `${e.height}px`, c.style.overflow = "hidden", c.style.backgroundColor = "#FFFFFF", l.measurementRoot = c;
+   const u = SX(c);
+@@ -49645,13 +49660,15 @@ function Zv(e, t, r) {
+         l.master.spTree,
+         l.master.rels,
+         l.masterPath,
+-        e.diagramDrawings
++        e.diagramDrawings,
++        l.onNodeError
+       );
+       for (const b of x)
+         try {
+           const _ = nd(b, y);
+           c.appendChild(_);
+-        } catch {
++        } catch (error) {
++          l.onNodeError?.(b.id, error);
+         }
+     }
+     if (t.showMasterSp) {
+@@ -49665,13 +49682,15 @@ function Zv(e, t, r) {
+         l.layout.spTree,
+         l.layout.rels,
+         l.layoutPath,
+-        e.diagramDrawings
++        e.diagramDrawings,
++        l.onNodeError
+       );
+       for (const b of x)
+         try {
+           const _ = nd(b, y);
+           c.appendChild(_);
+-        } catch {
++        } catch (error) {
++          l.onNodeError?.(b.id, error);
+         }
+     }
+     for (const y of t.nodes)

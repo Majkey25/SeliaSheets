@@ -127,6 +127,7 @@ private data class CanvasPageFrame(
     val elements: List<ElementEntity>,
     val blocks: List<BlockEntity>,
     val ocrSearchHighlight: OcrSearchHighlight?,
+    val contentReady: Boolean,
 )
 
 @Composable
@@ -160,6 +161,7 @@ internal fun PageCanvas(
     assetFile: (String) -> File,
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean = { _, _ -> true },
     initialPageTextDraft: TextFieldValue? = null,
+    pageContentReady: Boolean = true,
     pageTextInputEnabled: Boolean = true,
     textPlacementEnabled: Boolean = false,
     textPlacementInputEnabled: Boolean = true,
@@ -178,7 +180,7 @@ internal fun PageCanvas(
     pdfSearchHighlight: PdfSearchHighlight? = null,
     modifier: Modifier = Modifier,
 ) {
-    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight)
+    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight, pageContentReady)
     val currentPageId = rememberUpdatedState(page?.id)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
@@ -197,6 +199,7 @@ internal fun PageCanvas(
                     targetPage,
                     target.pageNumber,
                     pageCount,
+                    target.contentReady,
                     { currentPageId.value == targetPage.id },
                     target.strokes,
                     target.elements,
@@ -260,6 +263,7 @@ private fun Paper(
     page: PageEntity,
     pageNumber: Int,
     pageCount: Int,
+    contentReady: Boolean,
     isCurrentPage: () -> Boolean,
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
@@ -635,16 +639,16 @@ private fun Paper(
                         modifier = Modifier.fillMaxSize().testTag("pdf-rendered-page"),
                     )
                 }
-                PageTextLayer(
+                if (contentReady) PageTextLayer(
                     page = page,
                     blocks = blocks,
-                    active = tool == EditorTool.TYPE && pageTextFocusEnabled,
+                    active = tool == EditorTool.TYPE && pageTextFocusEnabled && isCurrentPage(),
                     scaleX = scaleX,
                     scaleY = scaleY,
                     onTextChanged = onPageTextChanged,
                     onDraftChanged = onPageTextDraftChanged,
                     initialDraft = initialPageTextDraft,
-                    inputEnabled = pageTextInputEnabled,
+                    inputEnabled = pageTextInputEnabled && isCurrentPage(),
                 )
                 if ((pdfSelection != null || pdfRegion != null) && isCurrentPage()) {
                     PdfSelectionPreview(pdfSelection, pdfRegion, Modifier.fillMaxSize())
@@ -671,7 +675,7 @@ private fun Paper(
                         }
                     },
                     update = { view ->
-                        view.isEnabled = pageTextInputEnabled && isCurrentPage()
+                        view.isEnabled = contentReady && pageTextInputEnabled && isCurrentPage()
                         view.setPageSize(page.widthPoints, page.heightPoints)
                         view.setVisibleViewport(
                             viewportWidthPx.roundToInt(), viewportHeightPx.roundToInt(),
@@ -707,7 +711,7 @@ private fun Paper(
                 InlineTextPlacementLayer(
                     page = page,
                     enabled = textPlacementEnabled && initialInlineTextDraft?.pageId == page.id,
-                    inputEnabled = textPlacementInputEnabled,
+                    inputEnabled = contentReady && textPlacementInputEnabled && isCurrentPage(),
                     editingElement = textEditingElement,
                     initialDraft = initialInlineTextDraft,
                     scaleX = scaleX,
@@ -764,12 +768,15 @@ private fun Paper(
                             }
                         }
                 }
-                Text(
-                    text = stringResource(R.string.page_number, pageNumber),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF7A7770),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).zIndex(5f),
-                )
+                if (!isPdfPage) {
+                    Text(
+                        text = stringResource(R.string.page_number, pageNumber),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF7A7770),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp).zIndex(5f)
+                            .testTag("paper-page-number"),
+                    )
+                }
             }
         }
     }
