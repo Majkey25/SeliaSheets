@@ -9,7 +9,6 @@ import android.graphics.pdf.PdfDocument
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
-import android.system.Os
 import android.system.OsConstants
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -114,7 +113,6 @@ class PdfTextSelectionBackendTest {
                 assertTrue(outputWriter.fileDescriptor.valid())
                 outputWriter.close()
                 awaitPipeClosure(outputReader, OsConstants.POLLHUP)
-                Os.fcntlInt(outputReader.fileDescriptor, OsConstants.F_SETFL, OsConstants.O_NONBLOCK)
                 ParcelFileDescriptor.AutoCloseInputStream(outputReader).use { input ->
                     assertEquals(-1, input.read())
                 }
