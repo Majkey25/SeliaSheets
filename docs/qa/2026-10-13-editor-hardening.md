@@ -43,7 +43,9 @@ Device: Huawei YAL-L21, Android 10 / API 29. Short exclusive USB windows were co
 - At 19:43 UTC, opening `market://details?id=com.majkeylab.seliadocs` in the phone's Play Store offered Open, not Update. Package inspection confirmed code 24 / `0.10.0-beta.1`, installed by `com.android.vending`. The phone was returned to Home and released to the next project; code 25 runtime remains unverified.
 - Installed stable code 24 has Play app-signing certificate SHA-256 `3f774a1787e1daeef4b266297f5552f57fc181bc20281618e9b52a6719241130`. The locally signed APK uses the separate registered upload key; replacing the installed app with it would require uninstalling. No uninstall or data clear was attempted. Play-generated code 25 is needed for the preserving-data release smoke.
 - Live Console confirms automatic installer protection is enabled. Installed Play code 24 includes `com.pairip.application.Application`, its license activity, and `com.android.vending.CHECK_LICENSE`. Protected APK sideloading is not a substitute for the normal Play Store update. No installer spoofing, protection opt-out, account switch, GMS change, or stable data wipe was used.
-- Final read-only GPT-6.1 Sol xhigh review found no confirmed pen-pipeline blocker. It checked zoom/pan coordinates, axis preservation, detach-time commit, late-handoff deduplication, and revision/save/Undo handling. One API 29 lifecycle fixture creates a new canvas, so it does not prove reattachment of the same instance. The reviewer ran no builds or device tests.
+- Final read-only GPT-6.1 Sol xhigh review found no confirmed pen-pipeline blocker. It checked zoom/pan coordinates, axis preservation, detach-time commit, late-handoff deduplication, and revision/save/Undo handling. It identified an API 29 lifecycle fixture that created a new canvas instead of reattaching the original. The reviewer ran no builds or device tests.
+- A test-only follow-up removed that replacement, asserted actual attachment/detachment, and recycled the injected events. The rebuilt test APK and lint passed in 2m19s. The same-instance reattachment test and three nearby resume/detach/commit cases passed on the Huawei in 6.320s, without skips. These cases overlap the earlier full suite; production APK/AAB bytes remain unchanged.
+- The entire updated `StylusRoutingTest` class then passed 41 cases in 46.794s on the same phone, with no failures, errors, or skips. This includes the corrected reattachment test and overlaps the four-case run and earlier full suite; it is not added to the 651 count. The phone was returned to Home and released at 19:54 UTC with no pending instrumentation.
 
 ## Artifact checks
 
@@ -52,7 +54,8 @@ Both signed artifacts use the registered Play upload certificate SHA-256 `2741c1
 | Artifact | SHA-256 |
 | --- | --- |
 | Debug APK | `b1b777b8a023ac0f0a22954338c999a16fefae5541d172f6b859607f78e5f725` |
-| Test APK | `a5d81725184c70fb9f33e15dfc8b6810308ba5fb30cd3c6c96f2ad31d0736c4b` |
+| Full-suite test APK | `a5d81725184c70fb9f33e15dfc8b6810308ba5fb30cd3c6c96f2ad31d0736c4b` |
+| Lifecycle follow-up test APK | `683f4fd38979763a99b28b3db3cb647aea6a31c2fed13adf998907b6249df0d1` |
 | Signed APK | `43d16e579392451cce513f760e8f5110f2edc1a95f65b45c6847fcf047b4c11f` |
 | Signed AAB | `05491dc08641389f31954c30d38fcc6442c16137b76bd4107f0b9cb0d2e532aa` |
 
@@ -68,7 +71,7 @@ Compiled production source tree: `a6486216077b85e9798cd4e0be4d0859d61fffa5` (`ap
 
 The [GitHub prerelease](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.0-beta.2) was published at 19:37:36 UTC on October 13, 2026. APK, AAB, and checksum-file upload states and GitHub SHA-256 digests match the local files. The APK retains the existing GitHub upload-key signer; it cannot update a Google-signed installation without uninstalling. Stay on the same distribution channel to preserve local data.
 
-Google Play accepted code 25 into the existing closed Alpha track. The saved English release notes were read back, and the publishing overview confirmed the submitted change with checks in progress at 19:43 UTC. Managed publishing remains off; no production release was requested or enabled. Review completion and tester availability are not claimed. The only artifact warning was missing native debug symbols; ReTrace was attached, and the supported-device comparison showed no lost devices. Native crash symbolication remains limited for the bundled libraries.
+Google Play accepted code 25 into the existing closed Alpha track. The saved English release notes were read back, and the publishing overview confirmed the submitted change with checks in progress at 19:43 UTC. By 19:50 UTC the quick checks had completed and the change was under review. Managed publishing remains off; no production release was requested or enabled. Review completion and tester availability are not claimed. The only artifact warning was missing native debug symbols; ReTrace was attached, and the supported-device comparison showed no lost devices. Native crash symbolication remains limited for the bundled libraries.
 
 ## Limits
 

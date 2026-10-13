@@ -786,24 +786,21 @@ class StylusRoutingTest {
                 view.listener = listener
                 parent.addView(view)
                 activity.setContentView(parent)
+                assertTrue(view.isAttachedToWindow)
                 parent.removeView(view)
+                assertFalse(view.isAttachedToWindow)
                 parent.postDelayed(
                     {
-                        val attachedView =
-                            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-                                InkCanvasView(activity).also { it.listener = listener }
-                            } else {
-                                view
-                            }
-                        parent.addView(attachedView)
-                        attachedView.postWhenReady {
+                        parent.addView(view)
+                        view.postWhenReady {
+                            assertTrue(view.isAttachedToWindow)
                             val downTime = android.os.SystemClock.uptimeMillis()
-                            attachedView.dispatchTouchEvent(
+                            listOf(
                                 stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, 40f, 50f),
-                            )
-                            attachedView.dispatchTouchEvent(
                                 stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_UP, 80f, 90f),
-                            )
+                            ).forEach { event ->
+                                try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+                            }
                         }
                     },
                     250L,
