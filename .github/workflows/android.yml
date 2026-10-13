@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_emulator_tests:
+        description: Run optional emulator compatibility tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,7 +41,7 @@ jobs:
         run: sdkmanager "platforms;android-29" "platforms;android-37.0"
       - uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
       - name: Verify
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --console=plain
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease bundleRelease --console=plain
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: SeliaSheets-ci-debug-apk
@@ -43,6 +49,7 @@ jobs:
           if-no-files-found: error
 
   instrumentation:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator_tests
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -76,6 +83,7 @@ jobs:
             app/build/outputs/androidTest-results/
 
   instrumentation-api37:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator_tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

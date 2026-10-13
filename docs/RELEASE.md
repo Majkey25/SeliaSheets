@@ -28,11 +28,12 @@ You can also pass the file path as `-PseliaSheetsKeystoreProperties=C:/path/keys
 
 ## Artifact verification
 
-Run these checks against the outputs from the signed clean build:
+Run these checks against the outputs from the signed build. These commands use installed Build Tools 36.0.0; the target Android platform is separate.
 
 ```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\build-tools\37.0.0\apksigner.bat" verify --verbose --print-certs app\build\outputs\apk\release\app-release.apk
-& "$env:LOCALAPPDATA\Android\Sdk\build-tools\37.0.0\aapt.exe" dump badging app\build\outputs\apk\release\app-release.apk
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\apksigner.bat" verify --verbose --print-certs app\build\outputs\apk\release\app-release.apk
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\aapt.exe" dump badging app\build\outputs\apk\release\app-release.apk
+& "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\zipalign.exe" -c -P 16 4 app\build\outputs\apk\release\app-release.apk
 jarsigner -verify -verbose -certs app\build\outputs\bundle\release\app-release.aab
 Get-FileHash -Algorithm SHA256 app\build\outputs\apk\release\app-release.apk, app\build\outputs\bundle\release\app-release.aab
 ```

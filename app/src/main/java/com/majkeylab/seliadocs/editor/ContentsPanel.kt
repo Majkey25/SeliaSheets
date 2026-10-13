@@ -125,6 +125,7 @@ internal fun ContentsPanel(
     onRenamePage: (String, String?) -> Unit,
     onBookmarkPage: (String, Boolean) -> Unit,
     onAssignPage: (String, String?) -> Unit,
+    onMovePage: (pageId: String, offset: Int) -> Unit,
     onDuplicatePage: (String) -> Unit,
     onDeletePage: (String) -> Unit,
     loadPagePreview: suspend (String) -> PagePreviewData,
@@ -293,7 +294,7 @@ internal fun ContentsPanel(
         if (unfiled.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.unfiled), null) }
             items(unfiled, key = PageEntity::id) { page ->
-                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
+                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onMovePage, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
             }
         }
         state.chapters.forEach { chapter ->
@@ -303,7 +304,7 @@ internal fun ContentsPanel(
                 SectionHeader(chapter.title, Color(chapter.colorArgb), onDelete = { deleteChapter = chapter }, enabled = enabled)
             }
             items(chapterPages, key = PageEntity::id) { page ->
-                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
+                ContentsPageRow(page, state, onSelectPage, onBookmarkPage, { renamePage = it }, { movePage = it }, onMovePage, onDuplicatePage, { deletePage = it }, loadPagePreview, enabled)
             }
         }
     }
@@ -479,12 +480,14 @@ private fun ContentsPageRow(
     onBookmark: (String, Boolean) -> Unit,
     onRename: (PageEntity) -> Unit,
     onMove: (PageEntity) -> Unit,
+    onMovePage: (pageId: String, offset: Int) -> Unit,
     onDuplicate: (String) -> Unit,
     onDelete: (PageEntity) -> Unit,
     loadPagePreview: suspend (String) -> PagePreviewData,
     enabled: Boolean,
 ) {
     val selected = state.selectedPage?.id == page.id
+    val pageIndex = state.pages.indexOfFirst { it.id == page.id }
     var menu by remember { mutableStateOf(false) }
     val actionsDescription = stringResource(R.string.page_actions, page.pageIndex + 1)
     val bookmarkDescription =
@@ -552,6 +555,22 @@ private fun ContentsPageRow(
                         onClick = {
                             menu = false
                             onMove(page)
+                        },
+                    )
+                    DropdownMenuItem(
+                        enabled = enabled && pageIndex > 0,
+                        text = { Text(stringResource(R.string.move_page_earlier)) },
+                        onClick = {
+                            menu = false
+                            onMovePage(page.id, -1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        enabled = enabled && pageIndex >= 0 && pageIndex < state.pages.lastIndex,
+                        text = { Text(stringResource(R.string.move_page_later)) },
+                        onClick = {
+                            menu = false
+                            onMovePage(page.id, 1)
                         },
                     )
                     DropdownMenuItem(

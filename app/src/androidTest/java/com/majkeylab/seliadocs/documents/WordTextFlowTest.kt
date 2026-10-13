@@ -18,6 +18,9 @@ import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.data.pageTextFits
 import java.io.File
 import java.io.IOException
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -168,6 +171,48 @@ class WordTextFlowTest {
         assertTrue(runCatching { importer().import(book, Uri.fromFile(source), anchor.id) }.isFailure)
         assertEquals(before, repository.loadNotebook(book))
         assertNoTemporaryFiles()
+    }
+
+    @Test
+    fun bodyEquationsSaveNothingAndRemoveTemporaryCopies() = runBlocking {
+        val book = createNotebook()
+        val anchor = repository.getPages(book).single()
+        repository.updatePageText(anchor.id, "Existing notes")
+        repository.addPage(book, anchor.id)
+        val before = repository.loadNotebook(book)
+        val original = File(directory, "plain.docx")
+        original.outputStream().use { WordTextCodec.write(listOf("Before", "After"), it) }
+        val source = File(directory, "equations.docx")
+        for (namespace in listOf(
+            "http://schemas.openxmlformats.org/officeDocument/2006/math",
+            "http://purl.oclc.org/ooxml/officeDocument/math",
+        )) {
+            for (block in listOf(false, true)) {
+                val equation = """<m:oMath xmlns:m="$namespace"><m:r><m:t>x=1</m:t></m:r></m:oMath>"""
+                val content = if (block) """<m:oMathPara xmlns:m="$namespace">$equation</m:oMathPara>""" else equation
+                ZipFile(original).use { input ->
+                    ZipOutputStream(source.outputStream()).use { output ->
+                        for (entry in input.entries().asSequence()) {
+                            val bytes = input.getInputStream(entry).use { it.readBytes() }
+                            output.putNextEntry(ZipEntry(entry.name))
+                            output.write(if (entry.name == "word/document.xml") {
+                                bytes.toString(Charsets.UTF_8).replaceFirst("</w:p>", "$content</w:p>").toByteArray()
+                            } else bytes)
+                            output.closeEntry()
+                        }
+                    }
+                }
+                val sourceBytes = source.readBytes()
+
+                val failure = runCatching { importer().import(book, Uri.fromFile(source), anchor.id) }.exceptionOrNull()
+
+                assertTrue(failure is IOException)
+                assertEquals("Word equations are not supported", failure?.message)
+                assertEquals(before, repository.loadNotebook(book))
+                assertArrayEquals(sourceBytes, source.readBytes())
+                assertNoTemporaryFiles()
+            }
+        }
     }
 
     @Test

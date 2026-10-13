@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
 import com.majkeylab.seliadocs.SeliaDocsApp
+import com.majkeylab.seliadocs.settings.SettingsRepository
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -55,6 +58,13 @@ class LibraryFlowTest {
         rule.waitUntil(timeoutMillis = 5_000) {
             rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isEmpty()
         }
+    }
+
+    @Test
+    fun creatingNotebookClearsSearchAndShowsTheNewNotebook() {
+        rule.onNodeWithText("Search notebooks").performTextInput("Unmatched query ${System.nanoTime()}")
+        createNotebook("New subject ${System.nanoTime()}")
+        rule.onNodeWithText("Search notebooks").assertIsDisplayed()
     }
 
     @Test
@@ -162,6 +172,36 @@ class LibraryFlowTest {
             actionBounds(second).left,
             0.5f,
         )
+    }
+
+    @Test
+    fun appAndSystemTextScaleSwitchNotebookColumns() {
+        val settings = SettingsRepository.create(rule.activity.application)
+        val previous = runBlocking { settings.settings.first().interfaceTextScale }
+        try {
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            setTestViewport(fontScale = 1.3f)
+            val first = "Scaled first ${System.nanoTime()}"
+            val second = "Scaled second ${System.nanoTime()}"
+            createNotebook(first)
+            createNotebook(second)
+            assertNotEquals(actionBounds(first).left, actionBounds(second).left, 0.5f)
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1.4f) } }
+            rule.waitUntil(5_000) {
+                kotlin.math.abs(actionBounds(first).left - actionBounds(second).left) <= 0.5f
+            }
+            assertEquals("130% system and 140% app text must use one column",
+                actionBounds(first).left, actionBounds(second).left, 0.5f)
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            rule.waitUntil(5_000) {
+                kotlin.math.abs(actionBounds(first).left - actionBounds(second).left) > 0.5f
+            }
+            assertNotEquals(actionBounds(first).left, actionBounds(second).left, 0.5f)
+        } finally {
+            runBlocking { settings.update { it.copy(interfaceTextScale = previous) } }
+        }
     }
 
     @Test

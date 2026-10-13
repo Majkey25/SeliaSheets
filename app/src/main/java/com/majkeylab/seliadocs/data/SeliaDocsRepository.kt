@@ -9,6 +9,7 @@ import com.majkeylab.seliadocs.recognition.MAX_OCR_REGION_DATA_LENGTH
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 
 private const val SEARCH_QUERY_MAX_LENGTH = 256
 private const val SEARCH_RESULT_LIMIT = 100
@@ -45,6 +46,15 @@ internal class SeliaDocsRepository(
 
     fun observeBlocks(pageId: String): Flow<List<BlockEntity>> =
         pageContent.observeBlocks(pageId)
+
+    fun observePageContent(pageId: String): Flow<PageContentSnapshot?> =
+        pageContent.observePageContent(pageId).map { snapshot ->
+            snapshot?.copy(
+                strokes = snapshot.strokes.sortedBy(StrokeEntity::zIndex),
+                elements = snapshot.elements.sortedBy(ElementEntity::zIndex),
+                blocks = snapshot.blocks.sortedBy(BlockEntity::orderIndex),
+            )
+        }
 
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()
@@ -404,11 +414,18 @@ internal class SeliaDocsRepository(
         }
     }
 
-    suspend fun addElementEntity(pageId: String, draft: ElementDraft): ElementEntity {
+    suspend fun addElementEntity(pageId: String, draft: ElementDraft, insertionId: String? = null): ElementEntity {
         validateElement(draft)
-        val id = idFactory()
+        require(insertionId == null || (insertionId.isNotBlank() && draft.kind == ElementKind.TEXT))
+        val id = insertionId ?: idFactory()
         return database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            if (insertionId != null) {
+                pageContent.getElement(insertionId)?.let { existing ->
+                    require(existing.pageId == pageId && existing.kind == ElementKind.TEXT.name) { "Insertion ID belongs to another element" }
+                    return@withTransaction existing
+                }
+            }
             val element =
                 elementFromDraft(
                     id,

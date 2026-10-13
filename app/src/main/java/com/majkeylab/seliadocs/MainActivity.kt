@@ -15,10 +15,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    internal fun setSystemBarIconAppearance(darkTheme: Boolean) {
+    internal fun setSystemBarIconAppearance(darkTheme: Boolean, darkNavigation: Boolean = darkTheme) {
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = !darkTheme
-            isAppearanceLightNavigationBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkNavigation
         }
     }
 }

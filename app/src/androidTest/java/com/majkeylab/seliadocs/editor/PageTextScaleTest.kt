@@ -15,6 +15,8 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import com.majkeylab.seliadocs.data.BlockEntity
@@ -22,6 +24,8 @@ import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.TEXT_ELEMENT_MAX_LENGTH
+import com.majkeylab.seliadocs.settings.InterfaceFont
+import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -80,51 +84,121 @@ class PageTextScaleTest {
     @Test
     fun pageTextGeometryIgnoresSystemFontScale() {
         val fontScale = mutableFloatStateOf(1f)
+        val interfaceFont = mutableStateOf(InterfaceFont.SYSTEM)
         val page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842)
         val labels = listOf("Full page text", "Text element", "Math result", "Inline draft")
         compose.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(fontScale.floatValue)) {
-                PageCanvas(
-                    page = page,
-                    pageNumber = 1,
-                    pageCount = 1,
-                    strokes = emptyList(),
-                    elements =
-                        listOf(
-                            element("text", "TEXT", 120f, "Text element"),
-                            element("math", "MATH", 360f, "Math result"),
-                        ),
-                    blocks = listOf(BlockEntity("block", "page", 0, "PARAGRAPH", labels.first(), false, 0, "START", null)),
-                    selectedStrokeIds = emptySet(),
-                    selectedElementId = null,
-                    fingerDrawing = false,
-                    tool = EditorTool.PEN,
-                    penWidth = 4f,
-                    highlighterWidth = 16f,
-                    pageTransitionEnabled = false,
-                    onPreviousPage = {},
-                    onNextPage = {},
-                    onStrokeFinished = { _, _ -> },
-                    onEraseFinished = { _, _ -> },
-                    onSelectContent = { _, _ -> },
-                    onMoveSelection = { _, _ -> },
-                    onPageTextChanged = { _, _ -> },
-                    onCommitElementTransform = {},
-                    assetFile = { File(it) },
-                    textPlacementEnabled = true,
-                    textPlacementInputEnabled = false,
-                    initialInlineTextDraft = InlineTextDraft("page", null, CanvasPoint(120f, 600f), labels.last()),
-                    modifier = Modifier.size(360.dp, 640.dp),
-                )
+                SeliaDocsTheme(font = interfaceFont.value) {
+                    PageCanvas(
+                        page = page,
+                        pageNumber = 1,
+                        pageCount = 1,
+                        strokes = emptyList(),
+                        elements =
+                            listOf(
+                                element("text", "TEXT", 120f, "Text element"),
+                                element("math", "MATH", 360f, "Math result"),
+                            ),
+                        blocks = listOf(BlockEntity("block", "page", 0, "PARAGRAPH", labels.first(), false, 0, "START", null)),
+                        selectedStrokeIds = emptySet(),
+                        selectedElementId = null,
+                        fingerDrawing = false,
+                        tool = EditorTool.PEN,
+                        penWidth = 4f,
+                        highlighterWidth = 16f,
+                        pageTransitionEnabled = false,
+                        onPreviousPage = {},
+                        onNextPage = {},
+                        onStrokeFinished = { _, _ -> },
+                        onEraseFinished = { _, _ -> },
+                        onSelectContent = { _, _ -> },
+                        onMoveSelection = { _, _ -> },
+                        onPageTextChanged = { _, _ -> },
+                        onCommitElementTransform = {},
+                        assetFile = { File(it) },
+                        textPlacementEnabled = true,
+                        textPlacementInputEnabled = false,
+                        initialInlineTextDraft = InlineTextDraft("page", null, CanvasPoint(120f, 600f), labels.last()),
+                        modifier = Modifier.size(360.dp, 640.dp),
+                    )
+                }
             }
         }
 
-        val normal = labels.associateWith(::firstLineBottom)
-        compose.runOnIdle { fontScale.floatValue = 2f }
-        compose.waitForIdle()
+        val normal = labels.associateWith(::textLayout)
+        for (scale in listOf(1f, 2f)) {
+            compose.runOnIdle { fontScale.floatValue = scale }
+            for (font in listOf(InterfaceFont.SYSTEM, InterfaceFont.SERIF, InterfaceFont.MONOSPACE, InterfaceFont.SYSTEM)) {
+                compose.runOnIdle { interfaceFont.value = font }
+                compose.waitForIdle()
+                labels.forEach { label ->
+                    val expected = normal.getValue(label)
+                    val actual = textLayout(label)
+                    val message = "$label with $font at $scale font scale"
+                    assertEquals(message, expected.lineCount, actual.lineCount)
+                    repeat(expected.lineCount) { line ->
+                        assertEquals(message, expected.getLineEnd(line), actual.getLineEnd(line))
+                        assertEquals(message, expected.getLineRight(line), actual.getLineRight(line), 0.5f)
+                        assertEquals(message, expected.getLineBottom(line), actual.getLineBottom(line), 0.5f)
+                    }
+                }
+            }
+        }
 
         labels.forEach { label ->
-            assertEquals("$label moved at 200% font scale", normal.getValue(label), firstLineBottom(label), 0.5f)
+            assertEquals("$label moved at 200% font scale", normal.getValue(label).getLineBottom(0), textLayout(label).getLineBottom(0), 0.5f)
+        }
+    }
+
+    @Test
+    fun inlinePlacementUsesCurrentPermissionAfterPaneFocusChanges() {
+        val enabled = mutableStateOf(false)
+        val accepted = mutableListOf<InlineTextDraft>()
+        compose.setContent {
+            val canWrite = enabled.value
+            PageCanvas(
+                page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
+                pageNumber = 1,
+                pageCount = 1,
+                strokes = emptyList(),
+                elements = emptyList(),
+                blocks = emptyList(),
+                selectedStrokeIds = emptySet(),
+                selectedElementId = null,
+                fingerDrawing = false,
+                tool = EditorTool.LASSO,
+                penWidth = 4f,
+                highlighterWidth = 16f,
+                pageTransitionEnabled = false,
+                onPreviousPage = {},
+                onNextPage = {},
+                onStrokeFinished = { _, _ -> },
+                onEraseFinished = { _, _ -> },
+                onSelectContent = { _, _ -> },
+                onMoveSelection = { _, _ -> },
+                onPageTextChanged = { _, _ -> },
+                onCommitElementTransform = {},
+                assetFile = { File(it) },
+                textPlacementEnabled = true,
+                textPlacementInputEnabled = canWrite,
+                initialInlineTextDraft = InlineTextDraft("page", null, null, ""),
+                onTextPlacementDraftChanged = { pageId, elementId, point, text ->
+                    if (canWrite) accepted += InlineTextDraft(pageId, elementId, point, text)
+                    canWrite
+                },
+                modifier = Modifier.size(360.dp, 640.dp),
+            )
+        }
+        compose.onNodeWithTag("inline-text-placement").performTouchInput { click(center) }
+        compose.onNodeWithTag("inline-text-editor").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(accepted.isEmpty()); enabled.value = true }
+        compose.onNodeWithTag("inline-text-placement").performTouchInput { click(center) }
+        compose.onNodeWithTag("inline-text-editor").assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(1, accepted.size)
+            assertEquals("page", accepted.single().pageId)
+            assertTrue(requireNotNull(accepted.single().origin).x.isFinite())
         }
     }
 
@@ -198,11 +272,11 @@ class PageTextScaleTest {
         }
     }
 
-    private fun firstLineBottom(text: String): Float {
+    private fun textLayout(text: String): TextLayoutResult {
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onAllNodesWithText(text)[0]
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        return layouts.single().getLineBottom(0)
+        return layouts.single()
     }
 
     private fun element(id: String, kind: String, y: Float, content: String) =

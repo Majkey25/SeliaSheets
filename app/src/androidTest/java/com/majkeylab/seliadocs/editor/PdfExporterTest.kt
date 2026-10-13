@@ -43,6 +43,81 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PdfExporterTest {
     @Test
+    fun exportedImagesPreserveAspectRatioAndCenteredLetterboxing() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val assetRoot = File(context.cacheDir, "pdf-image-fit-${System.nanoTime()}")
+        val assets = AssetStore(assetRoot)
+        assets.prepare()
+        val output = File(assetRoot, "export.pdf")
+        try {
+            for ((name, width, height) in listOf(Triple("wide.png", 80, 40), Triple("tall.png", 40, 80))) {
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    bitmap.eraseColor(Color.BLUE)
+                    assets.file(name).outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+            val page = PageEntity("page", "notebook", 0, PaperTemplate.BLANK.name, 400, 400)
+            val image = ElementEntity(
+                id = "wide",
+                pageId = page.id,
+                zIndex = 0,
+                kind = ElementKind.IMAGE.name,
+                x = 20f,
+                y = 20f,
+                width = 120f,
+                height = 120f,
+                rotation = 0f,
+                text = null,
+                assetId = "wide.png",
+                shapeKind = null,
+                expression = null,
+                resultText = null,
+            )
+            val content = NotebookContent(
+                notebook = NotebookEntity(
+                    "notebook", "Image fit", CoverColor.SAGE.name, CoverPattern.SOLID.name,
+                    PaperTemplate.BLANK.name, PageOrientation.PORTRAIT.name, false, false, 1L, 1L, null,
+                ),
+                pages = listOf(page),
+                strokes = emptyList(),
+                elements = listOf(
+                    image,
+                    image.copy(id = "tall", zIndex = 1, x = 180f, assetId = "tall.png"),
+                    image.copy(id = "rotated", zIndex = 2, y = 180f, rotation = 90f),
+                ),
+            )
+            output.outputStream().use { PdfExporter(assets).write(content, it) }
+            ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                PdfRenderer(descriptor).use { renderer ->
+                    renderer.openPage(0).use { renderedPage ->
+                        val bitmap = Bitmap.createBitmap(renderedPage.width, renderedPage.height, Bitmap.Config.ARGB_8888)
+                        try {
+                            renderedPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            val paper = Color.rgb(255, 254, 250)
+                            assertEquals("Wide image content", Color.BLUE, bitmap.getPixel(80, 80))
+                            assertEquals("Wide image top letterbox", paper, bitmap.getPixel(80, 30))
+                            assertEquals("Wide image bottom letterbox", paper, bitmap.getPixel(80, 130))
+                            assertEquals("Tall image content", Color.BLUE, bitmap.getPixel(240, 80))
+                            assertEquals("Tall image left letterbox", paper, bitmap.getPixel(190, 80))
+                            assertEquals("Tall image right letterbox", paper, bitmap.getPixel(290, 80))
+                            assertEquals("Rotated image content", Color.BLUE, bitmap.getPixel(80, 240))
+                            assertEquals("Rotated image left letterbox", paper, bitmap.getPixel(30, 240))
+                            assertEquals("Rotated image right letterbox", paper, bitmap.getPixel(130, 240))
+                        } finally {
+                            bitmap.recycle()
+                        }
+                    }
+                }
+            }
+        } finally {
+            assetRoot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun jobCancellationAfterBackgroundStopsExportAndRecyclesReturnedBitmap() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val assets = AssetStore(context.cacheDir)

@@ -9,6 +9,8 @@ import android.graphics.pdf.PdfDocument
 import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.recognition.recognizeBitmap
@@ -84,30 +86,45 @@ class PdfTextSelectionBackendTest {
     @Test
     fun invalidCoordinatesCloseReceivedDescriptorAndReturnAnError() {
         createPdf()
-        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        val rawDescriptor = descriptor.fileDescriptor
-        val service = IPdfRenderService.Stub.asInterface(PdfRenderService().onBind(null))
-        val result = service.selectText(descriptor, 0, Float.NaN, 0f, 1f, 1f)
-        assertFalse(result.getBoolean(PdfProtocol.SUCCESS))
-        assertEquals(PdfProtocol.ERROR_INVALID, result.getString(PdfProtocol.ERROR))
-        assertFalse(rawDescriptor.valid())
+        val (reader, writer) = ParcelFileDescriptor.createPipe()
+        try {
+            withBoundPdfSandbox(context, file) { service ->
+                val result = service.selectText(reader, 0, Float.NaN, 0f, 1f, 1f)
+                assertFalse(result.getBoolean(PdfProtocol.SUCCESS))
+                assertEquals(PdfProtocol.ERROR_INVALID, result.getString(PdfProtocol.ERROR))
+                assertPipeReaderClosed(reader, writer)
+            }
+        } finally {
+            reader.close()
+            writer.close()
+        }
     }
 
     @Test
     fun renderLimitClosesBothDescriptorsBeforeParsing() {
         createPdf()
-        val output = File(context.cacheDir, "pdf-selection-render-${System.nanoTime()}.png")
+        val (sourceReader, sourceWriter) = ParcelFileDescriptor.createPipe()
+        val (outputReader, outputWriter) = ParcelFileDescriptor.createPipe()
         try {
-            val source = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val destination = ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_WRITE_ONLY)
-            val sourceFd = source.fileDescriptor
-            val destinationFd = destination.fileDescriptor
-            val service = IPdfRenderService.Stub.asInterface(PdfRenderService().onBind(null))
-            val result = service.renderPage(source, 0, 0, 1, destination)
-            assertEquals(PdfProtocol.ERROR_LIMIT, result.getString(PdfProtocol.ERROR))
-            assertFalse(sourceFd.valid())
-            assertFalse(destinationFd.valid())
-        } finally { output.delete() }
+            withBoundPdfSandbox(context, file) { service ->
+                val result = service.renderPage(sourceReader, 0, 0, 1, outputWriter)
+                assertFalse(result.getBoolean(PdfProtocol.SUCCESS))
+                assertEquals(PdfProtocol.ERROR_LIMIT, result.getString(PdfProtocol.ERROR))
+                assertPipeReaderClosed(sourceReader, sourceWriter)
+                assertTrue(outputWriter.fileDescriptor.valid())
+                outputWriter.close()
+                awaitPipeClosure(outputReader, OsConstants.POLLHUP)
+                Os.fcntlInt(outputReader.fileDescriptor, OsConstants.F_SETFL, OsConstants.O_NONBLOCK)
+                ParcelFileDescriptor.AutoCloseInputStream(outputReader).use { input ->
+                    assertEquals(-1, input.read())
+                }
+            }
+        } finally {
+            sourceReader.close()
+            sourceWriter.close()
+            outputReader.close()
+            outputWriter.close()
+        }
     }
 
     @Test

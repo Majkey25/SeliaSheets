@@ -255,9 +255,12 @@ internal fun StrokeEntity.eraseSegments(
             if (eraser.size == 1) {
                 distanceSquared(point, eraser.single()) <= radius * radius
             } else {
-                eraser.zipWithNext().any { (start, end) ->
-                    distanceToSegmentSquared(point, start, end) <= radius * radius
+                for (index in 1 until eraser.size) {
+                    if (distanceToSegmentSquared(point, eraser[index - 1], eraser[index]) <= radius * radius) {
+                        return@map true
+                    }
                 }
+                false
             }
         }
     if (erased.none { it }) return listOf(this)

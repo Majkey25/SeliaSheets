@@ -7,6 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,6 +39,7 @@ import com.majkeylab.seliadocs.settings.AppTheme
 import com.majkeylab.seliadocs.settings.SettingsRepository
 import com.majkeylab.seliadocs.settings.SettingsScreen
 import com.majkeylab.seliadocs.ui.SeliaDocsTheme
+import com.majkeylab.seliadocs.ui.DARK_SURFACE_LUMINANCE
 import com.majkeylab.seliadocs.ui.OnboardingScreen
 import com.majkeylab.seliadocs.ui.NotebookOpeningCover
 import com.majkeylab.seliadocs.data.NotebookEntity
@@ -103,8 +106,19 @@ internal fun SeliaDocsApp(
         }
     }
     val activity = LocalActivity.current as? MainActivity
-    val darkTheme = settings.theme.resolveDarkTheme(activity)
-    SeliaDocsTheme(darkTheme = darkTheme, palette = settings.themePalette) {
+    val darkTheme = settings.theme.resolveDarkTheme(null)
+    SeliaDocsTheme(
+        darkTheme = darkTheme,
+        palette = if (darkTheme) settings.darkThemePalette ?: settings.themePalette else settings.themePalette,
+        custom = if (darkTheme) settings.darkCustomTheme else settings.lightCustomTheme,
+        font = settings.interfaceFont,
+        textScale = settings.interfaceTextScale,
+        corners = settings.interfaceCorners,
+    ) {
+        val colors = MaterialTheme.colorScheme
+        SideEffect {
+            activity?.setSystemBarIconAppearance(colors.surface.luminance() < DARK_SURFACE_LUMINANCE, colors.background.luminance() < DARK_SURFACE_LUMINANCE)
+        }
         if (loadedSettings == null) {
             Surface(Modifier.fillMaxSize()) {}
             return@SeliaDocsTheme

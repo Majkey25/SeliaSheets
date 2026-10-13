@@ -29,9 +29,8 @@ internal fun recognizeLine(points: List<CanvasPoint>): ShapeKind? {
     val dy = end.y - start.y
     val length = hypot(dx, dy)
     if (length < 4f) return null
-    val maxDeviation =
-        points.maxOf { point -> abs(dy * (point.x - start.x) - dx * (point.y - start.y)) / length }
-    return ShapeKind.LINE.takeIf { maxDeviation <= length * 0.03f }
+    val maxDeviationSquared = points.maxOf { point -> distanceToSegmentSquared(point, start, end) }
+    return ShapeKind.LINE.takeIf { maxDeviationSquared <= (length * 0.03f).pow(2) }
 }
 
 internal fun shapeBox(paths: List<StrokePath>): ShapeBox? {

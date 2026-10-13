@@ -16,6 +16,7 @@ import androidx.ink.strokes.Stroke
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -252,6 +253,178 @@ class StylusRoutingTest {
     }
 
     @Test
+    fun highlighterStaysVisibleWhenSaveCompletesBeforeCanonicalInkArrives() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity { view.finishStrokeSave(stroke, committedRevision = 1L) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 0L) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity {
+                view.setStrokes(listOf(InkCodec.decode(InkCodec.encode(stroke))), contentRevision = 1L)
+            }
+            assertHighlighterPixels(view, visible = true)
+        }
+
+    @Test
+    fun canonicalInkBeforeSaveCompletionDoesNotLeaveOptimisticInkAfterUndo() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity { view.setStrokes(emptyList()) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity {
+                view.setStrokes(listOf(InkCodec.decode(InkCodec.encode(stroke))), contentRevision = 1L)
+                view.finishStrokeSave(stroke, committedRevision = 1L)
+            }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 2L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun shapeConversionRemovesOptimisticInkAfterItsCanonicalRevisionArrives() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity { view.finishStrokeSave(stroke, committedRevision = 1L) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 1L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun newerUndoRevisionClearsInkEvenWhenTheSavedRevisionWasNeverDisplayed() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity {
+                view.setStrokes(emptyList(), contentRevision = 2L)
+                view.finishStrokeSave(stroke, committedRevision = 1L)
+            }
+            assertHighlighterPixels(view, visible = false)
+            scenario.onActivity { view.setStrokes(listOf(stroke), contentRevision = 1L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun failedSaveRemovesOptimisticInkWithoutWaitingForAnotherCanonicalRevision() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity { view.finishStrokeSave(stroke, committedRevision = null) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun highlighterWaitsForWrappedRevisionAndIgnoresThePreWrapSnapshot() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity {
+                view.setStrokes(emptyList(), contentRevision = Long.MAX_VALUE)
+                view.finishStrokeSave(stroke, committedRevision = 0L)
+            }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity {
+                view.setStrokes(listOf(InkCodec.decode(InkCodec.encode(stroke))), contentRevision = 0L)
+            }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = Long.MAX_VALUE) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 1L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun wrappedCanonicalInkBeforeSaveCompletionDoesNotLeaveInkAfterUndo() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity {
+                view.setStrokes(emptyList(), contentRevision = Long.MAX_VALUE)
+                view.setStrokes(listOf(InkCodec.decode(InkCodec.encode(stroke))), contentRevision = 0L)
+                view.finishStrokeSave(stroke, committedRevision = 0L)
+            }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = Long.MAX_VALUE) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 1L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun successfulRevisionZeroDoesNotAcknowledgeInkBeforeTheFirstCanonicalSnapshot() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity { view.finishStrokeSave(stroke, committedRevision = 0L) }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList()) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    @Test
+    fun firstCanonicalRevisionCanStartInTheUpperHalfOfTheSerialSpace() =
+        withPendingHighlighter { scenario, view, stroke ->
+            scenario.onActivity {
+                view.setStrokes(
+                    listOf(InkCodec.decode(InkCodec.encode(stroke))),
+                    contentRevision = 4_611_686_018_427_387_941L,
+                )
+                view.finishStrokeSave(stroke, committedRevision = 4_611_686_018_427_387_941L)
+            }
+            assertHighlighterPixels(view, visible = true)
+            scenario.onActivity { view.setStrokes(emptyList(), contentRevision = 4_611_686_018_427_387_942L) }
+            assertHighlighterPixels(view, visible = false)
+        }
+
+    private fun withPendingHighlighter(
+        exercise: (ActivityScenario<ComponentActivity>, InkCanvasView, Stroke) -> Unit,
+    ) {
+        val committed = CountDownLatch(1)
+        val finished = AtomicReference<Stroke>()
+        lateinit var view: InkCanvasView
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                view = InkCanvasView(activity)
+                activity.setContentView(view, FrameLayout.LayoutParams(500, 500))
+                view.setBackgroundColor(android.graphics.Color.WHITE)
+                view.setPageSize(500, 500)
+                view.tool = EditorTool.HIGHLIGHTER
+                view.brush = InkCodec.createBrush(BrushKind.HIGHLIGHTER, 0x66FFD54F, 24f)
+                view.listener = object : InkCanvasView.Listener {
+                    override fun onStrokeFinished(stroke: Stroke) {
+                        view.beginStrokeSave(stroke)
+                        finished.set(stroke)
+                        committed.countDown()
+                    }
+                    override fun onStrokeCanceled(pointerId: Int) = Unit
+                }
+                view.postWhenReady {
+                    val time = android.os.SystemClock.uptimeMillis()
+                    listOf(
+                        stylusEvent(time, time, MotionEvent.ACTION_DOWN, 80f, 140f),
+                        stylusEvent(time, time + 16, MotionEvent.ACTION_MOVE, 140f, 140f),
+                        stylusEvent(time, time + 32, MotionEvent.ACTION_UP, 200f, 140f),
+                    ).forEach { event ->
+                        try { view.dispatchTouchEvent(event) } finally { event.recycle() }
+                    }
+                }
+            }
+            assertTrue("Highlighter did not reach the finished layer", committed.await(10, TimeUnit.SECONDS))
+            // Only the completed layer may satisfy these assertions, never the retiring live surface.
+            scenario.onActivity { view.getChildAt(1).visibility = View.GONE }
+            assertHighlighterPixels(view, visible = true)
+            exercise(scenario, view, requireNotNull(finished.get()))
+        }
+    }
+
+    private fun assertHighlighterPixels(view: InkCanvasView, visible: Boolean) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val location = IntArray(2)
+        val frames = CountDownLatch(1)
+        instrumentation.runOnMainSync {
+            view.getLocationOnScreen(location)
+            view.postOnAnimation { view.postOnAnimation { frames.countDown() } }
+        }
+        assertTrue("Finished layer did not receive a frame", frames.await(5, TimeUnit.SECONDS))
+        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            val blue = android.graphics.Color.blue(bitmap.getPixel(location[0] + 140, location[1] + 140))
+            if (visible) assertTrue("Finished highlighter disappeared: blue=$blue", blue < 230)
+            else assertTrue("Optimistic highlighter survived canonical removal: blue=$blue", blue > 245)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    @Test
     fun retainedRealInputMatchesNativeHandoffAtZoom() {
         val committed = CountDownLatch(1)
         val nativeStroke = AtomicReference<Stroke>()
@@ -373,6 +546,16 @@ class StylusRoutingTest {
     }
 
     @Test
+    fun batchedBarrelTransitionPreservesCurvedInkAtNativeHandoff() {
+        assertBarrelTransitions(genericButtons = false, batchedHistory = true)
+    }
+
+    @Test
+    fun batchedBarrelTransitionPreservesCurvedInkAtForcedFallback() {
+        assertBarrelTransitions(genericButtons = false, batchedHistory = true, forceFallback = true)
+    }
+
+    @Test
     fun completedStrokeSurvivesImmediateCanvasDetach() {
         val committed = CountDownLatch(1)
         val finished = AtomicReference<Stroke>()
@@ -406,7 +589,11 @@ class StylusRoutingTest {
         }
     }
 
-    private fun assertBarrelTransitions(genericButtons: Boolean) {
+    private fun assertBarrelTransitions(
+        genericButtons: Boolean,
+        batchedHistory: Boolean = false,
+        forceFallback: Boolean = false,
+    ) {
         listOf(MotionEvent.BUTTON_STYLUS_PRIMARY, MotionEvent.BUTTON_STYLUS_SECONDARY).forEach { button ->
             val committed = CountDownLatch(3)
             val order = mutableListOf<String>()
@@ -434,10 +621,26 @@ class StylusRoutingTest {
                         val time = android.os.SystemClock.uptimeMillis()
                         val press = if (genericButtons) MotionEvent.ACTION_BUTTON_PRESS else MotionEvent.ACTION_MOVE
                         val release = if (genericButtons) MotionEvent.ACTION_BUTTON_RELEASE else MotionEvent.ACTION_MOVE
+                        val pressEvent = if (batchedHistory) {
+                            stylusEvent(time, time + 24, press, 60f, 90f, buttonState = button).apply {
+                                addBatch(time + 32, arrayOf(MotionEvent.PointerCoords().apply {
+                                    x = 70f
+                                    y = 110f
+                                    pressure = 0.7f
+                                }), 0)
+                                addBatch(time + 40, arrayOf(MotionEvent.PointerCoords().apply {
+                                    x = 80f
+                                    y = 50f
+                                    pressure = 0.7f
+                                }), 0)
+                            }
+                        } else {
+                            stylusEvent(time, time + 16, press, 80f, 50f, buttonState = button)
+                        }
                         listOf(
                             stylusEvent(time, time, MotionEvent.ACTION_DOWN, 40f, 50f),
                             stylusEvent(time, time + 16, MotionEvent.ACTION_MOVE, 80f, 50f),
-                            stylusEvent(time, time + 16, press, 80f, 50f, buttonState = button),
+                            pressEvent,
                             stylusEvent(time, time + 48, MotionEvent.ACTION_MOVE, 120f, 50f, buttonState = button),
                             stylusEvent(time, time + 64, release, 160f, 50f),
                             stylusEvent(time, time + 80, MotionEvent.ACTION_MOVE, 200f, 50f),
@@ -451,6 +654,11 @@ class StylusRoutingTest {
                             } finally { event.recycle() }
                         }
                         assertEquals(EditorTool.PEN, view.tool)
+                        if (forceFallback) {
+                            assertTrue("Native handoff ran before the forced fallback", order.isEmpty())
+                            view.flushPendingCommits()
+                            assertEquals(listOf("ink", "erase", "ink"), order)
+                        }
                     }
                 }
                 val completed = committed.await(10, TimeUnit.SECONDS)
@@ -461,6 +669,28 @@ class StylusRoutingTest {
                     assertEquals(160f, strokes.last().inputs[0].x, 0.1f)
                     assertEquals(80f, erased.first().x, 0.1f)
                     assertEquals(160f, erased.last().x, 0.1f)
+                    if (batchedHistory) {
+                        val first = strokes.first().inputs
+                        assertEquals(
+                            "Barrel transition dropped or reordered historical curve points",
+                            listOf(
+                                CanvasPoint(40f, 50f),
+                                CanvasPoint(80f, 50f),
+                                CanvasPoint(60f, 90f),
+                                CanvasPoint(70f, 110f),
+                                CanvasPoint(80f, 50f),
+                            ),
+                            (0 until first.size).map { CanvasPoint(first[it].x, first[it].y) },
+                        )
+                        assertEquals(
+                            listOf(0L, 16L, 24L, 32L, 40L),
+                            (0 until first.size).map { first[it].elapsedTimeMillis },
+                        )
+                        assertEquals(
+                            listOf(CanvasPoint(80f, 50f), CanvasPoint(120f, 50f), CanvasPoint(160f, 50f)),
+                            erased,
+                        )
+                    }
                 }
             }
         }

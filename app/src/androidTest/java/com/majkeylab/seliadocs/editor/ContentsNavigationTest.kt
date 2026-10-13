@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -14,9 +15,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
+import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -96,6 +99,44 @@ class ContentsNavigationTest {
     }
 
     @Test
+    fun pageMoveActionsRespectNotebookBoundaries() {
+        val current = mutableStateOf(pages)
+        val moves = mutableListOf<Pair<String, Int>>()
+        show(state = { EditorUiState(pages = current.value) }, onMove = { id, offset -> moves.add(id to offset) })
+        compose.onNodeWithContentDescription("Page 1 actions").performClick()
+        compose.onNodeWithText("Move earlier").assertIsNotEnabled()
+        compose.onNodeWithText("Move later").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Page 4 actions").performScrollTo().performClick()
+        compose.onNodeWithText("Move later").assertIsNotEnabled()
+        compose.onNodeWithText("Move earlier").assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf("page-0" to 1, "page-3" to -1), moves)
+            current.value = pages.take(1)
+        }
+        compose.onNodeWithContentDescription("Page 1 actions").performClick()
+        compose.onNodeWithText("Move earlier").assertIsNotEnabled()
+        compose.onNodeWithText("Move later").assertIsNotEnabled()
+    }
+
+    @Test
+    fun chapterAndBookmarkFiltersDoNotLimitPageMoves() {
+        val chapter = ChapterEntity("chapter", "book", "Lecture", 0xFF123456.toInt(), 0)
+        val chapterPages = pages.map { if (it.id == "page-2") it.copy(chapterId = chapter.id) else it }
+        val moves = mutableListOf<Pair<String, Int>>()
+        show(
+            state = { EditorUiState(pages = chapterPages, chapters = listOf(chapter)) },
+            onMove = { id, offset -> moves.add(id to offset) },
+        )
+        compose.onNodeWithContentDescription("Page 3 actions").performScrollTo().performClick()
+        compose.onNodeWithText("Move earlier").assertIsEnabled().performClick()
+        compose.onNodeWithTag("contents-bookmarks-filter").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Page 3 actions").performClick()
+        compose.onNodeWithText("Move earlier").assertIsEnabled()
+        compose.onNodeWithText("Move later").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(listOf("page-2" to -1, "page-2" to 1), moves) }
+    }
+
+    @Test
     fun busyPanelKeepsItsLayoutAndDisablesOpenMenuAndNavigation() {
         val enabled = mutableStateOf(true)
         val selected = mutableListOf<String>()
@@ -111,7 +152,7 @@ class ContentsNavigationTest {
         compose.onNodeWithText("Sheet 1").assertIsNotEnabled()
         compose.onAllNodesWithTag("contents-bookmark")[0].assertIsNotEnabled()
         compose.onNodeWithContentDescription("Page 1 actions").assertIsNotEnabled()
-        listOf("Rename page", "Move to chapter", "Duplicate page", "Delete page").forEach {
+        listOf("Rename page", "Move to chapter", "Move earlier", "Move later", "Duplicate page", "Delete page").forEach {
             compose.onNodeWithText(it).assertIsNotEnabled()
         }
         assertEquals(before, compose.onNodeWithTag("contents-jump-page").fetchSemanticsNode().boundsInRoot)
@@ -153,11 +194,12 @@ class ContentsNavigationTest {
     private fun show(
         state: () -> EditorUiState = { EditorUiState(pages = pages, selectedPageId = pages.first().id) },
         onSelect: (String) -> Unit = {},
+        onMove: (String, Int) -> Unit = { _, _ -> },
         enabled: () -> Boolean = { true },
     ) {
         compose.setContent {
             MaterialTheme {
-                ContentsPanel(state(), onSelect, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, {}, {},
+                ContentsPanel(state(), onSelect, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, onMove, {}, {},
                     loadPagePreview = { PagePreviewData(emptyList(), emptyList(), emptyList()) }, enabled = enabled())
             }
         }

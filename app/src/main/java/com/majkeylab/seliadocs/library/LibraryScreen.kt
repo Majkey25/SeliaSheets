@@ -148,7 +148,7 @@ internal fun LibraryScreen(
                     EmptyLibrary(state, modifier = Modifier.align(Alignment.Center))
                 } else {
                     val columns =
-                        if (LocalDensity.current.fontScale >= 1.5f) {
+                        if (LocalDensity.current.fontScale * settings.interfaceTextScale >= 1.5f) {
                             GridCells.Fixed(1)
                         } else {
                             GridCells.Adaptive(148.dp)

@@ -161,8 +161,15 @@ internal class PdfSandboxClient(context: Context) {
                             fail("PDF sandbox returned no binder")
                     }
                 val intent = Intent(application, PdfRenderService::class.java)
-                if (!application.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                val started = try {
+                    application.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+                } catch (error: SecurityException) {
+                    runCatching { application.unbindService(connection) }
+                    throw error
+                }
+                if (!started) {
                     if (delivered.compareAndSet(false, true)) {
+                        runCatching { application.unbindService(connection) }
                         continuation.resumeWithException(IOException("PDF sandbox could not be started"))
                     }
                     return@suspendCancellableCoroutine

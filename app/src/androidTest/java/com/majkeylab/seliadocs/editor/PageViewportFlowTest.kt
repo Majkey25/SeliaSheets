@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
@@ -22,9 +23,14 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.swipe
 import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
@@ -87,6 +93,96 @@ class PageViewportFlowTest {
         val before = surfaceSize()
         pinchToMaximumZoom()
         assertEquals("Pinch must transform ink without replacing its render buffers", before, surfaceSize())
+    }
+
+    @Test
+    fun movingPinchCentroidKeepsTheSamePagePointUnderTheFingers() {
+        renderPage(EditorTool.PEN, initialViewport = PageViewport(zoom = 2f))
+        val viewport = compose.onNodeWithTag("page-viewport")
+        val bounds = viewport.fetchSemanticsNode().boundsInRoot
+        val before = visiblePaperPoint(0.5f, 0.5f)
+        val paperWidth = compose.runOnIdle {
+            requireNotNull(findInkCanvas(compose.activity.window.decorView)).width
+        }
+        val distance = minOf(bounds.width, bounds.height) * 0.08f
+        val translation = if (paperWidth > bounds.width) Offset(distance, 0f) else Offset(0f, distance)
+
+        viewport.performTouchInput {
+            down(0, center + Offset(-distance, 0f))
+            down(1, center + Offset(distance, 0f))
+            updatePointerTo(0, center + translation + Offset(-distance * 1.5f, 0f))
+            updatePointerTo(1, center + translation + Offset(distance * 1.5f, 0f))
+            move(16)
+            up(1)
+            up(0)
+        }
+        compose.waitForIdle()
+
+        assertEquals("Zoom 300%", zoomDescription(viewport))
+        val after = visiblePaperPoint(0.5f, 0.5f)
+        assertEquals("The page point must follow the moving centroid on X", before.x + translation.x, after.x, 2f)
+        assertEquals("The page point must follow the moving centroid on Y", before.y + translation.y, after.y, 2f)
+    }
+
+    @Test
+    fun wideningViewportWithoutResizingPaperUpdatesPanLimits() {
+        var widthFraction by mutableStateOf(0.6f)
+        compose.setContent {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                PageCanvas(
+                    page = PageEntity("page", "notebook", 0, PaperTemplate.BLANK.name, 500, 500),
+                    pageNumber = 1,
+                    pageCount = 1,
+                    strokes = emptyList(),
+                    elements = emptyList(),
+                    blocks = emptyList(),
+                    selectedStrokeIds = emptySet(),
+                    selectedElementId = null,
+                    fingerDrawing = false,
+                    tool = EditorTool.PEN,
+                    penWidth = 4f,
+                    highlighterWidth = 16f,
+                    pageTransitionEnabled = false,
+                    onPreviousPage = {},
+                    onNextPage = {},
+                    onStrokeFinished = { _, _ -> },
+                    onEraseFinished = { _, _ -> },
+                    onSelectContent = { _, _ -> },
+                    onMoveSelection = { _, _ -> },
+                    onPageTextChanged = { _, _ -> },
+                    onCommitElementTransform = {},
+                    assetFile = { File(it) },
+                    initialViewport = PageViewport(zoom = 3f),
+                    modifier = Modifier.width(maxWidth * widthFraction).height(minOf(maxHeight, maxWidth * 0.5f)),
+                )
+            }
+        }
+        val viewport = compose.onNodeWithTag("page-viewport")
+        viewport.performTouchInput {
+            swipe(center, center + Offset(width * 0.1f, 0f), 300)
+        }
+        val before = viewport.fetchSemanticsNode().boundsInRoot
+        val paperWidth = compose.runOnIdle {
+            requireNotNull(findInkCanvas(compose.activity.window.decorView)).width
+        }
+
+        compose.runOnIdle { widthFraction = 1f }
+        compose.waitForIdle()
+        val resized = viewport.fetchSemanticsNode().boundsInRoot
+        assertTrue("The viewport must widen", resized.width > before.width)
+        assertEquals("Only viewport width changes", before.height, resized.height, 1f)
+        compose.runOnIdle {
+            assertEquals("Paper size must stay unchanged", paperWidth,
+                requireNotNull(findInkCanvas(compose.activity.window.decorView)).width)
+        }
+        assertTrue("The zoomed paper must cover the widened viewport", paperWidth > resized.width)
+        viewport.performTouchInput {
+            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.9f, centerY), 300)
+        }
+        compose.waitForIdle()
+
+        assertEquals("Pan must stop at the widened viewport edge",
+            rootPoint(resized.topLeft).x, visiblePaperPoint(0f, 0.5f).x, 2f)
     }
 
     private fun assertHighlighterVisibleAtZoom(
@@ -711,6 +807,40 @@ class PageViewportFlowTest {
     }
 
     @Test
+    fun selectedElementPaddingErasesOnceWithoutTransforming() {
+        val erased = AtomicInteger()
+        val commits = AtomicInteger()
+        renderSelectedElement(
+            element().copy(x = 262.5f, y = 401f, width = 70f, height = 40f),
+            onEraseFinished = { erased.incrementAndGet() },
+            onCommit = { commits.incrementAndGet() },
+        )
+        waitForNativeInputReady()
+        val overlay = compose.onNodeWithTag("element-selection").fetchSemanticsNode().boundsInRoot
+        val handles = listOf("element-move-handle", "element-resize-handle", "element-rotate-handle")
+            .map { compose.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot }
+        val paddingPoint = (overlay.topLeft + handles.first().topLeft) / 2f
+        val paddingEnd = paddingPoint + Offset(0f, (handles.first().top - overlay.top) / 4f)
+        listOf(paddingPoint, paddingEnd).forEach { point ->
+            assertTrue("Gesture must stay inside the overlay padding", overlay.contains(point))
+            assertTrue("Gesture must stay outside the transform handles", handles.none { it.contains(point) })
+        }
+        val start = rootPoint(paddingPoint)
+        val end = rootPoint(paddingEnd)
+        listOf(
+            MotionEvent.TOOL_TYPE_ERASER to 0,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_PRIMARY,
+            MotionEvent.TOOL_TYPE_STYLUS to MotionEvent.BUTTON_STYLUS_SECONDARY,
+        ).forEach { (toolType, buttonState) ->
+            dispatchStylusGesture(start, end, toolType, buttonState)
+            compose.waitForIdle()
+            assertEquals("Erase callbacks for tool=$toolType buttons=$buttonState", 1, erased.get())
+            assertEquals("Eraser must not transform the element", 0, commits.get())
+            erased.set(0)
+        }
+    }
+
+    @Test
     fun selectedInkHandlesDoNotBlockStylusErasers() {
         val erased = AtomicInteger()
         val committed = AtomicReference<InkSelectionTransform>()
@@ -737,26 +867,50 @@ class PageViewportFlowTest {
     @Test
     fun selectedInkCanStillResizeWithARegularStylus() {
         val committed = AtomicReference<InkSelectionTransform>()
-        renderSelectedInk(onCommit = committed::set)
+        val commits = AtomicInteger()
+        renderSelectedInk(onCommit = {
+            committed.set(it)
+            commits.incrementAndGet()
+        })
         val handle = compose.onNodeWithTag("ink-resize-handle").fetchSemanticsNode().boundsInRoot.center
         val start = rootPoint(handle)
+        val slop = ViewConfiguration.get(compose.activity).scaledTouchSlop.toFloat()
 
-        dispatchStylusGesture(start, start + Offset(80f, 80f))
+        dispatchStylusGesture(
+            start, start + Offset(slop * 6f, slop * 6f),
+            intermediatePositions = listOf(0.125f, 0.25f, 0.375f, 2f, 4f).map {
+                start + Offset(slop * it, slop * it)
+            },
+        )
         compose.waitUntil(3_000) { committed.get() != null }
+        compose.waitForIdle()
 
+        assertEquals(1, commits.get())
         assertTrue(requireNotNull(committed.get()).scale > 1f)
     }
 
     @Test
     fun selectedInkBodyMovesWithARegularStylus() {
         val moved = AtomicReference<CanvasPoint>()
-        renderSelectedInk(onMoveSelection = moved::set)
+        val moves = AtomicInteger()
+        renderSelectedInk(onMoveSelection = {
+            moved.set(it)
+            moves.incrementAndGet()
+        })
         val body = compose.onNodeWithTag("ink-move-handle").fetchSemanticsNode().boundsInRoot.center
         val start = rootPoint(body)
+        val slop = ViewConfiguration.get(compose.activity).scaledTouchSlop.toFloat()
 
-        dispatchStylusGesture(start, start + Offset(80f, 0f))
+        dispatchStylusGesture(
+            start, start + Offset(slop * 6f, 0f),
+            intermediatePositions = listOf(0.25f, 0.5f, 0.75f, 2f, 4f).map {
+                start + Offset(slop * it, 0f)
+            },
+        )
         compose.waitUntil(3_000) { moved.get() != null }
+        compose.waitForIdle()
 
+        assertEquals(1, moves.get())
         assertTrue(requireNotNull(moved.get()).x > 0f)
         assertEquals(0f, requireNotNull(moved.get()).y, 1f)
     }
@@ -779,6 +933,56 @@ class PageViewportFlowTest {
 
         assertTrue(requireNotNull(committed.get()).x > element.x)
         assertEquals(0, selections.get())
+    }
+
+    @Test
+    fun selectedImageMovesWithGradualStylusWithoutDrawingSelectingOrTurningPage() {
+        val source = File.createTempFile("selected-image-stylus-", ".png", compose.activity.cacheDir)
+        try {
+            val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+            try {
+                source.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            } finally {
+                bitmap.recycle()
+            }
+            val element = element().copy(kind = "IMAGE", text = null, assetId = source.absolutePath)
+            val committed = AtomicReference<ElementTransform>()
+            val commits = AtomicInteger()
+            val strokes = AtomicInteger()
+            val selections = AtomicInteger()
+            val pageTurns = AtomicInteger()
+            renderSelectedElement(
+                element = element,
+                pageCount = 2,
+                onNextPage = { pageTurns.incrementAndGet() },
+                onStrokeFinished = { strokes.incrementAndGet() },
+                onSelectContent = { selections.incrementAndGet() },
+                onCommit = {
+                    committed.set(it)
+                    commits.incrementAndGet()
+                },
+            )
+            val handle = compose.onNodeWithTag("element-move-handle").fetchSemanticsNode().boundsInRoot.center
+            val start = rootPoint(handle)
+            val slop = ViewConfiguration.get(compose.activity).scaledTouchSlop.toFloat()
+            dispatchStylusGesture(
+                start, start - Offset(slop * 6f, 0f),
+                intermediatePositions = listOf(0.25f, 0.5f, 0.75f, 2f, 4f).map {
+                    start - Offset(slop * it, 0f)
+                },
+            )
+            compose.waitUntil(3_000) { committed.get() != null }
+            compose.waitForIdle()
+
+            assertEquals(1, commits.get())
+            assertTrue(requireNotNull(committed.get()).x < element.x)
+            assertEquals(element.y, requireNotNull(committed.get()).y, 0.1f)
+            assertEquals(0, strokes.get())
+            assertEquals(0, selections.get())
+            assertEquals(0, pageTurns.get())
+        } finally {
+            source.delete()
+        }
     }
 
     @Test
@@ -1135,12 +1339,16 @@ class PageViewportFlowTest {
         end: Offset,
         toolType: Int = MotionEvent.TOOL_TYPE_STYLUS,
         buttonState: Int = 0,
+        intermediatePositions: List<Offset> = emptyList(),
     ) {
         val downTime = android.os.SystemClock.uptimeMillis()
+        val moves = (intermediatePositions + end).mapIndexed { index, point ->
+            stylusEvent(downTime, downTime + (index + 1) * 16L, MotionEvent.ACTION_MOVE, point.x, point.y, toolType, buttonState)
+        }
         dispatchEvents(
             stylusEvent(downTime, downTime, MotionEvent.ACTION_DOWN, start.x, start.y, toolType, buttonState),
-            stylusEvent(downTime, downTime + 16, MotionEvent.ACTION_MOVE, end.x, end.y, toolType, buttonState),
-            stylusEvent(downTime, downTime + 32, MotionEvent.ACTION_UP, end.x, end.y, toolType, buttonState),
+            *moves.toTypedArray(),
+            stylusEvent(downTime, downTime + (moves.size + 1) * 16L, MotionEvent.ACTION_UP, end.x, end.y, toolType, buttonState),
         )
     }
 

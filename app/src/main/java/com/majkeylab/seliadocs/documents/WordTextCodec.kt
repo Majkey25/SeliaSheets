@@ -363,6 +363,10 @@ internal object WordTextCodec {
                         "pPr", "rPr", "sectPr", "sdt" -> warnings += WordTextWarning.FORMATTING
                     }
                 } else if (inBody && !isWord) {
+                    if (parser.name in setOf("oMath", "oMathPara") && parser.namespace in setOf(
+                        "http://schemas.openxmlformats.org/officeDocument/2006/math",
+                        "http://purl.oclc.org/ooxml/officeDocument/math",
+                    )) invalid("Word equations are not supported")
                     warnings += WordTextWarning.OTHER_CONTENT
                 }
             } else if (event == XmlPullParser.END_TAG && isWord) {

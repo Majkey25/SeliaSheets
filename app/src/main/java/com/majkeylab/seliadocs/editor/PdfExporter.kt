@@ -351,10 +351,15 @@ internal class PdfExporter(private val assets: AssetStore, private val maxImageD
             )
         val bitmap = decodeOrientedImage(file, sample)
         try {
+            val scale = minOf(element.width / bitmap.width, element.height / bitmap.height)
+            val width = bitmap.width * scale
+            val height = bitmap.height * scale
+            val left = element.x + (element.width - width) / 2f
+            val top = element.y + (element.height - height) / 2f
             canvas.drawBitmap(
                 bitmap,
                 null,
-                RectF(element.x, element.y, element.x + element.width, element.y + element.height),
+                RectF(left, top, left + width, top + height),
                 Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
             )
         } finally {

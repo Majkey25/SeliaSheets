@@ -4,11 +4,16 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 internal interface PageDao {
+    @Transaction
+    @Query("SELECT * FROM pages WHERE id = :pageId")
+    fun observePageContent(pageId: String): Flow<PageContentSnapshot?>
+
     @Insert
     suspend fun insertStroke(stroke: StrokeEntity)
 

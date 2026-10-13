@@ -32,7 +32,7 @@
 
 1. Enroll in Play App Signing.
 2. Update Data safety from [`DATA_SAFETY.md`](DATA_SAFETY.md) and confirm that the hosted privacy policy matches it.
-3. Upload the signed `app-release.aab` with version code 13 and version name `0.6.0-beta.1` to the existing closed testing track.
+3. Upload the verified signed `app-release.aab` to the existing closed testing track. The `0.10.0-beta.2` candidate uses version code 25; confirm it exceeds every uploaded code in Console before submitting.
 4. Add the English release notes from [`STORE_LISTING.md`](STORE_LISTING.md).
 5. Confirm the package, version, target SDK, tester list, and dashboard status before publishing the closed release.
 6. Do not publish to production until Play reports zero blocking tasks and the hosted privacy URL is live.

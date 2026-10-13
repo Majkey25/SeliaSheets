@@ -27,14 +27,19 @@ import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.ink.brush.InputToolType
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.espresso.Espresso.pressBack
 import com.majkeylab.seliadocs.MainActivity
 import com.majkeylab.seliadocs.SeliaDocsApp
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
+import com.majkeylab.seliadocs.data.SeliaDocsDatabase
+import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
@@ -386,21 +391,58 @@ class PageNavigationFlowTest {
     }
 
     @Test
-    fun drawWithFingerUpdatesCurrentNotebookAndSurvivesReopen() {
-        val title = openCompactEditor()
+    fun drawWithFingerUpdatesCurrentNotebookAndSurvivesReopen() = assertFingerAnnotation(widthDp = 360)
 
-        rule.onNodeWithTag("compact-more").performClick()
-        rule.onNodeWithTag("compact-more-finger-drawing").assertIsOff().performClick()
-        rule.onNodeWithTag("compact-more-finger-drawing").assertDoesNotExist()
-        rule.onNodeWithTag("compact-more").performClick()
-        rule.onNodeWithTag("compact-more-finger-drawing").assertIsOn()
+    @Test
+    fun mediumEditorCanEnableAndSaveFingerAnnotations() = assertFingerAnnotation(widthDp = 800)
 
+    @Test
+    fun expandedEditorCanEnableAndSaveFingerAnnotations() = assertFingerAnnotation(widthDp = 1280)
+
+    private fun assertFingerAnnotation(widthDp: Int) {
+        val title = openEditor(widthDp)
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity.application))
+        val notebook = runBlocking { repository.getAllNotebooks().single { it.title == title } }
+        val page = runBlocking { repository.getPages(notebook.id).single() }
+
+        rule.onNodeWithContentDescription("More options").performClick()
+        rule.onNodeWithText("Draw with finger").assertIsOff().performClick()
+        rule.onNodeWithText("Draw with finger").assertDoesNotExist()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle { rule.activity.window.decorView.findInkCanvas()?.fingerDrawing == true }
+        }
+        val toolTag = if (widthDp < 600) "compact-tool-highlighter" else "toolbar-tool-highlighter"
+        rule.onNodeWithTag(toolTag).performClick()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle { rule.activity.window.decorView.findInkCanvas()?.tool == EditorTool.HIGHLIGHTER }
+        }
+        rule.onNodeWithTag("page-paper").performTouchInput {
+            swipe(Offset(width * 0.3f, height * 0.6f), Offset(width * 0.7f, height * 0.6f), 300)
+        }
+        rule.waitUntil(10_000) { runBlocking { repository.getStrokes(page.id).size == 1 } }
+        val stroke = runBlocking { repository.getStrokes(page.id).single() }
+        assertEquals(BrushKind.HIGHLIGHTER.name, stroke.brushKind)
+        assertEquals(InputToolType.TOUCH, stroke.toInkStroke().inputs[0].toolType)
+
+        rule.onNodeWithContentDescription("More options").performClick()
+        rule.onNodeWithText("Draw with finger").assertIsOn()
         pressBack()
-        rule.onNodeWithTag("compact-back").performClick()
+        rule.onNodeWithContentDescription("Back").performClick()
         rule.onNodeWithContentDescription("Open $title").performClick()
         rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
-        rule.onNodeWithTag("compact-more").performClick()
-        rule.onNodeWithTag("compact-more-finger-drawing").assertIsOn()
+        rule.onNodeWithContentDescription("More options").performClick()
+        rule.onNodeWithText("Draw with finger").assertIsOn().performClick()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle { rule.activity.window.decorView.findInkCanvas()?.fingerDrawing == false }
+        }
+        rule.onNodeWithTag("page-paper").performTouchInput {
+            swipe(Offset(width * 0.3f, height * 0.7f), Offset(width * 0.7f, height * 0.7f), 300)
+        }
+        rule.onNodeWithContentDescription("Back").performClick()
+        runBlocking {
+            assertEquals(false, repository.getNotebook(notebook.id).fingerDrawing)
+            assertEquals(listOf(stroke.id), repository.getStrokes(page.id).map { it.id })
+        }
     }
 
     private fun renderPage(
@@ -530,10 +572,10 @@ class PageNavigationFlowTest {
         )
     }
 
-    private fun openCompactEditor(): String {
+    private fun openEditor(widthDp: Int): String {
         rule.activity.setContent {
             DeviceConfigurationOverride(
-                DeviceConfigurationOverride.WindowSize(DpSize(360.dp, 744.dp)),
+                DeviceConfigurationOverride.WindowSize(DpSize(widthDp.dp, 744.dp)),
             ) {
                 SeliaDocsApp()
             }
@@ -543,6 +585,7 @@ class PageNavigationFlowTest {
         rule.onNodeWithContentDescription("Notebook name").performTextInput(title)
         rule.onNodeWithText("Create notebook").performClick()
         rule.waitUntil(5_000) { rule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty() }
+        closeSoftKeyboard()
         rule.onNodeWithContentDescription("Open $title").performClick()
         rule.onNodeWithTag("editor-top-bar").assertIsDisplayed()
         return title

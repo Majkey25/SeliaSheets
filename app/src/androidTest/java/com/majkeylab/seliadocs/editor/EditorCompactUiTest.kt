@@ -1164,6 +1164,42 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("compact-more-undo").assertIsDisplayed()
         rule.onNodeWithTag("compact-more-redo").assertIsDisplayed()
     }
+
+    @Test
+    fun appAndSystemTextScaleKeepCompactActionsReachable() {
+        val settings = SettingsRepository.create(rule.activity.application)
+        val previous = runBlocking { settings.settings.first().interfaceTextScale }
+        try {
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            val title = openEditor(widthDp = 360, fontScale = 1.3f)
+            rule.onNodeWithTag("compact-undo").assertIsDisplayed()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(title)
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1.4f) } }
+            rule.waitUntil(5_000) { !hasTag("compact-undo") }
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains("Page 1 of 1")
+            val layouts = mutableListOf<TextLayoutResult>()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.single().lineCount)
+            assertFalse(layouts.single().isLineEllipsized(0))
+            listOf("compact-back", "compact-page-location", "compact-more").forEach { tag ->
+                rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction()
+            }
+            rule.onNodeWithTag("compact-more").performClick()
+            rule.onNodeWithTag("compact-more-undo").assertIsDisplayed()
+            rule.onNodeWithTag("compact-more-redo").assertIsDisplayed()
+            pressBack()
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            rule.waitUntil(5_000) { hasTag("compact-undo") }
+            rule.onNodeWithTag("compact-undo").assertIsDisplayed()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(title)
+        } finally {
+            runBlocking { settings.update { it.copy(interfaceTextScale = previous) } }
+        }
+    }
+
     @Test
     fun activityRetainsOneSessionHolderAndClearsChildBetweenEditors() {
         rule.waitForIdle()

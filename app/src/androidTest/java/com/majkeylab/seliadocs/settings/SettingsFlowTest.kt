@@ -107,7 +107,7 @@ class SettingsFlowTest {
     fun everySettingsGroupReportsCollapsedAndExpandedState() {
         rule.onNodeWithText("Settings").performClick()
 
-        listOf("Notebook defaults", "Drawing", "Interface & export", "App & privacy").forEach { title ->
+        listOf("Notebook defaults", "Drawing", "Appearance", "Export", "App & privacy").forEach { title ->
             val group =
                 hasText(title) and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
             rule.onNodeWithTag("settings-list").performScrollToNode(hasText(title))

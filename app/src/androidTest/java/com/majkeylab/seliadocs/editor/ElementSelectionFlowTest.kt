@@ -90,6 +90,91 @@ class ElementSelectionFlowTest {
     }
 
     @Test
+    fun moveAfterExternalRestoreStartsFromRestoredTransform() {
+        val original = element().copy(x = 120f, y = 180f)
+        var selected by mutableStateOf(original)
+        val committed = mutableListOf<ElementTransform>()
+        rule.setContent {
+            MaterialTheme {
+                Box(Modifier.size(595.dp, 842.dp)) {
+                    ElementSelectionOverlay(
+                        page = PageEntity("page", "notebook", 0, "BLANK", 595, 842),
+                        element = selected,
+                        scaleX = 1f,
+                        scaleY = 1f,
+                        onPreview = {},
+                        onCommit = { transform ->
+                            committed += transform
+                            selected = selected.copy(
+                                x = transform.x,
+                                y = transform.y,
+                                width = transform.width,
+                                height = transform.height,
+                                rotation = transform.rotation,
+                            )
+                        },
+                    )
+                }
+            }
+        }
+
+        rule.onNodeWithTag("element-move-handle").performTouchInput {
+            swipe(center, center + Offset(48f, 0f), durationMillis = 250)
+        }
+        rule.runOnIdle {
+            assertEquals(1, committed.size)
+            assertTrue(committed.single().x > original.x)
+            selected = original
+        }
+        rule.waitForIdle()
+
+        rule.onNodeWithTag("element-move-handle").performTouchInput {
+            swipe(center, center + Offset(48f, 0f), durationMillis = 250)
+        }
+        rule.runOnIdle {
+            val dragPixels = 48f - ViewConfiguration.get(rule.activity).scaledTouchSlop
+            val expectedX = original.x + dragPixels / rule.density.density
+            assertEquals(2, committed.size)
+            assertEquals(expectedX, committed.last().x, 0.1f)
+            assertEquals(original.y, committed.last().y, 0.1f)
+            assertEquals(original.width, committed.last().width, 0.1f)
+            assertEquals(original.height, committed.last().height, 0.1f)
+            assertEquals(original.rotation, committed.last().rotation, 0.1f)
+        }
+    }
+
+    @Test
+    fun rotatedMoveFollowsScreenHorizontalDrag() {
+        val selected = element().copy(x = 180f, y = 220f, rotation = 90f)
+        val committed = mutableListOf<ElementTransform>()
+        rule.setContent {
+            MaterialTheme {
+                Box(Modifier.size(595.dp, 842.dp)) {
+                    ElementSelectionOverlay(
+                        page = PageEntity("page", "notebook", 0, "BLANK", 595, 842),
+                        element = selected,
+                        scaleX = 1f,
+                        scaleY = 1f,
+                        onPreview = {},
+                        onCommit = { committed += it },
+                    )
+                }
+            }
+        }
+
+        rule.onNodeWithTag("element-move-handle").performTouchInput {
+            swipe(center, center + Offset(48f, 0f), durationMillis = 250)
+        }
+        rule.runOnIdle {
+            val dragPixels = 48f - ViewConfiguration.get(rule.activity).scaledTouchSlop
+            assertEquals(1, committed.size)
+            assertEquals(selected.x + dragPixels / rule.density.density, committed.single().x, 0.1f)
+            assertEquals(selected.y, committed.single().y, 0.1f)
+            assertEquals(selected.rotation, committed.single().rotation, 0.1f)
+        }
+    }
+
+    @Test
     fun contextBarExposesElementActions() {
         var duplicated = false
         var broughtForward = false
@@ -320,10 +405,12 @@ class ElementSelectionFlowTest {
     }
 
     @Test
-    fun accessibilitySelectsUnselectedElementThenCommitsTransform() {
+    fun accessibilitySelectsAndTransformsOnlyOnReadyEditablePage() {
         val context = rule.activity
         val committed = mutableListOf<ElementTransform>()
         var selectedId by mutableStateOf<String?>(null)
+        var editable by mutableStateOf(true)
+        var ready by mutableStateOf(true)
         val selected = element()
         rule.setContent {
             SeliaDocsTheme {
@@ -336,6 +423,8 @@ class ElementSelectionFlowTest {
                     blocks = emptyList(),
                     selectedStrokeIds = emptySet(),
                     selectedElementId = selectedId,
+                    pageTextInputEnabled = editable,
+                    pageContentReady = ready,
                     fingerDrawing = false,
                     tool = EditorTool.LASSO,
                     penWidth = 4f,
@@ -368,6 +457,13 @@ class ElementSelectionFlowTest {
                 context.getString(R.string.move_left),
             ),
         )
+        rule.runOnIdle { assertEquals(1, committed.size) }
+        rule.runOnIdle { editable = false }
+        rule.onNodeWithTag("element-selection").assertDoesNotExist()
+        rule.runOnIdle { editable = true; ready = false }
+        rule.onNodeWithTag("element-selection").assertDoesNotExist()
+        rule.runOnIdle { ready = true }
+        rule.onNodeWithTag("element-selection").assertIsDisplayed()
         rule.runOnIdle { assertEquals(1, committed.size) }
     }
 

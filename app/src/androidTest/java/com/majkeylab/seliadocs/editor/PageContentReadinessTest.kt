@@ -17,6 +17,7 @@ import com.majkeylab.seliadocs.data.CoverPattern
 import com.majkeylab.seliadocs.data.CreateNotebookRequest
 import com.majkeylab.seliadocs.data.ElementDraft
 import com.majkeylab.seliadocs.data.ElementKind
+import com.majkeylab.seliadocs.data.LibraryMutationGate
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.SeliaDocsDatabase
@@ -25,8 +26,15 @@ import com.majkeylab.seliadocs.recognition.RecognitionModelManager
 import com.majkeylab.seliadocs.settings.AppSettings
 import com.majkeylab.seliadocs.ui.SeliaDocsTheme
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,6 +51,51 @@ class PageContentReadinessTest {
 
     @Test
     fun closingWhileNextPageLoadsDoesNotWaitForItsContent() = assertPageContentReadiness(closeWhileLoading = true)
+
+    @Test
+    fun queuedPageMoveResolvesItsStableIdAfterAnEarlierReorder() {
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(rule.activity.application))
+        val notebook = runBlocking {
+            repository.createNotebook(CreateNotebookRequest(
+                "Queued page move ${System.nanoTime()}", CoverColor.SAGE, CoverPattern.SOLID,
+                PaperTemplate.BLANK, PageOrientation.PORTRAIT, false,
+            ))
+        }
+        val first = runBlocking { repository.getPages(notebook).single().id }
+        val second = runBlocking { repository.addPage(notebook, first) }
+        val third = runBlocking { repository.addPage(notebook, second) }
+        val acquired = CountDownLatch(1)
+        val release = CompletableDeferred<Unit>()
+        val earlierMove = CoroutineScope(Dispatchers.IO).launch {
+            LibraryMutationGate.withLock {
+                acquired.countDown()
+                release.await()
+                repository.movePage(notebook, 0, 2)
+            }
+        }
+        try {
+            assertTrue(acquired.await(5, TimeUnit.SECONDS))
+            rule.runOnUiThread {
+                val editor = ViewModelProvider(rule.activity, viewModelFactory {
+                    initializer { EditorViewModel(rule.activity.application, notebook) }
+                })["queued-page-move", EditorViewModel::class.java]
+                editor.movePage(second, 1)
+            }
+            release.complete(Unit)
+            runBlocking {
+                earlierMove.join()
+                val reordered = withTimeout(5_000) {
+                    repository.observePages(notebook).first { pages -> pages.map { it.id } == listOf(third, second, first) }
+                }
+                assertEquals(listOf(third, second, first), reordered.map { it.id })
+            }
+        } finally {
+            release.complete(Unit)
+            runBlocking { earlierMove.join() }
+            rule.runOnUiThread { rule.activity.viewModelStore.clear() }
+            runBlocking { repository.deleteNotebook(notebook) }
+        }
+    }
 
     private fun assertPageContentReadiness(closeWhileLoading: Boolean) {
         val application = rule.activity.application
@@ -104,12 +157,14 @@ class PageContentReadinessTest {
             assertEquals(first, editor.state.value.selectedPage?.id)
             assertEquals(1, editor.state.value.strokes.size)
             assertEquals(firstElement, editor.state.value.elements.single().id)
+            assertEquals(runBlocking { repository.getPage(first)!!.updatedAt }, editor.state.value.selectedPageContentRevision)
 
             rule.runOnUiThread { holder.requestAction(EditorAction.SelectPage(second)) }
             rule.waitUntil(5_000) { secondLoadStarted.isCompleted && editor.state.value.selectedPage?.id == second }
             rule.runOnIdle {
                 val loading = editor.state.value
                 assertFalse(loading.pageContentReady)
+                assertEquals(0L, loading.selectedPageContentRevision)
                 assertTrue(loading.strokes.isEmpty())
                 assertTrue(loading.elements.isEmpty())
                 assertTrue(loading.blocks.isEmpty())
@@ -145,6 +200,7 @@ class PageContentReadinessTest {
             }
             releaseSecondLoad.complete(Unit)
             rule.waitUntil(5_000) { editor.state.value.pageContentReady && editor.state.value.tool == EditorTool.PENCIL }
+            assertEquals(runBlocking { repository.getPage(second)!!.updatedAt }, editor.state.value.selectedPageContentRevision)
             rule.onNodeWithTag("page-text").assertIsDisplayed().assertTextContains("Second page only")
             rule.runOnUiThread { holder.requestAction(EditorAction.SelectTool(EditorTool.TYPE)) }
             rule.waitUntil(5_000) { editor.state.value.tool == EditorTool.TYPE }

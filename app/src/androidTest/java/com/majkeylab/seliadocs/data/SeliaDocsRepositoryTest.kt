@@ -6,7 +6,15 @@ import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.editor.ShapeKind
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -48,6 +56,53 @@ class SeliaDocsRepositoryTest {
 
         assertEquals("Physics", repository.getNotebook(id).title)
         assertEquals(listOf(0), repository.getPages(id).map(PageEntity::pageIndex))
+    }
+
+    @Test
+    fun observedPageRevisionAndOrderedContentComeFromOneTransaction() = runBlocking {
+        val notebook = repository.createNotebook(request())
+        val page = repository.getPages(notebook).single()
+        repository.addStroke(page.id, StrokePayload("PRESSURE_PEN", 0xFF202124.toInt(), 4f, 0.1f, byteArrayOf(1)))
+        val stroke = repository.getStrokes(page.id).single()
+        val element = repository.addElementEntity(page.id, ElementDraft(ElementKind.TEXT, 10f, 10f, 100f, 40f, text = "Seed"))
+        repository.updatePageText(page.id, "Seed")
+        val block = repository.getBlocks(page.id).single()
+        val dao = database.pageDao()
+        suspend fun replaceContent(revision: Long) = database.withTransaction {
+            dao.deleteStrokes(page.id)
+            dao.deleteElements(page.id)
+            dao.deleteBlocks(page.id)
+            listOf(7, 2).forEach { order ->
+                dao.insertStroke(stroke.copy(id = "stroke-$revision-$order", zIndex = order))
+                dao.insertElement(element.copy(id = "element-$revision-$order", zIndex = order))
+                dao.insertBlock(block.copy(id = "block-$revision-$order", orderIndex = order))
+            }
+            database.notebookDao().updatePage(page.copy(updatedAt = revision))
+        }
+        replaceContent(2_000L)
+        val observed = Channel<Long>(capacity = 1)
+        val observer = launch(Dispatchers.IO) {
+            repository.observePageContent(page.id).filterNotNull().collect { snapshot ->
+                val revision = snapshot.page.updatedAt
+                assertEquals(listOf(2, 7).map { "stroke-$revision-$it" }, snapshot.strokes.map(StrokeEntity::id))
+                assertEquals(listOf(2, 7).map { "element-$revision-$it" }, snapshot.elements.map(ElementEntity::id))
+                assertEquals(listOf(2, 7).map { "block-$revision-$it" }, snapshot.blocks.map(BlockEntity::id))
+                observed.send(revision)
+            }
+        }
+        try {
+            assertEquals(2_000L, withTimeout(5_000) { observed.receive() })
+            repeat(24) { index ->
+                val revision = 2_001L + index
+                replaceContent(revision)
+                withTimeout(5_000) {
+                    while (observed.receive() != revision) Unit
+                }
+            }
+        } finally {
+            observer.cancelAndJoin()
+            observed.close()
+        }
     }
 
     @Test

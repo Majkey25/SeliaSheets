@@ -10,6 +10,7 @@ import java.io.File
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 
 internal data class ImageOcrRegion(
@@ -27,11 +28,14 @@ internal data class ImageOcrResult(
 
 internal suspend fun recognizeImage(file: File): ImageOcrResult {
     require(file.isFile)
-    val bitmap = withContext(Dispatchers.IO) { decodeForOcr(file) }
-    return try {
-        recognizeBitmap(bitmap)
-    } finally {
-        bitmap.recycle()
+    val recognitionContext = currentCoroutineContext()
+    return withContext(Dispatchers.IO) {
+        val bitmap = decodeForOcr(file)
+        try {
+            withContext(recognitionContext) { recognizeBitmap(bitmap) }
+        } finally {
+            bitmap.recycle()
+        }
     }
 }
 

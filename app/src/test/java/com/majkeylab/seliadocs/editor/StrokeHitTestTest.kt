@@ -37,4 +37,15 @@ class StrokeHitTestTest {
 
         assertTrue(hitStrokePath(eraser, 1f, stroke))
     }
+
+    @Test
+    fun eraserChecksLastSegmentOfMultiPointPaths() {
+        val stroke = StrokePath("corner", listOf(CanvasPoint(0f, 0f), CanvasPoint(10f, 0f), CanvasPoint(10f, 10f)))
+        val eraser = listOf(CanvasPoint(20f, 20f), CanvasPoint(20f, 5f), CanvasPoint(5f, 5f))
+
+        assertTrue(hitStroke(CanvasPoint(10f, 5f), 0f, stroke))
+        assertTrue(hitStrokePath(eraser, 0f, StrokePath("point", listOf(CanvasPoint(10f, 5f)))))
+        assertTrue(hitStrokePath(eraser, 0f, stroke))
+        assertFalse(hitStrokePath(eraser, 0f, StrokePath("miss", listOf(CanvasPoint(10f, 6f)))))
+    }
 }

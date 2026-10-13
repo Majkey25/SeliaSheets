@@ -82,6 +82,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
@@ -128,6 +129,7 @@ private data class CanvasPageFrame(
     val blocks: List<BlockEntity>,
     val ocrSearchHighlight: OcrSearchHighlight?,
     val contentReady: Boolean,
+    val contentRevision: Long,
 )
 
 @Composable
@@ -162,6 +164,7 @@ internal fun PageCanvas(
     onPageTextDraftChanged: (String, TextFieldValue) -> Boolean = { _, _ -> true },
     initialPageTextDraft: TextFieldValue? = null,
     pageContentReady: Boolean = true,
+    pageContentRevision: Long = 0L,
     pageTextInputEnabled: Boolean = true,
     textPlacementEnabled: Boolean = false,
     textPlacementInputEnabled: Boolean = true,
@@ -180,7 +183,7 @@ internal fun PageCanvas(
     pdfSearchHighlight: PdfSearchHighlight? = null,
     modifier: Modifier = Modifier,
 ) {
-    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight, pageContentReady)
+    val frame = CanvasPageFrame(page, pageNumber, strokes, elements, blocks, ocrSearchHighlight, pageContentReady, pageContentRevision)
     val currentPageId = rememberUpdatedState(page?.id)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AnimatedContent(
@@ -200,6 +203,7 @@ internal fun PageCanvas(
                     target.pageNumber,
                     pageCount,
                     target.contentReady,
+                    target.contentRevision,
                     { currentPageId.value == targetPage.id },
                     target.strokes,
                     target.elements,
@@ -264,6 +268,7 @@ private fun Paper(
     pageNumber: Int,
     pageCount: Int,
     contentReady: Boolean,
+    contentRevision: Long,
     isCurrentPage: () -> Boolean,
     strokes: List<StrokeEntity>,
     elements: List<ElementEntity>,
@@ -421,7 +426,7 @@ private fun Paper(
                 .fillMaxSize()
                 .testTag("page-viewport")
                 .semantics { stateDescription = zoomDescription }
-                .pointerInput(page.id, fingerDrawing, paperWidthPx, paperHeightPx) {
+                .pointerInput(page.id, fingerDrawing, paperWidthPx, paperHeightPx, viewportWidthPx, viewportHeightPx) {
                     if (!fingerDrawing) {
                         detectTapGestures(
                             onDoubleTap = {
@@ -433,7 +438,7 @@ private fun Paper(
                         )
                     }
                 }
-                .pointerInput(page.id, fingerDrawing, tool, paperWidthPx, paperHeightPx) {
+                .pointerInput(page.id, fingerDrawing, tool, paperWidthPx, paperHeightPx, viewportWidthPx, viewportHeightPx) {
                     awaitEachGesture {
                         val arbiter = PageGestureArbiter()
                         var startCentroid: Offset? = null
@@ -490,7 +495,7 @@ private fun Paper(
                                     (pinchOwned || viewportZoom > 1f) &&
                                         (zoomChange != 1f || panChange.x != 0f || panChange.y != 0f)
                                 ) {
-                                    val focus = event.calculateCentroid(useCurrent = true)
+                                    val focus = event.calculateCentroid(useCurrent = false)
                                     val updated =
                                         updatePageViewport(
                                             current = PageViewport(viewportZoom, viewportPanX, viewportPanY),
@@ -704,7 +709,7 @@ private fun Paper(
                                     onMoveSelection(page.id, delta)
                                 }
                             }
-                        view.setStrokes(decodedStrokes, selected)
+                        if (contentReady) view.setStrokes(decodedStrokes, selected, contentRevision)
                     },
                     modifier = Modifier.fillMaxSize().zIndex(2f),
                 )
@@ -719,7 +724,8 @@ private fun Paper(
                     onDraftChanged = onTextPlacementDraftChanged,
                     onFinished = onTextPlacementFinished,
                 )
-                if (!textPlacementEnabled && tool == EditorTool.LASSO && selectedElement != null) {
+                val selectionEnabled = contentReady && pageTextInputEnabled && isCurrentPage()
+                if (selectionEnabled && !textPlacementEnabled && tool == EditorTool.LASSO && selectedElement != null) {
                     ElementSelectionOverlay(
                         page = page,
                         element = selectedElement,
@@ -731,7 +737,7 @@ private fun Paper(
                         eraserPointerId = eraserPointerId,
                         onBoundsChanged = selectionBounds::set,
                     )
-                } else if (tool == EditorTool.LASSO && selectedInkBounds != null) {
+                } else if (selectionEnabled && tool == EditorTool.LASSO && selectedInkBounds != null) {
                     InkSelectionOverlay(
                         bounds = selectedInkBounds,
                         scaleX = scaleX,
@@ -811,6 +817,7 @@ private fun InlineTextPlacementLayer(
     val focusRequester = remember(page.id, origin) { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val placementDescription = stringResource(R.string.place_text)
+    val currentDraftChanged = rememberUpdatedState(onDraftChanged)
     val point = origin
 
     Box(Modifier.fillMaxSize().zIndex(4f)) {
@@ -826,7 +833,7 @@ private fun InlineTextPlacementLayer(
                                     offset.x / size.width * page.widthPoints,
                                     offset.y / size.height * page.heightPoints,
                                 )
-                            if (onDraftChanged(page.id, null, selected, "")) origin = selected
+                            if (currentDraftChanged.value(page.id, null, selected, "")) origin = selected
                         }
                     }
                     .semantics {
@@ -985,7 +992,6 @@ private fun PageTextLayer(
     val modifier =
         Modifier
             .fillMaxSize()
-            .zIndex(if (active) 3f else 0f)
             .padding(
                 start = (PAGE_TEXT_MARGIN * scaleX).dp,
                 top = (PAGE_TEXT_TOP * scaleY).dp,
@@ -1015,21 +1021,26 @@ private fun PageTextLayer(
             draft = updatedDraft
         }
     }
-    LaunchedEffect(draft.text) {
-        if (draft.text == storedText) return@LaunchedEffect
+    LaunchedEffect(draft.text, draft.composition, draft.selection, active, inputEnabled) {
         delay(450)
         val completed =
-            if (draft.composition == null && draft.selection.collapsed && draft.selection.end == draft.text.length) {
+            if (active && inputEnabled && draft.composition == null &&
+                draft.selection.collapsed && draft.selection.end == draft.text.length) {
                 completeTrailingMath(draft.text)
             } else {
                 draft.text
             }
         if (completed != draft.text) {
-            val updated = TextFieldValue(completed, selection = TextRange(completed.length))
-            if (onDraftChanged(page.id, updated)) draft = updated
-            return@LaunchedEffect
+            pageFull = !pageTextFits(completed, page.widthPoints, page.heightPoints)
+            if (!pageFull) {
+                val updated = TextFieldValue(completed, selection = TextRange(completed.length))
+                if (onDraftChanged(page.id, updated)) {
+                    draft = updated
+                    return@LaunchedEffect
+                }
+            }
         }
-        onTextChanged(page.id, draft.text)
+        if (draft.text != storedText) onTextChanged(page.id, draft.text)
     }
     LaunchedEffect(active, inputEnabled, page.id) {
         if (active && inputEnabled) {
@@ -1196,6 +1207,7 @@ private fun pageTextStyle(scaleY: Float, lineHeight: Float = 24f): TextStyle {
     val density = LocalDensity.current
     return MaterialTheme.typography.bodyLarge.copy(
         color = Color(0xFF202124),
+        fontFamily = FontFamily.Default,
         fontSize = with(density) { (18f * scaleY).dp.toSp() },
         lineHeight = with(density) { (lineHeight * scaleY).dp.toSp() },
         letterSpacing = 0.sp,
@@ -1208,8 +1220,7 @@ internal fun CleanShape(element: ElementEntity, modifier: Modifier, displayedWid
     Canvas(modifier) {
         val color = Color(element.colorArgb ?: 0xFF202124.toInt())
         val pageScale = size.width / displayedWidth
-        val stroke = DrawStroke(width = element.strokeWidth?.let { it * pageScale } ?: 3.dp.toPx())
-        val inset = if (element.strokeWidth == null) 3.dp.toPx() else 0f
+        val stroke = DrawStroke(width = (element.strokeWidth ?: 3f) * pageScale)
         when (kind) {
             ShapeKind.LINE,
             ShapeKind.ARROW,
@@ -1218,7 +1229,7 @@ internal fun CleanShape(element: ElementEntity, modifier: Modifier, displayedWid
                 val end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f)
                 val path = Path().apply { moveTo(start.x, start.y); lineTo(end.x, end.y) }
                 if (kind == ShapeKind.ARROW) {
-                    val head = minOf(if (element.strokeWidth == null) 18.dp.toPx() else 18f * pageScale, size.width / 3f)
+                    val head = minOf(18f * pageScale, size.width / 3f)
                     path.moveTo(end.x - head, end.y - head * 0.55f)
                     path.lineTo(end.x, end.y)
                     path.lineTo(end.x - head, end.y + head * 0.55f)
@@ -1226,19 +1237,13 @@ internal fun CleanShape(element: ElementEntity, modifier: Modifier, displayedWid
                 drawPath(path, color, style = stroke)
             }
             ShapeKind.ELLIPSE -> drawOval(color, style = stroke)
-            ShapeKind.RECTANGLE ->
-                drawRect(
-                    color,
-                    topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
-                    size = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2),
-                    style = stroke,
-                )
+            ShapeKind.RECTANGLE -> drawRect(color, style = stroke)
             ShapeKind.TRIANGLE -> {
                 val path =
                     Path().apply {
-                        moveTo(size.width / 2f, inset)
-                        lineTo(size.width - inset, size.height - inset)
-                        lineTo(inset, size.height - inset)
+                        moveTo(size.width / 2f, 0f)
+                        lineTo(size.width, size.height)
+                        lineTo(0f, size.height)
                         close()
                     }
                 drawPath(path, color, style = stroke)

@@ -13,13 +13,20 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import java.io.FileOutputStream
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.annotation.RequiresApi
 import kotlin.math.roundToInt
 
+private const val PDF_OPERATION_TIMEOUT_MILLIS = 30_000L
+
 class PdfRenderService : Service() {
+    private val watchdog = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
     private val binder =
         object : IPdfRenderService.Stub() {
-            override fun searchText(pdf: ParcelFileDescriptor, pageIndex: Int, query: String?): Bundle = runCatching {
+            override fun searchText(pdf: ParcelFileDescriptor, pageIndex: Int, query: String?): Bundle = runOperation {
                 pdf.use { descriptor ->
                     require(pageIndex >= 0) { PdfProtocol.ERROR_INVALID }
                     val term = normalizePdfSearchQuery(requireNotNull(query) { PdfProtocol.ERROR_INVALID })
@@ -30,10 +37,10 @@ class PdfRenderService : Service() {
                         renderer.openPage(pageIndex).use { page -> searchPageText(page, term) }
                     }
                 }
-            }.getOrElse(::failure)
+            }
 
             override fun inspect(pdf: ParcelFileDescriptor): Bundle =
-                runCatching {
+                runOperation {
                         pdf.use { descriptor ->
                             PdfRenderer(descriptor).use { renderer ->
                                 val count = renderer.pageCount
@@ -57,7 +64,6 @@ class PdfRenderService : Service() {
                             }
                         }
                     }
-                    .getOrElse(::failure)
 
             override fun selectText(
                 pdf: ParcelFileDescriptor,
@@ -66,7 +72,7 @@ class PdfRenderService : Service() {
                 startY: Float,
                 endX: Float,
                 endY: Float,
-            ): Bundle = runCatching {
+            ): Bundle = runOperation {
                 pdf.use { descriptor ->
                     validatePdfSelectionCoordinates(startX, startY, endX, endY)
                     if (Build.VERSION.SDK_INT < 35) {
@@ -95,7 +101,7 @@ class PdfRenderService : Service() {
                         }
                     }
                 }
-            }.getOrElse(::failure)
+            }
 
             override fun renderPage(
                 pdf: ParcelFileDescriptor,
@@ -104,7 +110,7 @@ class PdfRenderService : Service() {
                 height: Int,
                 output: ParcelFileDescriptor,
             ): Bundle =
-                runCatching {
+                runOperation {
                         pdf.use { pdfDescriptor ->
                             output.use { outputDescriptor ->
                                 require(
@@ -131,10 +137,22 @@ class PdfRenderService : Service() {
                         }
                         Bundle().apply { putBoolean(PdfProtocol.SUCCESS, true) }
                     }
-                    .getOrElse(::failure)
         }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? = if (Process.isIsolated()) binder else null
+
+    override fun onDestroy() {
+        watchdog.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun runOperation(operation: () -> Bundle): Bundle =
+        runCatching {
+            withPdfOperationDeadline(watchdog, PDF_OPERATION_TIMEOUT_MILLIS, onTimeout = {
+                // Native PDF calls cannot be interrupted; only terminate this isolated sandbox.
+                if (Process.isIsolated()) Process.killProcess(Process.myPid())
+            }, operation = operation)
+        }.getOrElse(::failure)
 
     private fun failure(error: Throwable): Bundle =
         Bundle().apply {
@@ -149,6 +167,27 @@ class PdfRenderService : Service() {
                 },
             )
         }
+}
+
+internal fun <T> withPdfOperationDeadline(
+    scheduler: ScheduledExecutorService,
+    timeoutMillis: Long,
+    onTimeout: () -> Unit,
+    operation: () -> T,
+): T {
+    require(timeoutMillis > 0)
+    val active = AtomicBoolean(true)
+    val alarm = scheduler.schedule(
+        Runnable { if (active.compareAndSet(true, false)) onTimeout() },
+        timeoutMillis,
+        TimeUnit.MILLISECONDS,
+    )
+    return try {
+        operation()
+    } finally {
+        active.set(false)
+        alarm.cancel(false)
+    }
 }
 
 @RequiresApi(35)

@@ -2,6 +2,7 @@ package com.majkeylab.seliadocs.editor
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -515,37 +516,113 @@ class ElementFlowTest {
     }
 
     @Test
-    fun imageAssetSurvivesDeleteUndo() = runBlocking {
+    fun imageAssetSurvivesDeleteUndoAfterDuplicatePageIsDeleted() = runBlocking {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
         val notebookId = repository.createNotebook(testNotebook("Image undo"))
         val assetStore = AssetStore(File(application.filesDir, "assets"))
-        val assetId = "undo-${System.nanoTime()}.png"
-        val assetFile = assetStore.prepare().let { assetStore.file(assetId) }
-        assetFile.writeBytes(byteArrayOf(1, 2, 3))
+        val source = File(application.cacheDir, "undo-${System.nanoTime()}.png")
+        val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
+        var assetId: String? = null
         try {
-            val pageId = repository.getPages(notebookId).single().id
-            val elementId =
-                repository.addElement(
-                    pageId,
-                    ElementDraft(ElementKind.IMAGE, 20f, 20f, 200f, 100f, assetId = assetId),
-                )
-            lateinit var viewModel: EditorViewModel
-            onMain { viewModel = EditorViewModel(application, notebookId) }
-            viewModel.awaitState("image load") { it.elements.singleOrNull()?.id == elementId }
-
-            onMain {
-                viewModel.selectElement(elementId)
-                viewModel.deleteSelectedElement()
+            val bitmap = Bitmap.createBitmap(40, 20, Bitmap.Config.ARGB_8888)
+            try {
+                bitmap.eraseColor(Color.RED)
+                source.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            } finally {
+                bitmap.recycle()
             }
-            viewModel.awaitState("image delete") { it.elements.isEmpty() && it.canUndo }
-            onMain(viewModel::undo)
-            viewModel.awaitState("image undo") { it.elements.singleOrNull()?.id == elementId }
+            lateinit var viewModel: EditorViewModel
+            onMain {
+                viewModel = ViewModelProvider(owner, viewModelFactory {
+                    initializer { EditorViewModel(application, notebookId) }
+                })[EditorViewModel::class.java]
+            }
+            val pageId = viewModel.awaitState("image page") { it.pageContentReady }.selectedPage!!.id
+            val imported = CompletableDeferred<Boolean>()
+            onMain { viewModel.importImage(pageId, Uri.fromFile(source), ocrEnabled = false, onComplete = imported::complete) }
+            assertEquals(true, withTimeoutOrNull(TIMEOUT_MS) { imported.await() })
+            val image = viewModel.awaitState("image import") { it.elements.size == 1 }.elements.single()
+            assetId = requireNotNull(image.assetId)
 
-            assertTrue(assetFile.isFile)
+            onMain { viewModel.duplicatePage(pageId) }
+            val duplicate = viewModel.awaitState("duplicate image page") {
+                it.pages.size == 2 && it.selectedPage?.id != pageId && it.pageContentReady
+            }
+            val duplicateId = requireNotNull(duplicate.selectedPage).id
+            assertEquals(assetId, duplicate.elements.single().assetId)
+            onMain { viewModel.selectPage(pageId) }
+            viewModel.awaitState("original image page") {
+                it.selectedPage?.id == pageId && it.elements.singleOrNull()?.id == image.id
+            }
+
+            onMain { viewModel.selectElement(image.id) }
+            viewModel.awaitState("selected original image") { it.selectedElementId == image.id }
+            onMain(viewModel::deleteSelectedElement)
+            viewModel.awaitState("image delete") { it.elements.isEmpty() && it.canUndo }
+            onMain { viewModel.deletePage(duplicateId) }
+            viewModel.awaitState("duplicate page delete") { it.pages.size == 1 }
+            onMain(viewModel::undo)
+            val restored = viewModel.awaitState("image undo") { it.elements.singleOrNull()?.id == image.id && it.canRedo }
+
+            val restoredFile = assetStore.file(requireNotNull(restored.elements.single().assetId))
+            val restoredBitmap = BitmapFactory.decodeFile(restoredFile.path)
+                ?: throw AssertionError("Undo restored an image whose asset is missing or invalid")
+            try {
+                assertEquals(40, restoredBitmap.width)
+                assertEquals(20, restoredBitmap.height)
+                assertEquals(Color.RED, restoredBitmap.getPixel(0, 0))
+            } finally {
+                restoredBitmap.recycle()
+            }
         } finally {
+            onMain(owner.viewModelStore::clear)
             repository.deleteNotebook(notebookId)
-            assetFile.delete()
+            assetId?.let { assetStore.file(it).delete() }
+            source.delete()
+        }
+    }
+
+    @Test
+    fun deletingCurrentPageSelectsNextThenPreviousAndOtherDeletionKeepsSelection() = runBlocking {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val repository = SeliaDocsRepository(SeliaDocsDatabase.get(application))
+        val notebookId = repository.createNotebook(testNotebook("Page deletion selection"))
+        val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
+        try {
+            val first = repository.getPages(notebookId).single().id
+            val second = repository.addPage(notebookId)
+            val third = repository.addPage(notebookId)
+            val fourth = repository.addPage(notebookId)
+            lateinit var viewModel: EditorViewModel
+            onMain {
+                viewModel = ViewModelProvider(owner, viewModelFactory {
+                    initializer { EditorViewModel(application, notebookId) }
+                })[EditorViewModel::class.java]
+            }
+            viewModel.awaitState("four pages loaded") { it.pages.size == 4 && it.pageContentReady }
+            onMain { viewModel.selectPage(second) }
+            viewModel.awaitState("second page selected") { it.selectedPage?.id == second && it.pageContentReady }
+            onMain { viewModel.deletePage(second) }
+            viewModel.awaitState("next page selected after deletion") {
+                it.pages.size == 3 && it.selectedPage?.id == third && it.pageContentReady
+            }
+
+            onMain { viewModel.selectPage(fourth) }
+            viewModel.awaitState("last page selected") { it.selectedPage?.id == fourth && it.pageContentReady }
+            onMain { viewModel.deletePage(fourth) }
+            viewModel.awaitState("previous page selected after deletion") {
+                it.pages.size == 2 && it.selectedPage?.id == third && it.pageContentReady
+            }
+
+            onMain { viewModel.deletePage(first) }
+            viewModel.awaitState("other page deleted without changing selection") {
+                it.pages.size == 1 && it.selectedPage?.id == third && it.pageContentReady
+            }
+            assertEquals(third, repository.getPages(notebookId).single().id)
+        } finally {
+            onMain(owner.viewModelStore::clear)
+            repository.deleteNotebook(notebookId)
         }
     }
 
@@ -732,7 +809,7 @@ class ElementFlowTest {
                     page.id,
                     "A".repeat(200),
                     CanvasPoint(120f, 790f),
-                    completed::complete,
+                    onComplete = completed::complete,
                 )
             }
 
