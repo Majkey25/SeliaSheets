@@ -21,17 +21,35 @@ Import images through Android Photo Picker. Import a PDF, annotate its pages, an
 Privacy is the default:
 
 - no account;
-- no first-party ads, analytics, cloud sync, or telemetry;
+- no ads or cloud sync;
 - private on-device notebook storage;
 - user-controlled PDF export.
 
 Image text recognition is on by default for imported images and can be disabled in Settings. It uses a bundled on-device Latin model.
 
-Optional handwriting recognition is enabled by the user and downloads a Google language model. After download, it runs on-device and offers only simple single-line arithmetic candidates. It does not provide general two-dimensional math or LaTeX recognition. Recognition input and output stay on-device. Google ML Kit collects SDK metadata and metrics for diagnostics and usage analytics; see the privacy policy.
+Optional handwriting features require a Google language model downloaded through Settings. After download, selected handwritten strokes can be recognized on-device. Choose a text suggestion to add to the page; the original ink stays unchanged. Automatic handwriting math supports simple single-line arithmetic, not general two-dimensional math or LaTeX. Check recognition results before relying on them.
+
+Notebook content, imported images, raw ink, and recognition results stay on your device unless you explicitly export them. Google ML Kit processes recognition on-device and collects technical SDK metadata, including device and app information, per-installation identifiers, and performance and usage metrics, for diagnostics and analytics. Network access supports Google model downloads and SDK diagnostics. See the privacy policy for details.
 
 SeliaSheets supports Android 10 and newer and adapts to phones and large tablet canvases.
 
 This is a beta release. Accounts, collaboration, and cloud sync are not included.
+
+## Czech privacy and recognition text (cs-CZ)
+
+Replace the corresponding privacy and recognition paragraphs in an existing Czech listing with the following text. Keep its other feature descriptions unchanged. Do not claim that the app has no network permission or SDK telemetry, or that handwriting-to-text is unavailable.
+
+SeliaSheets nevyžaduje účet, neobsahuje reklamy a nesynchronizuje sešity do cloudu. Sešity ukládá do soukromého úložiště aplikace v zařízení. O exportu PDF rozhodujete vy.
+
+Rozpoznávání textu v importovaných obrázcích je ve výchozím nastavení zapnuté a lze je vypnout v Nastavení. Používá přibalený model pro latinku, který pracuje přímo v zařízení.
+
+Volitelné funkce rozpoznávání rukopisu vyžadují stažení jazykového modelu Google v Nastavení. Poté lze vybrané ručně psané tahy rozpoznat přímo v zařízení. Z nabídnutých výsledků vyberete text, který se přidá na stránku; původní rukopis zůstane beze změny. Automatické rozpoznávání ručně psaných výpočtů podporuje jednoduché jednořádkové aritmetické výrazy, nikoli obecné dvourozměrné matematické zápisy nebo LaTeX. Výsledky rozpoznávání si před použitím zkontrolujte.
+
+Obsah sešitů, importované obrázky, tahy rukopisu a výsledky rozpoznávání zůstávají v zařízení, pokud je sami neexportujete. Google ML Kit provádí rozpoznávání přímo v zařízení a shromažďuje technická metadata SDK, včetně informací o zařízení a aplikaci, identifikátorů jednotlivých instalací a metrik výkonu a používání, pro diagnostiku a analytiku. Síťový přístup slouží ke stahování modelů Google a diagnostice SDK. Podrobnosti najdete v zásadách ochrany osobních údajů.
+
+## Publication checks
+
+The recognition wording above is verified against release `0.10.0-beta.1`, version code 24. Selected-ink conversion and automatic arithmetic are separate features. The app checks the configured handwriting model's status at startup, even when automatic handwriting recognition is off; do not describe all SDK diagnostics as optional or disabled by that setting. Compare the saved Console text with this source before submitting a listing update.
 
 ## Classification
 
