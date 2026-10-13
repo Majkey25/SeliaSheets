@@ -1,6 +1,6 @@
 # Import formats
 
-These additions are unreleased. The current downloadable release remains `0.9.0-beta.1`.
+Available in [0.10.0-beta.2](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.0-beta.2), version code 25.
 
 Open a notebook and choose **Add page** to append document pages after the selected page. New pages keep the selected chapter. Add images through the editor's **Image** tool.
 

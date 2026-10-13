@@ -11,9 +11,11 @@
 
 SeliaSheets is a private, offline-first Android notebook for students. It combines ordered paper pages, AndroidX Ink, full-page typing, chapters, imported PDFs, images, smart shapes, local arithmetic, and editable backups.
 
-Download `0.9.0-beta.1`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SeliaSheets-0.9.0-beta.1.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.9.0-beta.1).
+Download `0.10.0-beta.2`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.0-beta.2/SeliaSheets-0.10.0-beta.2.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.0-beta.2/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.0-beta.2).
 
-The `0.10.0-beta.2` candidate adds offline PowerPoint slide conversion, editable TXT/Markdown import, expanded Appearance settings, page movement, and editor recovery fixes. The download above remains the previous release until the new signed artifacts are published. See [supported import formats and limits](docs/IMPORT_FORMATS.md).
+This release adds offline PowerPoint slide conversion, editable TXT/Markdown import, expanded Appearance settings, page movement, and editor recovery fixes. See [supported import formats and limits](docs/IMPORT_FORMATS.md).
+
+Google Play Alpha code 25 was submitted on October 13, 2026; approval and Store availability are pending. The GitHub APK and Google Play app use different signing keys. Keep the same distribution channel when updating to preserve your installation and data.
 
 ## Highlights
 
@@ -66,6 +68,8 @@ Requirements: JDK 17 and Android SDK platforms 29 and 37.
 The default release bundle is unsigned. Publication uses an external upload keystore that is never committed. See [release signing](docs/RELEASE.md).
 
 ## Verification
+
+Version `0.10.0-beta.2` passed 651 tests on a physical Android 10 phone, with ten expected platform/hardware/opt-in skips, plus 156 JVM tests and merged-main CI. Protected Play-runtime checks remain pending a normal Store update. See the [editor hardening record](docs/qa/2026-10-13-editor-hardening.md) for artifacts, test history, and active-pen limits.
 
 The PDF study increment adds screen-pixel, export-pixel, linked-excerpt, migration, backup, and real input-routing checks. See the [PDF study verification record](docs/qa/2026-09-12-pdf-study-tools.md). Current backups use format 7 for shape styles and require an updated reader; formats 1–6 remain readable.
 

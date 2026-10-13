@@ -1,6 +1,6 @@
 # Google Play data safety
 
-Working answers checked against the signed version `0.6.3-beta.1` / code `17` (`com.majkeylab.seliadocs`). Its merged permission list is unchanged from version 14. Recheck these answers whenever dependencies or data handling change.
+Working answers checked against the signed version `0.10.0-beta.2` / code `25` (`com.majkeylab.seliadocs`) on 2026-10-13. Its merged permission list is unchanged from code 17. The APK still uses Google ML Kit Digital Ink Recognition `19.0.0` and Text Recognition `16.0.1`. Recheck these answers whenever dependencies or data handling change.
 
 ## Collection and sharing
 
@@ -18,13 +18,14 @@ Declare these as collected, required, used for Analytics, and not shared:
 - App interactions
 - Diagnostics
 
-Google's ML Kit disclosure also covers device and app information, performance metrics, API configuration, input and output sizes, event types, and error codes. Digital Ink Recognition also collects the configured language. Do not declare Google-held SDK metrics as ephemeral or publisher-deletable.
+Google's [ML Kit disclosure](https://developers.google.com/ml-kit/android-data-disclosure) also covers device and app information, performance metrics, API configuration, input and output sizes, event types, and error codes. Digital Ink Recognition also collects the configured language. Do not declare Google-held SDK metrics as ephemeral or publisher-deletable.
 
 ## App behavior supporting these answers
 
 - `INTERNET` and `ACCESS_NETWORK_STATE` permissions support Google ML Kit language-model downloads and SDK diagnostics.
 - The merged release manifest also contains `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE`, contributed by AndroidX WorkManager `2.7.0` through Digital Ink Recognition. It includes the app-specific signature permission `com.majkeylab.seliadocs.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`.
 - The signed APK does not request billing, advertising-ID, camera, microphone, location, contacts, or broad storage permissions. Verify the merged APK, not only the app's source manifest, when reviewing permissions.
+- Google Play's protected distribution adds its installer license check. The installed Play code 24 includes `com.android.vending.CHECK_LICENSE`; the locally signed upload artifact does not. Automatic installer protection remains enabled for the Alpha update.
 - No first-party ads, analytics, telemetry, crash reporting, account, cloud sync, or remote database service.
 - Notebook metadata, raw ink, recognition results, image OCR text, text, settings, selected image copies, and selected PDFs remain in private app storage. Digital ink recognition runs on-device after the model download; image OCR uses a bundled on-device model.
 - Image OCR is enabled by default for newly imported images and can be disabled in Settings.

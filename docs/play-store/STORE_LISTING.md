@@ -49,7 +49,7 @@ Obsah sešitů, importované obrázky, tahy rukopisu a výsledky rozpoznávání
 
 ## Publication checks
 
-The recognition wording above is verified against release `0.10.0-beta.1`, version code 24. Selected-ink conversion and automatic arithmetic are separate features. The app checks the configured handwriting model's status at startup, even when automatic handwriting recognition is off; do not describe all SDK diagnostics as optional or disabled by that setting. Compare the saved Console text with this source before submitting a listing update.
+The recognition wording above is checked against signed release `0.10.0-beta.2`, version code 25, on 2026-10-13. Selected-ink conversion and automatic arithmetic are separate features. The app checks the configured handwriting model's status at startup, even when automatic handwriting recognition is off; do not describe all SDK diagnostics as optional or disabled by that setting. Compare the saved Console text with this source before submitting a listing update.
 
 ## Classification
 
