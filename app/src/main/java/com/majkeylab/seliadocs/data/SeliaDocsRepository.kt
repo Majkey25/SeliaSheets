@@ -9,6 +9,7 @@ import com.majkeylab.seliadocs.recognition.MAX_OCR_REGION_DATA_LENGTH
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 
 private const val SEARCH_QUERY_MAX_LENGTH = 256
 private const val SEARCH_RESULT_LIMIT = 100
@@ -45,6 +46,15 @@ internal class SeliaDocsRepository(
 
     fun observeBlocks(pageId: String): Flow<List<BlockEntity>> =
         pageContent.observeBlocks(pageId)
+
+    fun observePageContent(pageId: String): Flow<PageContentSnapshot?> =
+        pageContent.observePageContent(pageId).map { snapshot ->
+            snapshot?.copy(
+                strokes = snapshot.strokes.sortedBy(StrokeEntity::zIndex),
+                elements = snapshot.elements.sortedBy(ElementEntity::zIndex),
+                blocks = snapshot.blocks.sortedBy(BlockEntity::orderIndex),
+            )
+        }
 
     suspend fun createNotebook(request: CreateNotebookRequest): String {
         val title = request.title.trim()
@@ -139,53 +149,74 @@ internal class SeliaDocsRepository(
         sha256: String,
         pages: List<PdfPageSpec>,
         afterPageId: String? = null,
-    ): PdfImportResult {
-        require(assetId.isNotBlank() && displayName.isNotBlank() && byteSize > 0L)
-        require(sha256.matches(Regex("[0-9a-f]{64}")))
-        require(pages.isNotEmpty() && pages.size <= 2_000)
-        require(pages.all { it.widthPoints in 1..14_400 && it.heightPoints in 1..14_400 })
-        val sourceId = idFactory()
-        val pageIds = List(pages.size) { idFactory() }
+    ): PdfImportResult = importPdfs(
+        notebookId,
+        listOf(PdfImportSpec(assetId, displayName, byteSize, sha256, pages)),
+        afterPageId,
+    ).single()
+
+    suspend fun importPdfs(
+        notebookId: String,
+        sources: List<PdfImportSpec>,
+        afterPageId: String? = null,
+    ): List<PdfImportResult> {
+        require(sources.size in 1..MAX_PDF_IMPORT_SOURCES)
+        var totalBytes = 0L
+        var totalPages = 0
+        sources.forEach { source ->
+            require(source.assetId.isNotBlank() && source.displayName.isNotBlank())
+            require(source.byteSize > 0L && source.byteSize <= MAX_PDF_IMPORT_BYTES - totalBytes)
+            require(source.sha256.matches(Regex("[0-9a-f]{64}")))
+            require(source.pages.isNotEmpty() && source.pages.size <= MAX_PDF_IMPORT_PAGES - totalPages)
+            require(source.pages.all { it.widthPoints in 1..14_400 && it.heightPoints in 1..14_400 })
+            totalBytes += source.byteSize
+            totalPages += source.pages.size
+        }
         val now = clock()
-        database.withTransaction {
+        return database.withTransaction {
             val notebook = getNotebook(notebookId)
-            val anchor = makeRoomAfterPage(notebookId, afterPageId, pages.size)
-            val firstIndex = anchor?.let { it.pageIndex + 1 }
+            val anchor = makeRoomAfterPage(notebookId, afterPageId, totalPages)
+            var nextPageIndex = anchor?.let { it.pageIndex + 1 }
                 ?: ((notebooks.getMaxPageIndex(notebookId) ?: -1) + 1)
-            notebooks.insertPdfSource(
-                PdfSourceEntity(
-                    id = sourceId,
-                    notebookId = notebookId,
-                    assetId = assetId,
-                    displayName = displayName.trim().take(255),
-                    pageCount = pages.size,
-                    byteSize = byteSize,
-                    sha256 = sha256,
-                    createdAt = now,
-                ),
-            )
-            pages.forEachIndexed { index, spec ->
-                notebooks.insertPage(
-                    PageEntity(
-                        id = pageIds[index],
+            val results = sources.map { source ->
+                val sourceId = idFactory()
+                val pageIds = List(source.pages.size) { idFactory() }
+                notebooks.insertPdfSource(
+                    PdfSourceEntity(
+                        id = sourceId,
                         notebookId = notebookId,
-                        pageIndex = firstIndex + index,
-                        paper = PaperTemplate.BLANK.name,
-                        widthPoints = spec.widthPoints,
-                        heightPoints = spec.heightPoints,
-                        chapterId = anchor?.chapterId,
-                        title = displayName.substringBeforeLast('.').take(160).takeIf(String::isNotBlank),
-                        pageMode = PageMode.PDF.name,
+                        assetId = source.assetId,
+                        displayName = source.displayName.trim().take(255),
+                        pageCount = source.pages.size,
+                        byteSize = source.byteSize,
+                        sha256 = source.sha256,
                         createdAt = now,
-                        updatedAt = now,
-                        pdfSourceId = sourceId,
-                        pdfPageIndex = index,
                     ),
                 )
+                source.pages.forEachIndexed { index, spec ->
+                    notebooks.insertPage(
+                        PageEntity(
+                            id = pageIds[index],
+                            notebookId = notebookId,
+                            pageIndex = nextPageIndex++,
+                            paper = PaperTemplate.BLANK.name,
+                            widthPoints = spec.widthPoints,
+                            heightPoints = spec.heightPoints,
+                            chapterId = anchor?.chapterId,
+                            title = source.displayName.substringBeforeLast('.').take(160).takeIf(String::isNotBlank),
+                            pageMode = PageMode.PDF.name,
+                            createdAt = now,
+                            updatedAt = now,
+                            pdfSourceId = sourceId,
+                            pdfPageIndex = index,
+                        ),
+                    )
+                }
+                PdfImportResult(sourceId, pageIds)
             }
             touch(notebook)
+            results
         }
-        return PdfImportResult(sourceId, pageIds)
     }
 
     suspend fun importWordText(
@@ -383,11 +414,18 @@ internal class SeliaDocsRepository(
         }
     }
 
-    suspend fun addElementEntity(pageId: String, draft: ElementDraft): ElementEntity {
+    suspend fun addElementEntity(pageId: String, draft: ElementDraft, insertionId: String? = null): ElementEntity {
         validateElement(draft)
-        val id = idFactory()
+        require(insertionId == null || (insertionId.isNotBlank() && draft.kind == ElementKind.TEXT))
+        val id = insertionId ?: idFactory()
         return database.withTransaction {
             val page = requireNotNull(notebooks.getPage(pageId)) { "Page not found" }
+            if (insertionId != null) {
+                pageContent.getElement(insertionId)?.let { existing ->
+                    require(existing.pageId == pageId && existing.kind == ElementKind.TEXT.name) { "Insertion ID belongs to another element" }
+                    return@withTransaction existing
+                }
+            }
             val element =
                 elementFromDraft(
                     id,

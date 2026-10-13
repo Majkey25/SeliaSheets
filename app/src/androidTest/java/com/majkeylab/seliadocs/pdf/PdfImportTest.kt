@@ -6,10 +6,12 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Process
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
@@ -27,6 +29,9 @@ import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +41,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -179,6 +186,32 @@ class PdfImportTest {
     }
 
     @Test
+    fun rejectedBindingAndSecurityFailureReleaseConnection() = runBlocking {
+        for (denied in listOf(false, true)) {
+            var unbindCount = 0
+            val rejection = SecurityException("Binding denied")
+            val context = object : ContextWrapper(application) {
+                override fun getApplicationContext(): Context = this
+                override fun bindService(service: Intent, connection: ServiceConnection, flags: Int): Boolean {
+                    if (denied) throw rejection
+                    return false
+                }
+                override fun unbindService(connection: ServiceConnection) { unbindCount++ }
+            }
+            val failure = runCatching {
+                PdfSandboxClient(context).inspect(File(application.cacheDir, "unused.pdf"))
+            }.exceptionOrNull()
+            if (denied) {
+                assertSame(rejection, failure)
+            } else {
+                assertTrue(failure is IOException)
+                assertEquals("PDF sandbox could not be started", failure?.message)
+            }
+            assertEquals(1, unbindCount)
+        }
+    }
+
+    @Test
     fun bindingDeathFailsPendingClientAndUnbinds() = runBlocking {
         val unbound = AtomicBoolean()
         val context =
@@ -203,6 +236,59 @@ class PdfImportTest {
         assertTrue(failure is IOException)
         assertEquals("PDF sandbox binding died while connecting", failure?.message)
         assertTrue(unbound.get())
+    }
+
+    @Test
+    fun pdfWatchdogExpiresWhileOperationIsStillRunning() {
+        val scheduler = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
+        val expired = CountDownLatch(1)
+        try {
+            val result = withPdfOperationDeadline(scheduler, 20, expired::countDown) {
+                assertTrue("Watchdog must run independently of the blocked operation", expired.await(2, TimeUnit.SECONDS))
+                "finished"
+            }
+            assertEquals("finished", result)
+            assertTrue(scheduler.queue.isEmpty())
+        } finally {
+            scheduler.shutdownNow()
+        }
+    }
+
+    @Test
+    fun pdfWatchdogIsRemovedAfterSuccessAndFailure() {
+        val scheduler = ScheduledThreadPoolExecutor(1).apply { removeOnCancelPolicy = true }
+        val expired = AtomicBoolean()
+        val expectedFailure = IOException("PDF operation failed")
+        try {
+            listOf(false, true).forEach { fail ->
+                val result = runCatching {
+                    withPdfOperationDeadline(scheduler, 30_000, { expired.set(true) }) {
+                        if (fail) throw expectedFailure
+                        "finished"
+                    }
+                }
+                if (fail) assertSame(expectedFailure, result.exceptionOrNull())
+                else assertEquals("finished", result.getOrThrow())
+                assertTrue("Finished operation must not retain an alarm", scheduler.queue.isEmpty())
+                assertFalse(expired.get())
+            }
+        } finally {
+            scheduler.shutdownNow()
+        }
+    }
+
+    @Test
+    fun pdfServiceIsConfinedToItsNonExportedIsolatedProcess() {
+        val info = application.packageManager.getServiceInfo(ComponentName(application, PdfRenderService::class.java), 0)
+        assertFalse(info.exported)
+        assertTrue(info.flags and ServiceInfo.FLAG_ISOLATED_PROCESS != 0)
+        assertFalse(Process.isIsolated())
+        val service = PdfRenderService()
+        try {
+            assertEquals("Renderer must reject binding in the app process", null, service.onBind(null))
+        } finally {
+            service.onDestroy()
+        }
     }
 
     private fun createPdf(file: File) {

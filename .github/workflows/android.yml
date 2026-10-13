@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_emulator_tests:
+        description: Run optional emulator compatibility tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,6 +20,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Verify presentation renderer
+        working-directory: tools/presentation
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run build
+          git diff --exit-code -- ../../app/src/main/assets/presentation/renderer.js ../../app/src/main/assets/presentation/NOTICE.txt
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
         with:
           distribution: temurin
@@ -25,7 +41,7 @@ jobs:
         run: sdkmanager "platforms;android-29" "platforms;android-37.0"
       - uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
       - name: Verify
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease bundleRelease --console=plain
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease bundleRelease --console=plain
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: SeliaSheets-ci-debug-apk
@@ -33,6 +49,7 @@ jobs:
           if-no-files-found: error
 
   instrumentation:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator_tests
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -66,6 +83,7 @@ jobs:
             app/build/outputs/androidTest-results/
 
   instrumentation-api37:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator_tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

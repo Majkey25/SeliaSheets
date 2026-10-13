@@ -83,10 +83,12 @@ class InkSelectionOverlayTest {
     }
 
     @Test
-    fun selectedInkShowsHandlesAndCommitsAccessibleRotation() {
+    fun selectedInkShowsHandlesOnlyOnReadyEditablePage() {
         val context = rule.activity
         val stroke = strokeEntity("selected", 50f, 50f, 100f, 100f)
         val commits = mutableListOf<InkSelectionTransform>()
+        var editable by mutableStateOf(true)
+        var ready by mutableStateOf(true)
         rule.setContent {
             PageCanvas(
                 page = PageEntity("page", "notebook", 0, PaperTemplate.RULED.name, 595, 842),
@@ -97,6 +99,8 @@ class InkSelectionOverlayTest {
                 blocks = emptyList(),
                 selectedStrokeIds = setOf(stroke.id),
                 selectedElementId = null,
+                pageTextInputEnabled = editable,
+                pageContentReady = ready,
                 fingerDrawing = false,
                 tool = EditorTool.LASSO,
                 penWidth = 4f,
@@ -128,6 +132,13 @@ class InkSelectionOverlayTest {
             assertEquals(1f, commits.single().scale)
             assertEquals(15f, commits.single().rotationDegrees)
         }
+        rule.runOnIdle { editable = false }
+        rule.onNodeWithTag("ink-selection-overlay").assertDoesNotExist()
+        rule.runOnIdle { editable = true; ready = false }
+        rule.onNodeWithTag("ink-selection-overlay").assertDoesNotExist()
+        rule.runOnIdle { ready = true }
+        rule.onNodeWithTag("ink-selection-overlay").assertIsDisplayed()
+        rule.runOnIdle { assertEquals(1, commits.size) }
     }
 
     @Test

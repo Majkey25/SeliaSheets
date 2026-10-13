@@ -42,6 +42,10 @@ private data class ActiveStroke(val edit: PendingEdit.Ink, val toolType: Int) {
     val id get() = edit.id
 }
 
+// shortcut: forward jumps >= 2^62 are ambiguous; add an epoch if arbitrary clock jumps need support.
+internal fun isSameOrNewerInkRevision(candidate: Long, previous: Long): Boolean =
+    ((candidate - previous) and Long.MAX_VALUE) <= Long.MAX_VALUE / 2
+
 internal fun isStylusEraser(event: MotionEvent, pointerIndex: Int): Boolean {
     val inputTool = event.getToolType(pointerIndex)
     return inputTool == MotionEvent.TOOL_TYPE_ERASER ||
@@ -148,12 +152,12 @@ internal class InkCanvasView @JvmOverloads constructor(
         if (isAttachedToWindow && windowVisibility == VISIBLE) inProgressView.eagerInit()
     }
 
-    fun setStrokes(strokes: List<Stroke>, selected: Set<Int> = emptySet()) {
-        finishedView.setStrokes(strokes, selected)
+    fun setStrokes(strokes: List<Stroke>, selected: Set<Int> = emptySet(), contentRevision: Long = 0L) {
+        finishedView.setStrokes(strokes, selected, contentRevision)
     }
 
-    fun finishStrokeSave(stroke: Stroke, succeeded: Boolean) {
-        finishedView.finishStrokeSave(stroke, succeeded)
+    fun finishStrokeSave(stroke: Stroke, committedRevision: Long?) {
+        finishedView.finishStrokeSave(stroke, committedRevision)
     }
 
     fun beginStrokeSave(stroke: Stroke) {
@@ -337,6 +341,13 @@ internal class InkCanvasView @JvmOverloads constructor(
             val erase = isStylusEraser(event, index) || tool == EditorTool.ERASER
             val erasing = pointerId == gesturePointerId && gestureKind == GestureKind.ERASE
             if (erase != erasing) {
+                if (event.historySize > 0) {
+                    activeStrokes[pointerId]?.let { stroke ->
+                        // Finishing consumes only the current sample, so retain the batched curve first.
+                        stroke.edit.input.add(event, pointerId)
+                        inProgressView.addToStroke(event, pointerId, stroke.id, null)
+                    }
+                }
                 finishInteraction(event, pointerId)
                 startInteraction(event, index)
                 changed += pointerId
@@ -673,8 +684,9 @@ private class GestureOverlayView(context: Context) : View(context) {
 
 private class FinishedInkView(context: Context) : View(context) {
     private val strokes = mutableListOf<Stroke>()
-    private val pendingSaves = mutableSetOf<Stroke>()
+    private val pendingSaves = mutableMapOf<Stroke, Long?>()
     private var suppliedStrokes: List<Stroke> = emptyList()
+    private var suppliedRevision: Long? = null
     private val renderer = ViewStrokeRenderer(CanvasStrokeRenderer.create(), this)
     private val selectionPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -693,28 +705,41 @@ private class FinishedInkView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setStrokes(values: List<Stroke>, selected: Set<Int>) {
+    fun setStrokes(values: List<Stroke>, selected: Set<Int>, contentRevision: Long) {
+        val previous = suppliedRevision
+        if (previous != null && !isSameOrNewerInkRevision(contentRevision, previous)) return
         suppliedStrokes = values.toList()
-        // The database may contain only part of a handed-off group while its saves are queued.
-        if (pendingSaves.isEmpty()) applySuppliedStrokes()
+        suppliedRevision = contentRevision
+        applySuppliedStrokes()
         this.selected = selected
         invalidate()
     }
 
-    fun finishStrokeSave(stroke: Stroke, succeeded: Boolean) {
-        if (!pendingSaves.remove(stroke)) return
-        if (!succeeded) strokes.removeAll { it === stroke }
-        if (pendingSaves.isEmpty()) applySuppliedStrokes()
+    fun finishStrokeSave(stroke: Stroke, committedRevision: Long?) {
+        if (!pendingSaves.containsKey(stroke)) return
+        if (committedRevision == null) {
+            pendingSaves.remove(stroke)
+            strokes.removeAll { it === stroke }
+        } else {
+            pendingSaves[stroke] = committedRevision
+        }
+        applySuppliedStrokes()
         invalidate()
     }
 
     private fun applySuppliedStrokes() {
+        val currentRevision = suppliedRevision ?: return
+        // Keep optimistic ink until the whole canonical page reaches its saved revision.
+        pendingSaves.entries.removeAll { (_, revision) ->
+            revision != null && isSameOrNewerInkRevision(currentRevision, revision)
+        }
+        if (pendingSaves.isNotEmpty()) return
         strokes.clear()
         strokes.addAll(suppliedStrokes)
     }
 
     fun beginStrokeSave(stroke: Stroke) {
-        if (strokes.any { it === stroke }) pendingSaves.add(stroke)
+        if (strokes.any { it === stroke }) pendingSaves[stroke] = null
     }
 
     fun addStrokes(values: Collection<Stroke>) {

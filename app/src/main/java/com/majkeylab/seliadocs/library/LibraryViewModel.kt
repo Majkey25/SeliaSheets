@@ -77,6 +77,7 @@ internal class LibraryViewModel(
 
     fun createNotebook(request: CreateNotebookRequest) = mutate {
         repository.createNotebook(request)
+        query.value = ""
     }
 
     fun setFavorite(id: String, favorite: Boolean) = mutate {

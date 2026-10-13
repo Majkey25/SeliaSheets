@@ -71,4 +71,4 @@ The recognition wording above is verified against release `0.10.0-beta.1`, versi
 
 ## Release notes
 
-0.6 beta 1 improves writing and editing. Pencil strokes now react to pressure, tilt, and orientation throughout each stroke. The editor now has a stylus hover preview and direct scale, rotate, duplicate, recolor, and delete actions for selected ink. Inline text drafts now survive rotation and save before tool changes or Back. Phone and tablet toolbars now use fixed icon palettes with brush controls on demand. Backups now reject oversized, malformed, or unreferenced data.
+More appearance choices and custom colors. Move pages from Contents. Restore your page and inline drafts after a restart. Fixes for zoom, stylus selection, image movement, highlighter visibility, typed arithmetic, and backups. Includes offline PowerPoint slides and editable text import. Unsupported Word equations now fail clearly instead of losing content. PDF export preserves image proportions.

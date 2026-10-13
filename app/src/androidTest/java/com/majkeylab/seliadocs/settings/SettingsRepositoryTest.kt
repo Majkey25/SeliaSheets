@@ -33,6 +33,35 @@ import com.majkeylab.seliadocs.recognition.RecognitionLanguage
 @RunWith(AndroidJUnit4::class)
 class SettingsRepositoryTest {
     @Test
+    fun independentAppearanceChoicesAndCustomColorsSurviveRecreation() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File(context.cacheDir, "custom-appearance-${System.nanoTime()}.preferences_pb")
+        val firstJob = SupervisorJob()
+        val first = SettingsRepository(PreferenceDataStoreFactory.create(scope = CoroutineScope(firstJob + Dispatchers.IO)) { file })
+        first.update { it.copy(themePalette = ThemePalette.FOREST) }
+        assertEquals(null, first.settings.first().darkThemePalette)
+        val expected = first.settings.first().copy(
+            themePalette = ThemePalette.CUSTOM, darkThemePalette = ThemePalette.MIDNIGHT,
+            lightCustomTheme = CustomThemeColors(0xFF771122.toInt(), 0xFFFFEEEE.toInt(), 0xFFFFFAFA.toInt(), 0xFF221111.toInt(),
+                0xFF662244.toInt(), 0xFF884455.toInt(), 0xFF992211.toInt()),
+            darkCustomTheme = CustomThemeColors.Dark.copy(accent = 0xFFFEDCBA.toInt()),
+            interfaceFont = InterfaceFont.MONOSPACE, interfaceCorners = InterfaceCorners.SOFT, interfaceTextScale = 1.25f,
+        )
+        first.update { expected }
+        firstJob.cancelAndJoin()
+        val secondJob = SupervisorJob()
+        try {
+            val reopened = SettingsRepository(PreferenceDataStoreFactory.create(scope = CoroutineScope(secondJob + Dispatchers.IO)) { file })
+            assertEquals(expected, reopened.settings.first())
+            reopened.update { it.resetAppearance() }
+            assertEquals(expected.resetAppearance(), reopened.settings.first())
+        } finally {
+            secondJob.cancelAndJoin()
+            file.delete()
+        }
+    }
+
+    @Test
     fun readRecoveryKeepsTheLastSettingsInsteadOfReopeningOnboarding() = runTest {
         val preferences = preferencesOf(booleanPreferencesKey("onboarding_complete") to true)
         var attempts = 0

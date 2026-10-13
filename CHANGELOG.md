@@ -2,6 +2,59 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.0-beta.2] - 2026-10-13
+
+### Added
+
+- Thirteen appearance choices, custom light/dark colors, interface fonts, text sizes, and corner styles.
+- Move pages earlier or later from Contents, including filtered chapter and bookmark views.
+- Restore the selected page, workspace context, and inline text drafts after process recreation.
+
+### Fixed
+
+- Keep newly saved ink visible until the canonical page reaches the screen, including shape conversion and Undo.
+- Keep stored ink above page text when switching between writing and typing; retain native text input.
+- Correct moving pinch coordinates, slow stylus selection drags, rotated image movement, and transform state after Undo.
+- Preserve batched stylus input when a barrel button changes the tool.
+- Keep images needed by Undo after page deletion and select the neighboring page.
+- Complete typed arithmetic after IME composition without making overflowing text unsavable.
+- Reject unsupported Word equations rather than silently discarding them; preserve image proportions in PDF export.
+- Validate backup entry paths and directory payloads, reduce retained validation payloads, and clean abandoned restore staging without deleting an active restore.
+- Bound native PDF operations to 30 seconds in the isolated renderer. A timed-out renderer disconnects concurrent PDF operations; retry the failed operation.
+- Release PDF service connections when binding is rejected or denied by Android permissions.
+- Preserve the selected import location after process recreation and honor combined app/system text size in compact layouts.
+- Keep notebook text geometry independent of the interface font, matching stored layout and export.
+- Erase corrected vector shapes by their outline, preserving mixed ink/shape Undo; keep legacy shape geometry stable across zoom and PDF export.
+- Release OCR bitmaps on cancellation and avoid temporary segment lists during erasing.
+
+### Verification limits
+
+- Local acceptance uses the connected Android 10 phone. Emulator compatibility jobs remain available only by explicit manual CI dispatch.
+- Injected stylus tests do not certify physical pressure, tilt, hover, palm rejection, or vendor handwriting keyboards. Those require a compatible tablet and active pen.
+- Word/PowerPoint conversion and flattened PDF export retain the limits in `docs/IMPORT_FORMATS.md`.
+
+## [0.10.0-beta.1] - 2026-09-27
+
+### Added
+
+- Import ordinary PPTX slides locally as annotatable notebook pages, preserving chapter placement.
+- Import TXT and literal Markdown as editable page text, and BMP/GIF files as still images.
+- Read bundled renderer licenses offline in Settings.
+
+### Fixed
+
+- Keep content from the previous page out of a newly opened page's draft. Editing waits for the matching page data; save and Back remain available while loading.
+- Open notebooks by tapping their titles, with a separate accessible actions button.
+- Clear old search results before showing the selected result's highlight.
+- Stop cancelled PDF exports before publishing incomplete output.
+- Reject incomplete images during import and backup restore.
+- Render presentations on older Android WebViews and preserve chart category labels.
+
+### Limits
+
+- PPTX conversion creates static, rasterized PDF backgrounds, not editable PowerPoint objects. It supports up to 100 slides and 32 MiB input. Fonts and some effects may differ; export from PowerPoint to PDF when exact layout matters.
+- Legacy Office, OpenDocument, spreadsheets, and SVG are not general import formats. See [supported formats](docs/IMPORT_FORMATS.md).
+
 ## [0.9.0-beta.1] - 2026-09-23
 
 ### Added

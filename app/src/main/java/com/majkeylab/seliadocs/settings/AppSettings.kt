@@ -26,6 +26,12 @@ internal data class AppSettings(
     val defaultOrientation: PageOrientation = PageOrientation.PORTRAIT,
     val theme: AppTheme = AppTheme.SYSTEM,
     val themePalette: ThemePalette = ThemePalette.CLASSIC,
+    val darkThemePalette: ThemePalette? = null,
+    val lightCustomTheme: CustomThemeColors = CustomThemeColors(),
+    val darkCustomTheme: CustomThemeColors = CustomThemeColors.Dark,
+    val interfaceFont: InterfaceFont = InterfaceFont.SYSTEM,
+    val interfaceTextScale: Float = 1f,
+    val interfaceCorners: InterfaceCorners = InterfaceCorners.STANDARD,
     val onboardingComplete: Boolean = false,
     val pageTransition: Boolean = false,
     val shapeAssist: Boolean = true,
@@ -35,6 +41,9 @@ internal data class AppSettings(
 ) {
     fun validated(): AppSettings =
         copy(
+            lightCustomTheme = lightCustomTheme.validated(),
+            darkCustomTheme = darkCustomTheme.validated(),
+            interfaceTextScale = interfaceTextScale.takeIf { it.isFinite() }?.coerceIn(INTERFACE_TEXT_SCALE_RANGE) ?: 1f,
             penWidth = penWidth.takeIf { it.isFinite() }?.coerceIn(PEN_WIDTH_RANGE) ?: PEN_WIDTH_RANGE.start,
             highlighterWidth = highlighterWidth.takeIf { it.isFinite() }?.coerceIn(HIGHLIGHTER_WIDTH_RANGE) ?: HIGHLIGHTER_WIDTH_RANGE.start,
             // Keep pen and pencil within the control's 1-100% opacity range.

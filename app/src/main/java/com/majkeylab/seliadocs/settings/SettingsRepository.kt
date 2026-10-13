@@ -57,6 +57,12 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
                 enumValue(preferences[Keys.defaultOrientation], PageOrientation.PORTRAIT),
             theme = enumValue(preferences[Keys.theme], AppTheme.SYSTEM),
             themePalette = enumValue(preferences[Keys.themePalette], ThemePalette.CLASSIC),
+            darkThemePalette = preferences[Keys.darkThemePalette]?.let { enumValue(it, ThemePalette.CLASSIC) },
+            lightCustomTheme = decodeCustomTheme(preferences, "light", CustomThemeColors()),
+            darkCustomTheme = decodeCustomTheme(preferences, "dark", CustomThemeColors.Dark),
+            interfaceFont = enumValue(preferences[Keys.interfaceFont], InterfaceFont.SYSTEM),
+            interfaceTextScale = preferences[Keys.interfaceTextScale] ?: 1f,
+            interfaceCorners = enumValue(preferences[Keys.interfaceCorners], InterfaceCorners.STANDARD),
             onboardingComplete = preferences[Keys.onboardingComplete] ?: false,
             pageTransition = preferences[Keys.pageTransition] ?: false,
             shapeAssist = preferences[Keys.shapeAssist] ?: true,
@@ -78,6 +84,12 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         preferences[Keys.defaultOrientation] = value.defaultOrientation.name
         preferences[Keys.theme] = value.theme.name
         preferences[Keys.themePalette] = value.themePalette.name
+        value.darkThemePalette?.let { preferences[Keys.darkThemePalette] = it.name } ?: preferences.remove(Keys.darkThemePalette)
+        encodeCustomTheme(preferences, "light", value.lightCustomTheme)
+        encodeCustomTheme(preferences, "dark", value.darkCustomTheme)
+        preferences[Keys.interfaceFont] = value.interfaceFont.name
+        preferences[Keys.interfaceTextScale] = value.interfaceTextScale
+        preferences[Keys.interfaceCorners] = value.interfaceCorners.name
         preferences[Keys.onboardingComplete] = value.onboardingComplete
         preferences[Keys.pageTransition] = value.pageTransition
         preferences[Keys.shapeAssist] = value.shapeAssist
@@ -88,6 +100,26 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
 
     private inline fun <reified T : Enum<T>> enumValue(value: String?, fallback: T): T =
         value?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
+
+    private fun decodeCustomTheme(preferences: Preferences, mode: String, defaults: CustomThemeColors) = CustomThemeColors(
+        accent = preferences[intPreferencesKey("custom_${mode}_accent")] ?: defaults.accent,
+        background = preferences[intPreferencesKey("custom_${mode}_background")] ?: defaults.background,
+        surface = preferences[intPreferencesKey("custom_${mode}_surface")] ?: defaults.surface,
+        text = preferences[intPreferencesKey("custom_${mode}_text")] ?: defaults.text,
+        secondary = preferences[intPreferencesKey("custom_${mode}_secondary")] ?: defaults.secondary,
+        outline = preferences[intPreferencesKey("custom_${mode}_outline")] ?: defaults.outline,
+        error = preferences[intPreferencesKey("custom_${mode}_error")] ?: defaults.error,
+    )
+
+    private fun encodeCustomTheme(preferences: androidx.datastore.preferences.core.MutablePreferences, mode: String, value: CustomThemeColors) {
+        preferences[intPreferencesKey("custom_${mode}_accent")] = value.accent
+        preferences[intPreferencesKey("custom_${mode}_background")] = value.background
+        preferences[intPreferencesKey("custom_${mode}_surface")] = value.surface
+        preferences[intPreferencesKey("custom_${mode}_text")] = value.text
+        preferences[intPreferencesKey("custom_${mode}_secondary")] = value.secondary
+        preferences[intPreferencesKey("custom_${mode}_outline")] = value.outline
+        preferences[intPreferencesKey("custom_${mode}_error")] = value.error
+    }
 
     private object Keys {
         val defaultTool = stringPreferencesKey("default_tool")
@@ -102,6 +134,10 @@ internal class SettingsRepository(private val store: DataStore<Preferences>) {
         val defaultOrientation = stringPreferencesKey("default_orientation")
         val theme = stringPreferencesKey("theme")
         val themePalette = stringPreferencesKey("theme_palette")
+        val darkThemePalette = stringPreferencesKey("dark_theme_palette")
+        val interfaceFont = stringPreferencesKey("interface_font")
+        val interfaceTextScale = floatPreferencesKey("interface_text_scale")
+        val interfaceCorners = stringPreferencesKey("interface_corners")
         val onboardingComplete = booleanPreferencesKey("onboarding_complete")
         val pageTransition = booleanPreferencesKey("page_transition")
         val shapeAssist = booleanPreferencesKey("shape_assist")

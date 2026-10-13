@@ -48,6 +48,26 @@ class ThemePalettePickerTest {
     val rule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
+    fun pairedPreviewsChooseLightAndDarkIndependently() {
+        var light by mutableStateOf(ThemePalette.CLASSIC)
+        var dark by mutableStateOf(ThemePalette.CLASSIC)
+        rule.setContent {
+            SeliaDocsTheme(false) {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    ThemePalettePicker(light, { light = it }, darkSelected = dark, onSelectDark = { dark = it })
+                }
+            }
+        }
+        rule.onNodeWithContentDescription("Light color palette: Paper").performScrollTo().performClick().assertIsSelected()
+        rule.onNodeWithContentDescription("Dark color palette: Midnight").performScrollTo().performClick().assertIsSelected()
+        rule.runOnIdle {
+            assertEquals(ThemePalette.PAPER, light)
+            assertEquals(ThemePalette.MIDNIGHT, dark)
+        }
+        rule.onNodeWithContentDescription("Dark color palette: Paper").assertIsNotSelected()
+    }
+
+    @Test
     fun selectingPaletteUpdatesRadioStateAndCallsOnce() {
         var calls = 0
         rule.setContent {

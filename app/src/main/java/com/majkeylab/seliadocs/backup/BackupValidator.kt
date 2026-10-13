@@ -8,6 +8,8 @@ import com.majkeylab.seliadocs.data.pageTextFits
 import com.majkeylab.seliadocs.editor.BrushKind
 import com.majkeylab.seliadocs.editor.EncodedStroke
 import com.majkeylab.seliadocs.editor.InkCodec
+import com.majkeylab.seliadocs.editor.IMAGE_MIME_EXTENSIONS
+import com.majkeylab.seliadocs.editor.validateStillImageDecode
 import com.majkeylab.seliadocs.pdf.PdfDocumentInfo
 import java.io.BufferedInputStream
 import java.io.File
@@ -21,6 +23,8 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.cos
@@ -108,7 +112,7 @@ internal class BackupValidator(
         return directory
     }
 
-    private fun extract(input: InputStream, directory: File): ExtractedArchive {
+    private suspend fun extract(input: InputStream, directory: File): ExtractedArchive {
         val files = linkedMapOf<String, File>()
         val hashes = linkedMapOf<String, String>()
         val destinations = mutableSetOf<String>()
@@ -117,6 +121,7 @@ internal class BackupValidator(
         val totalLimit = maxExtractedBytes()
         ZipInputStream(BufferedInputStream(NonClosingInputStream(input))).use { zip ->
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val entry =
                     try {
                         zip.nextEntry
@@ -133,11 +138,19 @@ internal class BackupValidator(
                     throw BackupFailure.DuplicateEntry(entry.name)
                 }
                 if (entry.isDirectory) {
-                    if (!destination.mkdirs() && !destination.isDirectory) {
-                        throw BackupFailure.Malformed()
-                    }
+                    if (entry.name != ASSET_PREFIX) throw BackupFailure.InvalidPath(entry.name)
+                    if (zip.read() != -1) throw BackupFailure.Malformed()
                     zip.closeEntry()
                     continue
+                }
+                when (entry.name) {
+                    MANIFEST_ENTRY, RECORDS_ENTRY, CHECKSUMS_ENTRY -> Unit
+                    else -> {
+                        val assetId = entry.name.removePrefix(ASSET_PREFIX)
+                        if (!entry.name.startsWith(ASSET_PREFIX) || !ASSET_ID.matches(assetId) || ".." in assetId) {
+                            throw BackupFailure.InvalidPath(entry.name)
+                        }
+                    }
                 }
                 val parent = destination.parentFile ?: throw BackupFailure.InvalidPath(entry.name)
                 if (!parent.mkdirs() && !parent.isDirectory) throw BackupFailure.Malformed()
@@ -152,6 +165,7 @@ internal class BackupValidator(
                 DigestOutputStream(destination.outputStream().buffered(), digest).use { output ->
                     val buffer = ByteArray(COPY_BUFFER_SIZE)
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val read = zip.read(buffer)
                         if (read < 0) break
                         if (read == 0) continue
@@ -256,7 +270,6 @@ internal class BackupValidator(
             files.forEach { (entry, file) ->
                 if (!entry.startsWith(ASSET_PREFIX)) return@forEach
                 val id = entry.removePrefix(ASSET_PREFIX)
-                if (!ASSET_ID.matches(id)) throw BackupFailure.InvalidPath(entry)
                 put(id, file)
             }
         }
@@ -281,21 +294,19 @@ internal class BackupValidator(
         val pageChapters = mutableListOf<Pair<String, String>>()
         val pdfSourceNotebooks = mutableMapOf<String, String>()
         val pdfSourcePageCounts = mutableMapOf<String, Int>()
-        val pdfSourceRecords = mutableListOf<BackupPdfSource>()
         val pagePdfSources = mutableListOf<Pair<String, String>>()
         val pdfPageIndexes = mutableMapOf<String, MutableList<Int>>()
         val pageIndexes = mutableMapOf<String, MutableList<Int>>()
         val strokePages = mutableListOf<Pair<String, String>>()
         val elementPages = mutableListOf<Pair<String, String>>()
-        val pageElements = mutableMapOf<String, MutableList<BackupElement>>()
         val blockPages = mutableListOf<Pair<String, String>>()
         val blockIndexes = mutableMapOf<String, MutableList<Int>>()
-        val pageBlocks = mutableMapOf<String, MutableList<BackupBlock>>()
         val referencedAssets = linkedSetOf<String>()
         val imageAssetIds = linkedSetOf<String>()
         var recordCount = 0
         recordsFile.reader(Charsets.UTF_8).use { input ->
             BackupJson.records(input).forEach { record ->
+                currentCoroutineContext().ensureActive()
                 recordCount++
                 if (recordCount > maxRecords) throw BackupFailure.LimitExceeded("recordCount")
                 when (record) {
@@ -309,7 +320,6 @@ internal class BackupValidator(
                         addUnique(pdfSources, record.id, "pdfSource")
                         pdfSourceNotebooks[record.id] = record.notebookId
                         pdfSourcePageCounts[record.id] = record.pageCount
-                        pdfSourceRecords += record
                         referencedAssets += record.assetId
                     }
                     is BackupPage -> {
@@ -335,7 +345,6 @@ internal class BackupValidator(
                         addUnique(elements, record.id, "element")
                         record.sourcePageId?.let(sourcePageIds::add)
                         elementPages += record.id to record.pageId
-                        pageElements.getOrPut(record.pageId, ::mutableListOf) += record
                         record.assetId?.let(referencedAssets::add)
                         if (record.kind == "IMAGE") record.assetId?.let(imageAssetIds::add)
                     }
@@ -343,7 +352,6 @@ internal class BackupValidator(
                         addUnique(blocks, record.id, "block")
                         blockPages += record.id to record.pageId
                         blockIndexes.getOrPut(record.pageId, ::mutableListOf) += record.orderIndex
-                        pageBlocks.getOrPut(record.pageId, ::mutableListOf) += record
                     }
                 }
             }
@@ -396,35 +404,6 @@ internal class BackupValidator(
             indexes.size > 1 || indexes.sorted() != indexes.indices.toList()
         }
             ?.let { throw BackupFailure.InvalidRelationship("blockIndex:${it.key}") }
-        pageBlocks.forEach { (pageId, records) ->
-            val size = pageSizes[pageId] ?: return@forEach
-            val text = records.sortedBy(BackupBlock::orderIndex).joinToString("\n") { it.text.orEmpty() }
-            if (!pageTextFits(text, size.first, size.second)) {
-                throw BackupFailure.InvalidRelationship("blockText:$pageId")
-            }
-        }
-        pageElements.forEach { (pageId, records) ->
-            val size = pageSizes[pageId] ?: return@forEach
-            records.forEach { record ->
-                if (record.kind == ElementKind.SHAPE.name && (record.colorArgb != null || record.strokeWidth != null)) {
-                    if (manifest.formatVersion < 7) throw BackupFailure.InvalidRelationship("shape-style-version")
-                    if ("shape-style" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("shape-style-feature")
-                } else if (record.annotationRects != null || record.colorArgb != null) {
-                    if (manifest.formatVersion < 6) throw BackupFailure.InvalidRelationship("pdf-markup-version")
-                    if ("pdf-markup" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("pdf-markup-feature")
-                }
-                if (record.sourcePageId != null || record.sourceRect != null) {
-                    if (manifest.formatVersion < 6) throw BackupFailure.InvalidRelationship("source-links-version")
-                    if ("source-links" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("source-links-feature")
-                }
-                validateElementBounds(
-                    record,
-                    size.first,
-                    size.second,
-                    strict = manifest.formatVersion >= 3,
-                )
-            }
-        }
         if (blocks.isNotEmpty() && manifest.formatVersion < 2) {
             throw BackupFailure.InvalidRelationship("page-text-version")
         }
@@ -454,8 +433,41 @@ internal class BackupValidator(
         if (referencedAssets != stagedAssets.keys) {
             throw BackupFailure.InvalidRelationship("assets")
         }
-        imageAssetIds.forEach { assetId -> validateImageAsset(assetId, stagedAssets.getValue(assetId)) }
-        pdfSourceRecords.forEach { source -> validatePdfAsset(source, stagedAssets.getValue(source.assetId)) }
+        // A second pass supports arbitrary record order without retaining large payloads.
+        recordsFile.reader(Charsets.UTF_8).use { input ->
+            BackupJson.records(input).forEach { record ->
+                currentCoroutineContext().ensureActive()
+                when (record) {
+                    is BackupElement -> {
+                        val size = pageSizes.getValue(record.pageId)
+                        if (record.kind == ElementKind.SHAPE.name && (record.colorArgb != null || record.strokeWidth != null)) {
+                            if (manifest.formatVersion < 7) throw BackupFailure.InvalidRelationship("shape-style-version")
+                            if ("shape-style" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("shape-style-feature")
+                        } else if (record.annotationRects != null || record.colorArgb != null) {
+                            if (manifest.formatVersion < 6) throw BackupFailure.InvalidRelationship("pdf-markup-version")
+                            if ("pdf-markup" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("pdf-markup-feature")
+                        }
+                        if (record.sourcePageId != null || record.sourceRect != null) {
+                            if (manifest.formatVersion < 6) throw BackupFailure.InvalidRelationship("source-links-version")
+                            if ("source-links" !in manifest.featureFlags) throw BackupFailure.InvalidRelationship("source-links-feature")
+                        }
+                        validateElementBounds(record, size.first, size.second, strict = manifest.formatVersion >= 3)
+                    }
+                    is BackupBlock -> {
+                        val size = pageSizes.getValue(record.pageId)
+                        if (!pageTextFits(record.text.orEmpty(), size.first, size.second)) {
+                            throw BackupFailure.InvalidRelationship("blockText:${record.pageId}")
+                        }
+                    }
+                    is BackupPdfSource -> validatePdfAsset(record, stagedAssets.getValue(record.assetId))
+                    else -> Unit
+                }
+            }
+        }
+        imageAssetIds.forEach { assetId ->
+            currentCoroutineContext().ensureActive()
+            validateImageAsset(assetId, stagedAssets.getValue(assetId))
+        }
         if (stagedAssets.size != manifest.assetCount) countFailure("assetCount")
         return BackupIndex(notebooks, chapters, pdfSources, pages, strokes, elements, blocks, referencedAssets, sourcePageIds)
     }
@@ -506,7 +518,7 @@ internal class BackupValidator(
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
         if (
-            bounds.outMimeType?.lowercase() !in IMAGE_MIME_TYPES ||
+            bounds.outMimeType?.lowercase() !in IMAGE_MIME_EXTENSIONS.keys ||
             bounds.outWidth !in 1..MAX_IMAGE_DIMENSION ||
             bounds.outHeight !in 1..MAX_IMAGE_DIMENSION ||
             bounds.outWidth.toLong() * bounds.outHeight * 4 > MAX_IMAGE_BYTES
@@ -515,9 +527,11 @@ internal class BackupValidator(
         }
         var sample = 1
         while (bounds.outWidth / sample > 2_048 || bounds.outHeight / sample > 2_048) sample *= 2
-        val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-            ?: throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
-        decoded.recycle()
+        try {
+            validateStillImageDecode(file, sample)
+        } catch (_: Exception) {
+            throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
+        }
     }
 
     private suspend fun validatePdfAsset(source: BackupPdfSource, file: File) {
@@ -530,18 +544,24 @@ internal class BackupValidator(
             throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}")
         }
         val info =
-            runCatching { inspectPdf(file) }
-                .getOrElse { throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}") }
+            try {
+                inspectPdf(file)
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                throw BackupFailure.InvalidRelationship("pdfAsset:${source.id}")
+            }
         if (info.pages.size != source.pageCount) {
             throw BackupFailure.InvalidRelationship("pdfPageCount:${source.id}")
         }
     }
 
-    private fun sha256(file: File): String {
+    private suspend fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->
             val buffer = ByteArray(COPY_BUFFER_SIZE)
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val read = input.read(buffer)
                 if (read < 0) break
                 if (read > 0) digest.update(buffer, 0, read)
@@ -597,7 +617,6 @@ internal class BackupValidator(
         const val MAX_LEGACY_ELEMENT_COORDINATE = 1_000_000f
         const val HEX = "0123456789abcdef"
         val PDF_HEADER = "%PDF-".toByteArray(Charsets.US_ASCII)
-        val IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp", "image/heif", "image/heic")
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
         val ASSET_ID = Regex("[A-Za-z0-9._-]+")
         val SHA_256 = Regex("[0-9a-fA-F]{64}")

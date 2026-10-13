@@ -1,6 +1,7 @@
 package com.majkeylab.seliadocs.editor
 
 import android.view.MotionEvent
+import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -68,7 +71,7 @@ internal data class WorkspaceSave(
 )
 
 /** Two fixed panes and one pending operation survive activity recreation. No editor data is copied here. */
-internal class EditorWorkspaceHolder : ViewModel() {
+internal class EditorWorkspaceHolder(savedStateHandle: SavedStateHandle = SavedStateHandle()) : ViewModel() {
     private var key: String? = null
     private var nextRequest = 0L
     var primary by mutableStateOf<WorkspacePane?>(null)
@@ -84,6 +87,44 @@ internal class EditorWorkspaceHolder : ViewModel() {
     var split by mutableStateOf(0.5f)
     var pickerPane by mutableStateOf<Int?>(null)
     var sharedPageSaved by mutableStateOf<String?>(null)
+
+    init {
+        runCatching {
+            val saved = savedStateHandle.get<Bundle>("editor-workspace") ?: return@runCatching
+            val restoredKey = requireNotNull(saved.getString("sessionKey")).also { require(it.isNotBlank()) }
+            val restoredPrimary = requireNotNull(saved.readPane("primary"))
+            val restoredSecondary = saved.readPane("secondary")
+            val restoredActive = saved.getInt("activePane")
+            require(restoredActive in 0..1)
+            key = restoredKey
+            primary = restoredPrimary
+            secondary = restoredSecondary
+            activePane = if (restoredSecondary == null) 0 else restoredActive
+        }
+        savedStateHandle.setSavedStateProvider("editor-workspace") {
+            Bundle().apply {
+                putString("sessionKey", key)
+                writePane("primary", primary)
+                writePane("secondary", secondary)
+                putInt("activePane", activePane)
+            }
+        }
+    }
+
+    private fun Bundle.readPane(prefix: String): WorkspacePane? {
+        if (!containsKey("${prefix}NotebookId")) return null
+        val notebookId = requireNotNull(getString("${prefix}NotebookId")).also { require(it.isNotBlank()) }
+        val pageId = if (containsKey("${prefix}PageId")) {
+            requireNotNull(getString("${prefix}PageId")).also { require(it.isNotBlank()) }
+        } else null
+        return WorkspacePane(notebookId, pageId)
+    }
+
+    private fun Bundle.writePane(prefix: String, pane: WorkspacePane?) {
+        pane ?: return
+        putString("${prefix}NotebookId", pane.notebookId)
+        pane.requestedPageId?.let { putString("${prefix}PageId", it) }
+    }
 
     fun prepare(sessionKey: String, notebookId: String, pageId: String?) {
         if (key == sessionKey) return
@@ -152,10 +193,10 @@ internal fun EditorWorkspace(
     initialPageId: String? = null,
     onInitialPageOpened: () -> Unit = {},
 ) {
-    val factory = remember { viewModelFactory { initializer { EditorSessionHolder() } } }
+    val factory = remember { viewModelFactory { initializer { EditorSessionHolder(createSavedStateHandle()) } } }
     val primaryHolder: EditorSessionHolder = viewModel(key = "editor-session-holder", factory = factory)
     val secondaryHolder: EditorSessionHolder = viewModel(key = "secondary-editor-session-holder", factory = factory)
-    val workspaceFactory = remember { viewModelFactory { initializer { EditorWorkspaceHolder() } } }
+    val workspaceFactory = remember { viewModelFactory { initializer { EditorWorkspaceHolder(createSavedStateHandle()) } } }
     val workspace: EditorWorkspaceHolder = viewModel(key = "editor-workspace", factory = workspaceFactory)
     workspace.prepare("$libraryGeneration:$notebookId", notebookId, initialPageId)
     val primaryPage by primaryHolder.selectedPage.collectAsStateWithLifecycle()

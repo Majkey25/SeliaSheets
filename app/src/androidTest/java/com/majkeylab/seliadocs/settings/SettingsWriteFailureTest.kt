@@ -45,9 +45,8 @@ class SettingsWriteFailureTest {
         val repository = SettingsRepository(store)
         rule.activity.setContent { SeliaDocsApp(settingsRepository = repository) }
         rule.onNodeWithText("Settings").performClick()
-        rule.onNodeWithText("Interface & export").performClick()
-        rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Dark"))
-        rule.onNodeWithText("Dark").performClick()
+        rule.onNodeWithText("Appearance").performClick()
+        rule.onNodeWithTag("appearance-mode-dark").performClick()
 
         rule.onNodeWithText("Settings not saved").assertIsDisplayed()
         assertEquals(null, preferences.value[stringPreferencesKey("theme")])
@@ -60,20 +59,20 @@ class SettingsWriteFailureTest {
             preferences.value[stringPreferencesKey("theme")] == AppTheme.DARK.name
         }
         rule.onNodeWithText("Settings not saved").assertDoesNotExist()
-        rule.onNodeWithText("Dark").assertIsSelected()
+        rule.onNodeWithTag("appearance-mode-dark").assertIsSelected()
 
         failWrites.set(true)
-        rule.onNodeWithText("Light").performClick()
+        rule.onNodeWithTag("appearance-mode-light").performClick()
         rule.onNodeWithText("Dismiss").performClick()
         rule.onNodeWithText("Settings not saved").assertDoesNotExist()
-        rule.onNodeWithText("Dark").assertIsSelected()
+        rule.onNodeWithTag("appearance-mode-dark").assertIsSelected()
         assertEquals(AppTheme.DARK.name, preferences.value[stringPreferencesKey("theme")])
 
         failWrites.set(false)
-        rule.onNodeWithText("Light").performClick()
+        rule.onNodeWithTag("appearance-mode-light").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
             preferences.value[stringPreferencesKey("theme")] == AppTheme.LIGHT.name
         }
-        rule.onNodeWithText("Light").assertIsSelected()
+        rule.onNodeWithTag("appearance-mode-light").assertIsSelected()
     }
 }

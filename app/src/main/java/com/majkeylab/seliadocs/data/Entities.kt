@@ -1,9 +1,11 @@
 package com.majkeylab.seliadocs.data
 
 import androidx.room.Entity
+import androidx.room.Embedded
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.Relation
 
 internal enum class CoverColor { PERIWINKLE, GRAPHITE, SAGE, SALMON, SAND }
 
@@ -75,6 +77,13 @@ internal data class PageEntity(
     val pdfPageIndex: Int? = null,
 )
 
+internal data class PageContentSnapshot(
+    @Embedded val page: PageEntity,
+    @Relation(parentColumn = "id", entityColumn = "pageId") val strokes: List<StrokeEntity>,
+    @Relation(parentColumn = "id", entityColumn = "pageId") val elements: List<ElementEntity>,
+    @Relation(parentColumn = "id", entityColumn = "pageId") val blocks: List<BlockEntity>,
+)
+
 @Entity(
     tableName = "chapters",
     foreignKeys = [
@@ -122,6 +131,18 @@ internal data class PdfSourceEntity(
 )
 
 internal data class PdfPageSpec(val widthPoints: Int, val heightPoints: Int)
+
+internal const val MAX_PDF_IMPORT_SOURCES = 100
+internal const val MAX_PDF_IMPORT_PAGES = 2_000
+internal const val MAX_PDF_IMPORT_BYTES = 256L * 1024 * 1024
+
+internal data class PdfImportSpec(
+    val assetId: String,
+    val displayName: String,
+    val byteSize: Long,
+    val sha256: String,
+    val pages: List<PdfPageSpec>,
+)
 
 internal data class PdfImportResult(val sourceId: String, val pageIds: List<String>)
 

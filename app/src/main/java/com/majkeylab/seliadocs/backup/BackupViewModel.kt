@@ -14,7 +14,10 @@ import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import java.io.File
+import java.io.IOException
 import java.io.OutputStream
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +75,16 @@ internal class BackupViewModel @JvmOverloads constructor(
     val state = mutableState.asStateFlow()
 
     init {
-        refreshCounts()
+        viewModelScope.launch {
+            try {
+                cleanupAbandonedRestores(stagingRoot)
+                refreshCountsNow()
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                mutableState.update { it.copy(status = failureMessage(failure), failed = true) }
+            }
+        }
     }
 
     fun exportLibrary(uri: Uri) = runOperation("Creating backup…") {
@@ -163,10 +175,6 @@ internal class BackupViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun refreshCounts() {
-        viewModelScope.launch { refreshCountsNow() }
-    }
-
     private suspend fun refreshCountsNow() {
         val counts =
             withContext(Dispatchers.IO) {
@@ -206,6 +214,32 @@ internal suspend fun exportUserLibrary(
     outputFactory: () -> OutputStream,
 ): BackupSummary =
     LibraryMutationGate.withLock { exporter.export(BackupScope.Library, outputFactory) }
+
+internal suspend fun cleanupAbandonedRestores(stagingRoot: File) {
+    LibraryMutationGate.withLock {
+        withContext(Dispatchers.IO) {
+            if (!stagingRoot.exists() || Files.isSymbolicLink(stagingRoot.toPath())) return@withContext
+            val root = stagingRoot.canonicalFile
+            val entries = root.listFiles() ?: throw IOException("Restore staging could not be read")
+            val restoreName = Regex("restore-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+            val rollbackName = Regex("rollback-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\\.seliasheets")
+            for (entry in entries) {
+                val path = entry.toPath()
+                if (Files.isSymbolicLink(path) || entry.canonicalFile.parentFile != root) continue
+                val paths = when {
+                    restoreName.matches(entry.name) && Files.isDirectory(path, NOFOLLOW_LINKS) ->
+                        Files.walk(path).use { it.iterator().asSequence().toList() }
+                    rollbackName.matches(entry.name) && Files.isRegularFile(path, NOFOLLOW_LINKS) -> listOf(path)
+                    else -> continue
+                }
+                if (paths.any { Files.isSymbolicLink(it) || !it.toFile().canonicalFile.toPath().startsWith(root.toPath()) }) {
+                    continue
+                }
+                paths.asReversed().forEach(Files::delete)
+            }
+        }
+    }
+}
 
 internal suspend fun writeBackupToDestination(
     cacheDir: File,

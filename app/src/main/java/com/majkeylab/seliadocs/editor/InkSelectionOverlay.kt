@@ -1,6 +1,5 @@
 package com.majkeylab.seliadocs.editor
 
-import android.view.MotionEvent
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -21,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -113,12 +111,6 @@ internal fun InkSelectionOverlay(
                 .zIndex(4f)
                 .onGloballyPositioned { coordinates ->
                     latestBoundsChanged.value(coordinates.boundsInRoot())
-                }
-                .pointerInteropFilter { event ->
-                    (0 until event.pointerCount).any { index ->
-                        val tool = event.getToolType(index)
-                        tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER
-                    }
                 }
                 .testTag("ink-selection-overlay"),
     ) {

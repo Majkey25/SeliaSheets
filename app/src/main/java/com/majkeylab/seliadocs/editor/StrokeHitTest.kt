@@ -22,9 +22,12 @@ internal fun hitStroke(point: CanvasPoint, radius: Float, stroke: StrokePath): B
     require(radius >= 0f)
     val radiusSquared = radius * radius
     if (stroke.points.size == 1) return distanceSquared(point, stroke.points.single()) <= radiusSquared
-    return stroke.points.zipWithNext().any { (start, end) ->
-        distanceToSegmentSquared(point, start, end) <= radiusSquared
+    for (index in 1 until stroke.points.size) {
+        if (distanceToSegmentSquared(point, stroke.points[index - 1], stroke.points[index]) <= radiusSquared) {
+            return true
+        }
     }
+    return false
 }
 
 internal fun hitStrokePath(eraser: List<CanvasPoint>, radius: Float, stroke: StrokePath): Boolean {
@@ -32,15 +35,29 @@ internal fun hitStrokePath(eraser: List<CanvasPoint>, radius: Float, stroke: Str
     if (eraser.isEmpty() || stroke.points.isEmpty()) return false
     if (eraser.size == 1) return hitStroke(eraser.single(), radius, stroke)
     if (stroke.points.size == 1) {
-        return eraser.zipWithNext().any { (start, end) ->
-            distanceToSegmentSquared(stroke.points.single(), start, end) <= radius * radius
+        for (index in 1 until eraser.size) {
+            if (distanceToSegmentSquared(stroke.points.single(), eraser[index - 1], eraser[index]) <= radius * radius) {
+                return true
+            }
+        }
+        return false
+    }
+    for (eraserIndex in 1 until eraser.size) {
+        for (strokeIndex in 1 until stroke.points.size) {
+            if (
+                segmentsWithinRadius(
+                    eraser[eraserIndex - 1],
+                    eraser[eraserIndex],
+                    stroke.points[strokeIndex - 1],
+                    stroke.points[strokeIndex],
+                    radius,
+                )
+            ) {
+                return true
+            }
         }
     }
-    return eraser.zipWithNext().any { (eraserStart, eraserEnd) ->
-        stroke.points.zipWithNext().any { (strokeStart, strokeEnd) ->
-            segmentsWithinRadius(eraserStart, eraserEnd, strokeStart, strokeEnd, radius)
-        }
-    }
+    return false
 }
 
 internal fun segmentsWithinRadius(

@@ -250,6 +250,15 @@ class EditorCompactUiTest {
         openCompactEditor()
         selectTool("type")
         rule.onNodeWithTag("page-text").performTextInput("Text and highlights stay together.\n".repeat(12))
+        // The forced phone viewport does not resize the tablet's native IME window.
+        closeSoftKeyboard()
+        rule.waitUntil(5_000) {
+            rule.runOnIdle {
+                ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+            }
+        }
+        settledPageGeometry(hasTestTag("compact-tool-highlighter"))
         selectTool("highlighter")
         val paper = rule.onNodeWithTag("page-paper").fetchSemanticsNode().boundsInRoot
         val offset = IntArray(2)
@@ -505,6 +514,8 @@ class EditorCompactUiTest {
             EditorAction.ImportPdf(source),
             EditorAction.ExportPdf(destination),
             EditorAction.ImportWordText(source),
+            EditorAction.ImportPowerPoint(source),
+            EditorAction.ImportPlainText(source),
             EditorAction.ExportWordText(destination),
             EditorAction.ImportImage("image-page", source, ocr = true),
         )
@@ -535,6 +546,8 @@ class EditorCompactUiTest {
         listOf(
             EditorAction.ImportPdf(Uri.parse("content://test/import.pdf")),
             EditorAction.ImportWordText(Uri.parse("content://test/import.docx")),
+            EditorAction.ImportPowerPoint(Uri.parse("content://test/import.pptx")),
+            EditorAction.ImportPlainText(Uri.parse("content://test/import.md")),
             EditorAction.ExportWordText(Uri.parse("content://test/export.docx")),
             EditorAction.ImportImage("page", Uri.parse("content://test/image.png"), ocr = false),
         ).forEach { action ->
@@ -1151,6 +1164,42 @@ class EditorCompactUiTest {
         rule.onNodeWithTag("compact-more-undo").assertIsDisplayed()
         rule.onNodeWithTag("compact-more-redo").assertIsDisplayed()
     }
+
+    @Test
+    fun appAndSystemTextScaleKeepCompactActionsReachable() {
+        val settings = SettingsRepository.create(rule.activity.application)
+        val previous = runBlocking { settings.settings.first().interfaceTextScale }
+        try {
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            val title = openEditor(widthDp = 360, fontScale = 1.3f)
+            rule.onNodeWithTag("compact-undo").assertIsDisplayed()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(title)
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1.4f) } }
+            rule.waitUntil(5_000) { !hasTag("compact-undo") }
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains("Page 1 of 1")
+            val layouts = mutableListOf<TextLayoutResult>()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertEquals(1, layouts.single().lineCount)
+            assertFalse(layouts.single().isLineEllipsized(0))
+            listOf("compact-back", "compact-page-location", "compact-more").forEach { tag ->
+                rule.onNodeWithTag(tag).assertIsDisplayed().assertHasClickAction()
+            }
+            rule.onNodeWithTag("compact-more").performClick()
+            rule.onNodeWithTag("compact-more-undo").assertIsDisplayed()
+            rule.onNodeWithTag("compact-more-redo").assertIsDisplayed()
+            pressBack()
+
+            runBlocking { settings.update { it.copy(interfaceTextScale = 1f) } }
+            rule.waitUntil(5_000) { hasTag("compact-undo") }
+            rule.onNodeWithTag("compact-undo").assertIsDisplayed()
+            rule.onNodeWithTag("editor-top-bar-title", useUnmergedTree = true).assertTextContains(title)
+        } finally {
+            runBlocking { settings.update { it.copy(interfaceTextScale = previous) } }
+        }
+    }
+
     @Test
     fun activityRetainsOneSessionHolderAndClearsChildBetweenEditors() {
         rule.waitForIdle()

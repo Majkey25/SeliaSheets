@@ -93,13 +93,18 @@ class PdfTextSearchBackendTest {
     @Test
     fun invalidBinderQueryClosesReceivedDescriptor() {
         createPdf(imageOnly = false)
-        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        val fd = descriptor.fileDescriptor
-        val service = IPdfRenderService.Stub.asInterface(PdfRenderService().onBind(null))
-        val result = service.searchText(descriptor, 0, "x".repeat(257))
-        assertFalse(result.getBoolean(PdfProtocol.SUCCESS))
-        assertEquals(PdfProtocol.ERROR_LIMIT, result.getString(PdfProtocol.ERROR))
-        assertFalse(fd.valid())
+        val (reader, writer) = ParcelFileDescriptor.createPipe()
+        try {
+            withBoundPdfSandbox(context, file) { service ->
+                val result = service.searchText(reader, 0, "x".repeat(257))
+                assertFalse(result.getBoolean(PdfProtocol.SUCCESS))
+                assertEquals(PdfProtocol.ERROR_LIMIT, result.getString(PdfProtocol.ERROR))
+                assertPipeReaderClosed(reader, writer)
+            }
+        } finally {
+            reader.close()
+            writer.close()
+        }
     }
 
     @Test

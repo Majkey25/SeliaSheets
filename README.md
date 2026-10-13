@@ -13,6 +13,8 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 Download `0.9.0-beta.1`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SeliaSheets-0.9.0-beta.1.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.9.0-beta.1/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.9.0-beta.1).
 
+The `0.10.0-beta.2` candidate adds offline PowerPoint slide conversion, editable TXT/Markdown import, expanded Appearance settings, page movement, and editor recovery fixes. The download above remains the previous release until the new signed artifacts are published. See [supported import formats and limits](docs/IMPORT_FORMATS.md).
+
 ## Highlights
 
 - Android 10 and later (`minSdk 29`; compiled and targeted for API 37).
@@ -21,7 +23,7 @@ Download `0.9.0-beta.1`: [Android APK](https://github.com/Majkey25/SeliaSheets/r
 - Custom RGB/hex brush colors, continuous width controls, and pen/pencil/highlighter opacity with live previews.
 - Multiple notebooks with covers, chapters, page titles, bookmarks, search across stored titles, text, and math, favorites, and trash.
 - Second-notebook workspace with a resizable tablet split or a keyboard-aware phone dialog. Each pane keeps its own page, draft, and zoom; a shared page has one writable pane.
-- Add a note page or PDF slides after the current page. Inserted notes preserve the current page dimensions and chapter.
+- Add a note page or PDF slides after the current page, or move a page earlier/later from Contents. Inserted notes preserve the current page dimensions and chapter.
 - Import `.docx` body text as editable notebook pages and export typed text to a new Word file. Conversion excludes source formatting, images, headers, and notes; keep the original separately.
 - Four illustrated starting templates with a live cover, paper, and orientation preview.
 - Blank, ruled, grid, and dot paper in portrait or landscape.
@@ -36,7 +38,8 @@ Download `0.9.0-beta.1`: [Android APK](https://github.com/Majkey25/SeliaSheets/r
 - PDF export is flattened. Editable annotations and original PDF sources remain in notebook backups.
 - Portable `.seliasheets` backups with validation, merge, replace, and rollback protection.
 - Working settings for default tools, widths, finger drawing, paper, orientation, theme, and motion.
-- Six light/dark interface palettes with previews, a replayable introduction, and optional notebook-opening/page animations. Animations start disabled on new installations.
+- Appearance offers 13 theme choices with independent light/dark previews, custom colors, interface font and size, and corner styles. Material uses wallpaper colors on Android 12+, with a standard palette on earlier versions. Custom colors are harmonized for readable text and controls.
+- A replayable introduction and optional notebook-opening/page animations. Animations start disabled on new installations.
 - No first-party account, ads, analytics, telemetry, or cloud sync.
 - Optional on-device handwriting recognition for simple single-line arithmetic after an explicit Google model download.
 
@@ -78,7 +81,7 @@ Live highlighter checks compare native screen pixels before pen-up and after han
 
 ## Scope
 
-This beta does not include movable/resizable phone pop-ups, process-death workspace restoration, FLOW pages, Quick Note and Inbox, rich-text styles, tables, graphs, study sets, masking tape, audio, accounts, cloud sync, or collaboration. Native PDF search does not OCR embedded scanned regions on mixed-content pages. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific pressure, tilt, hover, eraser, and side-button behavior still requires QA on a compatible active-stylus device.
+This beta does not include movable/resizable phone pop-ups, FLOW pages, Quick Note and Inbox, rich-text styles, tables, graphs, study sets, masking tape, audio, accounts, cloud sync, or collaboration. Native PDF search does not OCR embedded scanned regions on mixed-content pages. Optional handwriting recognition supports only simple single-line arithmetic candidates; it is not general two-dimensional math or LaTeX recognition. Typed arithmetic and confirmed shape cleanup work locally without a downloaded model. Hardware-specific pressure, tilt, hover, eraser, and side-button behavior still requires QA on a compatible active-stylus device.
 
 ## Support
 

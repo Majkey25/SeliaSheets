@@ -43,6 +43,24 @@ class WordTextCodecTest {
     }
 
     @Test
+    fun bodyEquationsAreRejectedInTransitionalAndStrictNamespaces() {
+        for ((namespace, strict) in listOf(
+            "http://schemas.openxmlformats.org/officeDocument/2006/math" to false,
+            "http://purl.oclc.org/ooxml/officeDocument/math" to true,
+        )) {
+            for (block in listOf(false, true)) {
+                val equation = """<m:oMath xmlns:m="$namespace"><m:r><m:t>x=1</m:t></m:r></m:oMath>"""
+                val content = if (block) """<m:oMathPara xmlns:m="$namespace">$equation</m:oMathPara>""" else equation
+                val body = "<w:p><w:r><w:t>Before </w:t></w:r>$content<w:r><w:t> after</w:t></w:r></w:p>"
+
+                val failure = assertThrows(IOException::class.java) { read(packageEntries(body, strict = strict)) }
+
+                assertEquals("Word equations are not supported", failure.message)
+            }
+        }
+    }
+
+    @Test
     fun paragraphTabStopsDoNotBecomeTextTabs() {
         val document = read(packageEntries("<w:p><w:pPr><w:tabs><w:tab w:val=\"left\" w:pos=\"720\"/></w:tabs></w:pPr><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t></w:r></w:p>"))
         assertEquals(listOf("A\tB"), document.paragraphs)

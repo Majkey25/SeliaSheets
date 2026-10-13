@@ -78,7 +78,6 @@ import com.majkeylab.seliadocs.ui.PaperPreview
 import com.majkeylab.seliadocs.ui.TemplatePreview
 import com.majkeylab.seliadocs.ui.coverColorValue
 import com.majkeylab.seliadocs.ui.paperLabel
-import com.majkeylab.seliadocs.ui.ThemePalettePicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -185,38 +184,19 @@ internal fun SettingsScreen(
             }
             item {
                 SettingsGroup(
-                    title = stringResource(R.string.interface_export),
-                    summary = stringResource(R.string.interface_export_summary),
+                    title = stringResource(R.string.appearance),
+                    summary = stringResource(R.string.appearance_summary),
                     icon = R.drawable.ic_tune,
                 ) {
-                    Text(
-                        stringResource(R.string.theme),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        AppTheme.entries.forEach { theme ->
-                            ThemePreviewChoice(
-                                theme = theme,
-                                selected = theme == settings.theme,
-                                onClick = { onUpdate { it.copy(theme = theme) } },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    Text(stringResource(R.string.color_palette), style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-                    ThemePalettePicker(settings.themePalette, { palette -> onUpdate { it.copy(themePalette = palette) } },
-                        Modifier.padding(horizontal = 20.dp))
-                    InfoText(stringResource(R.string.color_palette_hint))
-                    SwitchSetting(
-                        stringResource(R.string.page_transition),
-                        settings.pageTransition,
-                    ) { enabled -> onUpdate { it.copy(pageTransition = enabled) } }
-                    InfoText(stringResource(R.string.notebook_motion_hint))
+                    AppearanceSettings(settings, onUpdate)
+                }
+            }
+            item {
+                SettingsGroup(
+                    title = stringResource(R.string.export_settings),
+                    summary = stringResource(R.string.export_settings_summary),
+                    icon = R.drawable.ic_notebook,
+                ) {
                     InfoText(stringResource(R.string.export_details))
                 }
             }
@@ -448,7 +428,7 @@ private fun SettingsGroup(
 }
 
 @Composable
-private fun <T> ChoiceSetting(
+internal fun <T> ChoiceSetting(
     label: String,
     values: List<T>,
     selected: T,
@@ -520,7 +500,7 @@ private fun StrokeSliderSetting(
 }
 
 @Composable
-private fun ThemePreviewChoice(
+internal fun ThemePreviewChoice(
     theme: AppTheme,
     selected: Boolean,
     onClick: () -> Unit,
@@ -531,13 +511,13 @@ private fun ThemePreviewChoice(
     val paper = if (dark) Color(0xFF252421) else Color(0xFFFFFEFA)
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f) else Color.Transparent,
-        shape = RoundedCornerShape(9.dp),
+        shape = MaterialTheme.shapes.medium,
         border =
             BorderStroke(
                 if (selected) 2.dp else 1.dp,
                 if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
             ),
-        modifier = modifier.selectable(selected = selected, onClick = onClick, role = Role.RadioButton),
+        modifier = modifier.testTag("appearance-mode-${theme.name.lowercase()}").selectable(selected = selected, onClick = onClick, role = Role.RadioButton),
     ) {
         Column(
             Modifier.padding(8.dp),
@@ -690,7 +670,7 @@ private fun RecognitionModelSetting(
 }
 
 @Composable
-private fun InfoText(value: String) {
+internal fun InfoText(value: String) {
     Text(
         value,
         style = MaterialTheme.typography.bodyMedium,

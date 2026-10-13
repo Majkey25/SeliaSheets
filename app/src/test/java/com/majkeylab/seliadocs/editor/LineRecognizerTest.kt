@@ -60,6 +60,19 @@ class LineRecognizerTest {
     }
 
     @Test
+    fun heldBacktrackingLineDoesNotDiscardOvershoot() {
+        val held =
+            listOf(
+                timed(40f, 80f, 0),
+                timed(220f, 80f, 100),
+                timed(120f, 80f, 200),
+                timed(120f, 80f, 600),
+            )
+
+        assertNull(recognizeHeldShape(held, 595f, 842f))
+    }
+
+    @Test
     fun heldArrowAndEllipseAreRecognized() {
         val arrow =
             listOf(

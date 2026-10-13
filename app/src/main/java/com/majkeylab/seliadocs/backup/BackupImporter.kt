@@ -19,6 +19,8 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal class BackupImporter(
@@ -31,10 +33,11 @@ internal class BackupImporter(
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
     suspend fun restore(input: InputStream, mode: RestoreMode): RestoreSummary =
-        validator.validate(input).use { backup ->
-            LibraryMutationGate.withLock {
+        LibraryMutationGate.withLock {
+            validator.validate(input).use { backup ->
                 var completed: RestoreSummary? = null
                 try {
+                    currentCoroutineContext().ensureActive()
                     withContext(NonCancellable + Dispatchers.IO) {
                         val mappings = createMappings(backup, mode)
                         val oldAssets = if (mode == RestoreMode.REPLACE) assets.files() else emptyList()

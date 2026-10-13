@@ -1,6 +1,5 @@
 package com.majkeylab.seliadocs.editor
 
-import android.view.MotionEvent
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -24,7 +23,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +38,8 @@ import com.majkeylab.seliadocs.R
 import com.majkeylab.seliadocs.data.ElementEntity
 import com.majkeylab.seliadocs.data.PageEntity
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 internal fun ElementSelectionOverlay(
@@ -68,12 +68,10 @@ internal fun ElementSelectionOverlay(
     val latestBoundsChanged = rememberUpdatedState(onBoundsChanged)
     val density = LocalDensity.current
     val activeEraserPointer = eraserPointerId ?: remember(element.id) { AtomicInteger(-1) }
-    var current by
-        remember(element.id, element.x, element.y, element.width, element.height, element.rotation) {
-            mutableStateOf(element.transform())
-        }
+    val persistedTransform = element.transform()
+    var current by remember(element.id, persistedTransform) { mutableStateOf(persistedTransform) }
     val cancelGesture = {
-        current = element.transform()
+        current = persistedTransform
         onPreview(null)
     }
     fun commitAccessibilityTransform(proposed: ElementTransform): Boolean {
@@ -98,6 +96,21 @@ internal fun ElementSelectionOverlay(
     }
     val width = current.width * scaleX
     val height = current.height * scaleY
+    val gestureOwnership = Modifier.pointerInput(element.id) {
+        awaitEachGesture {
+            do {
+                val down = awaitPointerEvent(PointerEventPass.Initial)
+            } while (down.changes.none { it.pressed && !it.previousPressed })
+            latestGestureOwnership.value(true)
+            try {
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+                } while (event.changes.any { it.pressed })
+            } finally {
+                latestGestureOwnership.value(false)
+            }
+        }
+    }
     Box(
         modifier =
             Modifier
@@ -111,32 +124,6 @@ internal fun ElementSelectionOverlay(
                 .onGloballyPositioned { coordinates ->
                     latestBoundsChanged.value(coordinates.boundsInRoot())
                 }
-                .pointerInteropFilter { event ->
-                    val hasStylus =
-                        (0 until event.pointerCount).any { index ->
-                            event.getToolType(index) == MotionEvent.TOOL_TYPE_STYLUS
-                        }
-                    val hasEraser =
-                        (0 until event.pointerCount).any { index ->
-                            event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER
-                        }
-                    hasStylus || hasEraser
-                }
-                .pointerInput(element.id) {
-                    awaitEachGesture {
-                        do {
-                            val down = awaitPointerEvent(PointerEventPass.Initial)
-                        } while (down.changes.none { it.pressed && !it.previousPressed })
-                        latestGestureOwnership.value(true)
-                        try {
-                            do {
-                                val event = awaitPointerEvent(PointerEventPass.Final)
-                            } while (event.changes.any { it.pressed })
-                        } finally {
-                            latestGestureOwnership.value(false)
-                        }
-                    }
-                }
                 .testTag("element-selection"),
     ) {
         Box(
@@ -144,7 +131,8 @@ internal fun ElementSelectionOverlay(
                 Modifier
                     .offset(HANDLE_REGION.dp, HANDLE_REGION.dp)
                     .size(width.dp, height.dp)
-                    .pointerInput(element.id, scaleX, scaleY) {
+                    .then(gestureOwnership)
+                    .pointerInput(element.id, persistedTransform, page.widthPoints, page.heightPoints, scaleX, scaleY) {
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {
@@ -156,10 +144,15 @@ internal fun ElementSelectionOverlay(
                         ) { change, amount ->
                             if (activeEraserPointer.get() >= 0) return@detectDragGestures
                             change.consume()
+                            val radians = Math.toRadians(current.rotation.toDouble())
+                            val cosine = cos(radians).toFloat()
+                            val sine = sin(radians).toFloat()
+                            val screenDeltaX = amount.x * cosine - amount.y * sine
+                            val screenDeltaY = amount.x * sine + amount.y * cosine
                             update(
                                 current.copy(
-                                    x = current.x + pointerDeltaToPage(amount.x, density.density, scaleX),
-                                    y = current.y + pointerDeltaToPage(amount.y, density.density, scaleY),
+                                    x = current.x + pointerDeltaToPage(screenDeltaX, density.density, scaleX),
+                                    y = current.y + pointerDeltaToPage(screenDeltaY, density.density, scaleY),
                                 ),
                                 page,
                                 element.minimumTransformSize(),
@@ -202,7 +195,8 @@ internal fun ElementSelectionOverlay(
                         (HANDLE_REGION + width - TOUCH_TARGET / 2f).dp,
                         (HANDLE_REGION + height - TOUCH_TARGET / 2f).dp,
                     )
-                    .pointerInput(element.id, scaleX, scaleY) {
+                    .then(gestureOwnership)
+                    .pointerInput(element.id, persistedTransform, page.widthPoints, page.heightPoints, scaleX, scaleY) {
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {
@@ -256,7 +250,8 @@ internal fun ElementSelectionOverlay(
                         (HANDLE_REGION + width / 2f - TOUCH_TARGET / 2f).dp,
                         0.dp,
                     )
-                    .pointerInput(element.id) {
+                    .then(gestureOwnership)
+                    .pointerInput(element.id, persistedTransform, page.widthPoints, page.heightPoints) {
                         detectDragGestures(
                             onDragCancel = cancelGesture,
                             onDragEnd = {

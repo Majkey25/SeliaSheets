@@ -27,10 +27,13 @@ import com.majkeylab.seliadocs.pdf.PdfSandboxClient
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
@@ -214,18 +217,19 @@ class BackupImporterTest {
             }
         withTimeout(10_000) { gateLocked.await() }
         val failure = AtomicReference<Throwable?>()
+        val restoreStarted = CompletableDeferred<Unit>()
         try {
             val restore =
                 launch(Dispatchers.IO) {
                     try {
+                        restoreStarted.complete(Unit)
                         importer.restore(ByteArrayInputStream(archive), RestoreMode.REPLACE)
                     } catch (caught: Throwable) {
                         failure.set(caught)
                     }
                 }
-            withTimeout(10_000) {
-                while (stagingRoot.listFiles().orEmpty().isEmpty()) delay(10)
-            }
+            withTimeout(10_000) { restoreStarted.await() }
+            assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
             restore.cancel(CancellationException("Cancelled before atomic mutation"))
             withTimeout(10_000) { restore.join() }
         } finally {
@@ -375,6 +379,87 @@ class BackupImporterTest {
             releaseGate.complete(Unit)
             withTimeout(10_000) { gateOwner.join() }
             viewModel.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun abandonedRestoreCleanupPreservesUnknownEntriesLinksAndAssets() = runTest {
+        val abandoned = File(stagingRoot, "restore-${UUID.randomUUID()}").apply { mkdirs() }
+        File(abandoned, "records.jsonl").writeText("unfinished")
+        File(abandoned, "assets").apply { mkdir() }.resolve("image.png").writeBytes(byteArrayOf(1))
+        val rollback = File(stagingRoot, "rollback-${UUID.randomUUID()}.seliasheets").apply { writeText("rollback") }
+        val unknown = File(stagingRoot, "notes.txt").apply { writeText("keep") }
+        val unknownDirectory = File(stagingRoot, "restore-not-an-id").apply { mkdir() }
+        val wrongType = File(stagingRoot, "restore-${UUID.randomUUID()}").apply { writeText("keep") }
+        val linked = File(stagingRoot, "restore-${UUID.randomUUID()}")
+        val containingLink = File(stagingRoot, "restore-${UUID.randomUUID()}").apply { mkdir() }
+        val nestedLink = File(containingLink, "assets")
+        assets.prepare()
+        val asset = assets.file("keep.bin").apply { writeBytes(byteArrayOf(7)) }
+
+        try {
+            Files.createSymbolicLink(linked.toPath(), assetRoot.toPath())
+            Files.createSymbolicLink(nestedLink.toPath(), assetRoot.toPath())
+
+            cleanupAbandonedRestores(stagingRoot)
+
+            assertFalse(abandoned.exists())
+            assertFalse(rollback.exists())
+            assertEquals("keep", unknown.readText())
+            assertTrue(unknownDirectory.isDirectory)
+            assertEquals("keep", wrongType.readText())
+            assertTrue(Files.isSymbolicLink(linked.toPath()))
+            assertTrue(Files.isSymbolicLink(nestedLink.toPath()))
+            assertArrayEquals(byteArrayOf(7), asset.readBytes())
+        } finally {
+            Files.deleteIfExists(linked.toPath())
+            Files.deleteIfExists(nestedLink.toPath())
+        }
+    }
+
+    @Test
+    fun abandonedRestoreCleanupWaitsForActiveValidation() = runBlocking {
+        val archive = sourceArchive("Restored after validation")
+        val validationStarted = CompletableDeferred<Unit>()
+        val releaseValidation = CompletableDeferred<Unit>()
+        val input = object : ByteArrayInputStream(archive) {
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                runBlocking {
+                    validationStarted.complete(Unit)
+                    releaseValidation.await()
+                }
+                return super.read(buffer, offset, length)
+            }
+        }
+        val restore = async(Dispatchers.IO) { importer.restore(input, RestoreMode.MERGE) }
+        var cleanup: Deferred<Unit>? = null
+        try {
+            withTimeout(10_000) { validationStarted.await() }
+            val activeDirectory = stagingRoot.listFiles().orEmpty().single()
+            val cleanupStarted = CompletableDeferred<Unit>()
+            val cleanupJob = async(Dispatchers.IO) {
+                cleanupStarted.complete(Unit)
+                cleanupAbandonedRestores(stagingRoot)
+            }
+            cleanup = cleanupJob
+            withTimeout(10_000) { cleanupStarted.await() }
+
+            assertFalse(withTimeoutOrNull(250) { cleanupJob.await(); true } == true)
+            assertTrue(activeDirectory.isDirectory)
+
+            releaseValidation.complete(Unit)
+            withTimeout(10_000) {
+                assertEquals(1, restore.await().notebooks)
+                cleanupJob.await()
+            }
+            assertEquals("Restored after validation", repository.getAllNotebooks().single().title)
+            assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+        } finally {
+            releaseValidation.complete(Unit)
+            withTimeout(10_000) {
+                restore.join()
+                cleanup?.join()
+            }
         }
     }
 

@@ -1,10 +1,17 @@
 package com.majkeylab.seliadocs.backup
 
 import android.content.Context
+import android.graphics.Color
+import android.net.Uri
 import android.util.JsonWriter
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.pdf.PdfSandboxClient
+import com.majkeylab.seliadocs.data.AssetStore
+import com.majkeylab.seliadocs.editor.ImageImporter
+import com.majkeylab.seliadocs.editor.animatedGifFixture
+import com.majkeylab.seliadocs.editor.decodeOrientedImage
+import com.majkeylab.seliadocs.editor.stillBmpFixture
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -15,9 +22,13 @@ import java.io.StringWriter
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +68,49 @@ class BackupValidatorTest {
     fun parentAndAbsolutePathsAreRejected() = runTest {
         assertFailure<BackupFailure.InvalidPath>(archive(listOf("../outside" to byteArrayOf(1))))
         assertFailure<BackupFailure.InvalidPath>(archive(listOf("/absolute" to byteArrayOf(1))))
+    }
+
+    @Test
+    fun directoryEntriesContainingPayloadAreRejected() = runTest {
+        val content = validContent()
+        val checksums = checksumBytes(content.associate { it.first to sha256(it.second) })
+        val validator = BackupValidator(
+            stagingRoot,
+            pdfSandbox::inspect,
+            maxEntryBytes = 1024,
+            maxExtractedBytes = { 8 * 1024L },
+        )
+
+        for (payload in listOf(byteArrayOf(1), ByteArray(4 * 1024))) {
+            assertFailure<BackupFailure.Malformed>(
+                archive(listOf("assets/" to payload) + content + ("checksums.json" to checksums)),
+                validator,
+            )
+        }
+    }
+
+    @Test
+    fun emptyDirectoryEntriesRemainSupported() = runTest {
+        val content = validContent()
+        val checksums = checksumBytes(content.associate { it.first to sha256(it.second) })
+        val bytes = archive(listOf("assets/" to byteArrayOf()) + content + ("checksums.json" to checksums))
+
+        validator().validate(ByteArrayInputStream(bytes)).use { backup ->
+            assertEquals(setOf("page"), backup.index.pageIds)
+        }
+        assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
+    fun unknownAndDeepDirectoryEntriesAreRejected() = runTest {
+        val content = validContent()
+        val checksums = checksumBytes(content.associate { it.first to sha256(it.second) })
+
+        for (directory in listOf("unknown/", "nested/".repeat(64), "assets/nested/")) {
+            assertFailure<BackupFailure.InvalidPath>(
+                archive(listOf(directory to byteArrayOf()) + content + ("checksums.json" to checksums)),
+            )
+        }
     }
 
     @Test
@@ -361,6 +415,49 @@ class BackupValidatorTest {
     }
 
     @Test
+    fun importedBmpAndAnimatedGifValidateWithBytesAndStillPixelsPreserved() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val inputRoot = File(stagingRoot, "image-inputs").apply { mkdirs() }
+        val importer = ImageImporter(context.contentResolver, AssetStore(File(inputRoot, "stored")))
+        try {
+            for ((extension, bytes) in listOf("bmp" to stillBmpFixture(), "gif" to animatedGifFixture())) {
+                val original = File(inputRoot, "image.$extension").apply { writeBytes(bytes) }
+                val asset = importer.importImage(Uri.fromFile(original)).getOrThrow()
+                val content = listOf(
+                    "manifest.json" to manifestBytes(1, 1, 1),
+                    "records.jsonl" to records(notebook(), page(), BackupElement(
+                        "image", "page", 0, "IMAGE", 0f, 0f, 20f, 10f, 0f, null, asset.id, null, null, null,
+                    )),
+                    "assets/${asset.id}" to asset.file.readBytes(),
+                )
+                val backupBytes = archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) })))
+                validator().validate(ByteArrayInputStream(backupBytes)).use { backup ->
+                    assertEquals(setOf(asset.id), backup.index.assetIds)
+                    val restored = backup.assetFiles.getValue(asset.id)
+                    assertArrayEquals(bytes, restored.readBytes())
+                    val bitmap = decodeOrientedImage(restored, 1)
+                    try {
+                        assertEquals(Color.RED, bitmap.getPixel(0, 0))
+                        assertEquals(Color.BLUE, bitmap.getPixel(1, 0))
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+                val corrupt = content.map { (name, data) ->
+                    name to if (name == "assets/${asset.id}") bytes.copyOf(if (extension == "bmp") 54 else 19) else data
+                }
+                val failure = runCatching {
+                    validator().validate(ByteArrayInputStream(archive(corrupt + ("checksums.json" to checksumBytes(corrupt.associate { it.first to sha256(it.second) })))))
+                }.exceptionOrNull()
+                assertTrue("Corrupt $extension must fail before restore", failure is BackupFailure.InvalidRelationship)
+            }
+        } finally {
+            inputRoot.deleteRecursively()
+        }
+        assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
     fun multiplePageTextBlocksAreRejected() = runTest {
         val manifestOutput = StringWriter()
         BackupJson.writeManifest(
@@ -378,6 +475,41 @@ class BackupValidatorTest {
         assertFailure<BackupFailure.InvalidRelationship>(
             archiveWithChecksums(manifestOutput.toString().toByteArray(), records),
         )
+    }
+
+    @Test
+    fun recordsBeforeTheirPageKeepBoundsAndTextFitValidation() = runTest {
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(3, "test", 1L, 1, 1, 0, setOf("editable", "page-text")),
+        )
+        val manifest = manifestOutput.toString().toByteArray()
+        val element = BackupElement(
+            "element", "page", 0, "TEXT", 0f, 0f, 20f, 20f, 0f, "Label", null, null, null, null,
+        )
+        val block = BackupBlock("block", "page", 0, "PARAGRAPH", "Notes", false, 0, "START", null)
+        val cases = listOf(
+            records(element, block, page(), notebook()) to null,
+            records(element.copy(x = 600f), block, page(), notebook()) to "elementBounds:element",
+            records(element, block.copy(text = "Line\n".repeat(100)), page(), notebook()) to "blockText:page",
+        )
+
+        for ((content, expectedFailure) in cases) {
+            val failure = runCatching {
+                validator().validate(ByteArrayInputStream(archiveWithChecksums(manifest, content))).use { backup ->
+                    assertEquals(setOf("element"), backup.index.elementIds)
+                    assertEquals(setOf("block"), backup.index.blockIds)
+                }
+            }.exceptionOrNull()
+            if (expectedFailure == null) {
+                assertNull(failure)
+            } else {
+                assertTrue("Expected $expectedFailure, got $failure", failure is BackupFailure.InvalidRelationship)
+                assertEquals(expectedFailure, (failure as BackupFailure.InvalidRelationship).field)
+            }
+            assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+        }
     }
 
     @Test
@@ -449,6 +581,35 @@ class BackupValidatorTest {
         assertFailure<BackupFailure.InvalidRelationship>(
             archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
         )
+    }
+
+    @Test
+    fun pdfInspectionCancellationPropagatesAndCleansStaging() = runTest {
+        val pdf = testPdf(1)
+        val manifestOutput = StringWriter()
+        BackupJson.writeManifest(
+            manifestOutput,
+            BackupManifest(3, "test", 1L, 1, 1, 1, setOf("editable", "assets", "pdf-sources")),
+        )
+        val content = listOf(
+            "manifest.json" to manifestOutput.toString().toByteArray(),
+            "records.jsonl" to records(
+                notebook(),
+                BackupPdfSource("source", "notebook", "source.pdf", "Source.pdf", 1, pdf.size.toLong(), sha256(pdf), 1L),
+                page().copy(pageMode = "PDF", pdfSourceId = "source", pdfPageIndex = 0),
+            ),
+            "assets/source.pdf" to pdf,
+        )
+        val bytes = archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) })))
+        val cancellation = CancellationException("PDF inspection cancelled")
+        val validator = BackupValidator(stagingRoot, inspectPdf = { throw cancellation })
+
+        val failure = runCatching {
+            validator.validate(ByteArrayInputStream(bytes)).close()
+        }.exceptionOrNull()
+
+        assertSame(cancellation, failure)
+        assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
     }
 
     @Test
