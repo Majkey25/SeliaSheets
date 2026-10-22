@@ -60,6 +60,61 @@ class PowerPointPreflightTest {
     }
 
     @Test
+    fun boundsSparseChartAllocationsAcrossCachesAndParts() {
+        fun chart(caches: Int, body: String) =
+            "<chartSpace><chart><plotArea>" + "<ser><numCache>$body</numCache></ser>".repeat(caches) + "</plotArea></chart></chartSpace>"
+        val declared = "<ptCount val=\"10000\"/>"
+        val sparse = "<pt idx=\"9999\"><v>1</v></pt>"
+        assertEquals(1, inspect(parts() + ("ppt/charts/chart1.xml" to chart(10, declared + sparse).toByteArray())).slideCount)
+        for (body in listOf(declared, sparse)) {
+            val failure = assertThrows(IOException::class.java) {
+                inspect(parts() + listOf(
+                    "ppt/charts/chart1.xml" to chart(6, body).toByteArray(),
+                    "ppt/charts/chart2.xml" to chart(5, body).toByteArray(),
+                ))
+            }
+            assertTrue(failure.message.orEmpty().contains("point budget"))
+        }
+        for (body in listOf("<ptCount val=\"2147483648\"/>", "<pt idx=\"-1\"/>", "<ptCount val=\"10001\"/>")) {
+            rejects(parts() + ("ppt/charts/chart1.xml" to chart(1, body).toByteArray()))
+        }
+    }
+
+    @Test
+    fun boundsChartDataTableFanoutAndRepeatedReferences() {
+        val cache = "<numCache><ptCount val=\"10000\"/></numCache>"
+        val table = "<chartSpace><chart><plotArea><barChart><ser>$cache</ser>" +
+            "<ser/>".repeat(10) + "</barChart><dTable/></plotArea></chart></chartSpace>"
+        rejects(parts() + ("ppt/charts/chart1.xml" to table.toByteArray()))
+        val reference = """<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="$REL" r:id="chart"/>"""
+        val chart = "<chartSpace><chart><plotArea><barChart><ser>$cache</ser></barChart></plotArea></chart></chartSpace>"
+        fun deck(count: Int) = parts(slideBody = reference.repeat(count)) + listOf(
+            "ppt/charts/chart1.xml" to chart.toByteArray(),
+            "ppt/slides/_rels/slide1.xml.rels" to relationships(relationship("chart", "$REL/chart", "../charts/chart1.xml")).toByteArray(),
+        )
+        assertEquals(1, inspect(deck(10)).slideCount)
+        val failure = assertThrows(IOException::class.java) { inspect(deck(11)) }
+        assertTrue(failure.message.orEmpty().contains("point budget"))
+    }
+
+    @Test
+    fun sparsePointStylesCannotBypassChartAllocationBounds() {
+        fun chart(index: String, series: Int) = "<chartSpace><chart><plotArea><barChart>" +
+            ("<ser><dPt><idx val=\"$index\"/><spPr><solidFill><srgbClr val=\"FF0000\"/>" +
+                "</solidFill></spPr><explosion val=\"10\"/></dPt></ser>").repeat(series) +
+            "</barChart></plotArea></chart></chartSpace>"
+        assertEquals(1, inspect(parts() + ("ppt/charts/chart1.xml" to chart("9999", 10).toByteArray())).slideCount)
+        for ((index, series) in listOf("1000000000" to 1, "9999" to 11, "-1" to 1, "NaN" to 1)) {
+            rejects(parts() + ("ppt/charts/chart1.xml" to chart(index, series).toByteArray()))
+        }
+        val reference = """<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="$REL" r:id="chart"/>"""
+        rejects(parts(slideBody = reference.repeat(11)) + listOf(
+            "ppt/charts/chart1.xml" to chart("9999", 1).toByteArray(),
+            "ppt/slides/_rels/slide1.xml.rels" to relationships(relationship("chart", "$REL/chart", "../charts/chart1.xml")).toByteArray(),
+        ))
+    }
+
+    @Test
     fun rejectsWrongDimensionsDuplicateSlidesAndSlideOverflow() {
         rejects(parts(dimensions = "cx=\"0\" cy=\"6858000\""))
         rejects(parts(dimensions = "cx=\"99999999999\" cy=\"6858000\""))

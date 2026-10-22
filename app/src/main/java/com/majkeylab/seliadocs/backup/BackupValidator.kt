@@ -3,15 +3,18 @@ package com.majkeylab.seliadocs.backup
 import android.graphics.BitmapFactory
 import android.util.JsonReader
 import android.util.JsonToken
+import androidx.ink.storage.decode
+import androidx.ink.strokes.Stroke
+import androidx.ink.strokes.StrokeInputBatch
 import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.pageTextFits
 import com.majkeylab.seliadocs.editor.BrushKind
-import com.majkeylab.seliadocs.editor.EncodedStroke
 import com.majkeylab.seliadocs.editor.InkCodec
 import com.majkeylab.seliadocs.editor.IMAGE_MIME_EXTENSIONS
 import com.majkeylab.seliadocs.editor.validateStillImageDecode
 import com.majkeylab.seliadocs.pdf.PdfDocumentInfo
 import java.io.BufferedInputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FilterInputStream
 import java.io.InputStream
@@ -44,6 +47,8 @@ internal data class BackupIndex(
     val blockIds: Set<String>,
     val assetIds: Set<String>,
     val sourcePageIds: Set<String>,
+    val notebookBytes: Long = 0,
+    val indexBytes: Long = 0,
 )
 
 internal class StagedBackup(
@@ -63,11 +68,19 @@ internal class BackupValidator(
     private val inspectPdf: suspend (File) -> PdfDocumentInfo,
     private val maxEntryBytes: Long = 1024L * 1024 * 1024,
     private val maxExtractedBytes: () -> Long = {
-        min(stagingRoot.usableSpace / 10 * 8, 8L * 1024 * 1024 * 1024)
+        min(stagingRoot.usableSpace / 3, 8L * 1024 * 1024 * 1024)
     },
     private val maxRecords: Int = MAX_BACKUP_RECORDS,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val heapBytes: Long = Runtime.getRuntime().maxMemory(),
 ) {
+    fun checkLibrary(existingBytes: Long, existingIndexBytes: Long, imported: BackupIndex) {
+        BackupMemoryBudget(heapBytes).apply {
+            checkLibrary(existingBytes, imported.notebookBytes)
+            checkIndex(existingIndexBytes, imported.indexBytes)
+        }
+    }
+
     suspend fun validate(input: InputStream): StagedBackup {
         var completed: StagedBackup? = null
         try {
@@ -118,6 +131,7 @@ internal class BackupValidator(
         val destinations = mutableSetOf<String>()
         var totalBytes = 0L
         var entryCount = 0
+        var entryIndexBytes = 0L
         val totalLimit = maxExtractedBytes()
         ZipInputStream(BufferedInputStream(NonClosingInputStream(input))).use { zip ->
             while (true) {
@@ -133,6 +147,10 @@ internal class BackupValidator(
                     } ?: break
                 entryCount++
                 if (entryCount > MAX_ENTRIES) throw BackupFailure.LimitExceeded("entryCount")
+                entryIndexBytes = checkedAdd(
+                    entryIndexBytes, 1024L + (entry.name.length + directory.path.length) * 8L,
+                    heapBytes / 4, "entryIndex",
+                )
                 val destination = resolveEntry(directory, entry.name)
                 if (!destinations.add(destination.path)) {
                     throw BackupFailure.DuplicateEntry(entry.name)
@@ -160,7 +178,7 @@ internal class BackupValidator(
                     when (entry.name) {
                         MANIFEST_ENTRY -> min(maxEntryBytes, MAX_BACKUP_MANIFEST_BYTES)
                         CHECKSUMS_ENTRY -> min(maxEntryBytes, MAX_BACKUP_CHECKSUMS_BYTES)
-                        else -> maxEntryBytes
+                        else -> if (entry.name.startsWith(ASSET_PREFIX)) min(maxEntryBytes, MAX_PDF_BYTES) else maxEntryBytes
                     }
                 DigestOutputStream(destination.outputStream().buffered(), digest).use { output ->
                     val buffer = ByteArray(COPY_BUFFER_SIZE)
@@ -304,11 +322,13 @@ internal class BackupValidator(
         val referencedAssets = linkedSetOf<String>()
         val imageAssetIds = linkedSetOf<String>()
         var recordCount = 0
+        val memory = BackupMemoryBudget(heapBytes)
         recordsFile.reader(Charsets.UTF_8).use { input ->
             BackupJson.records(input).forEach { record ->
                 currentCoroutineContext().ensureActive()
                 recordCount++
                 if (recordCount > maxRecords) throw BackupFailure.LimitExceeded("recordCount")
+                memory.record(record)
                 when (record) {
                     is BackupNotebook -> addUnique(notebooks, record.id, "notebook")
                     is BackupChapter -> {
@@ -339,7 +359,7 @@ internal class BackupValidator(
                     is BackupStroke -> {
                         addUnique(strokes, record.id, "stroke")
                         strokePages += record.id to record.pageId
-                        validateStroke(record)
+                        validateStroke(record, memory)
                     }
                     is BackupElement -> {
                         addUnique(elements, record.id, "element")
@@ -433,12 +453,17 @@ internal class BackupValidator(
         if (referencedAssets != stagedAssets.keys) {
             throw BackupFailure.InvalidRelationship("assets")
         }
+        val imagePixels = imageAssetIds.associateWith { assetId ->
+            currentCoroutineContext().ensureActive()
+            validateImageAsset(assetId, stagedAssets.getValue(assetId))
+        }
         // A second pass supports arbitrary record order without retaining large payloads.
         recordsFile.reader(Charsets.UTF_8).use { input ->
             BackupJson.records(input).forEach { record ->
                 currentCoroutineContext().ensureActive()
                 when (record) {
                     is BackupElement -> {
+                        if (record.kind == "IMAGE") memory.image(record.pageId, imagePixels.getValue(requireNotNull(record.assetId)))
                         val size = pageSizes.getValue(record.pageId)
                         if (record.kind == ElementKind.SHAPE.name && (record.colorArgb != null || record.strokeWidth != null)) {
                             if (manifest.formatVersion < 7) throw BackupFailure.InvalidRelationship("shape-style-version")
@@ -464,28 +489,19 @@ internal class BackupValidator(
                 }
             }
         }
-        imageAssetIds.forEach { assetId ->
-            currentCoroutineContext().ensureActive()
-            validateImageAsset(assetId, stagedAssets.getValue(assetId))
-        }
         if (stagedAssets.size != manifest.assetCount) countFailure("assetCount")
-        return BackupIndex(notebooks, chapters, pdfSources, pages, strokes, elements, blocks, referencedAssets, sourcePageIds)
+        return BackupIndex(notebooks, chapters, pdfSources, pages, strokes, elements, blocks, referencedAssets, sourcePageIds, memory.notebookBytes, memory.indexBytes)
     }
 
-    private fun validateStroke(record: BackupStroke) {
-        val stroke =
-            runCatching {
-                InkCodec.decode(
-                    EncodedStroke(
-                        BrushKind.valueOf(record.brushKind),
-                        record.colorArgb,
-                        record.size,
-                        record.epsilon,
-                        record.inputs,
-                    ),
-                )
-            }.getOrElse { throw BackupFailure.InvalidRelationship("strokeData:${record.id}") }
-        if (stroke.inputs.size == 0) throw BackupFailure.InvalidRelationship("strokeData:${record.id}")
+    private fun validateStroke(record: BackupStroke, memory: BackupMemoryBudget) {
+        val inputs = runCatching {
+            ByteArrayInputStream(record.inputs).use { StrokeInputBatch.decode(it) }
+        }.getOrElse { throw BackupFailure.InvalidRelationship("strokeData:${record.id}") }
+        if (inputs.size == 0) throw BackupFailure.InvalidRelationship("strokeData:${record.id}")
+        memory.stroke(record.pageId, record.inputs.size, inputs.size)
+        runCatching {
+            Stroke(InkCodec.createBrush(BrushKind.valueOf(record.brushKind), record.colorArgb, record.size, record.epsilon), inputs)
+        }.getOrElse { throw BackupFailure.InvalidRelationship("strokeData:${record.id}") }
     }
 
     private fun validateElementBounds(record: BackupElement, pageWidth: Int, pageHeight: Int, strict: Boolean) {
@@ -513,7 +529,7 @@ internal class BackupValidator(
         }
     }
 
-    private fun validateImageAsset(assetId: String, file: File) {
+    private fun validateImageAsset(assetId: String, file: File): Long {
         if (file.length() !in 1..MAX_IMAGE_BYTES) throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
@@ -532,6 +548,7 @@ internal class BackupValidator(
         } catch (_: Exception) {
             throw BackupFailure.InvalidRelationship("imageAsset:$assetId")
         }
+        return ((bounds.outWidth + sample - 1) / sample).toLong() * ((bounds.outHeight + sample - 1) / sample)
     }
 
     private suspend fun validatePdfAsset(source: BackupPdfSource, file: File) {

@@ -132,6 +132,47 @@ class BackupImporterTest {
     }
 
     @Test
+    fun insufficientSpaceAndRollbackGrowthLeaveTheLibraryUntouched() = runTest {
+        populate(repository, assets, "Existing", testPng(0xFF0000FF.toInt()))
+        val before = repository.getAllNotebooks()
+        val originalAsset = assets.requireFile("asset.png").readBytes()
+        val archive = sourceArchive("Imported")
+        for (duringRollback in listOf(false, true)) {
+            var spaceChecks = 0
+            val bounded = BackupImporter(
+                database, repository, assets, BackupValidator(stagingRoot, PdfSandboxClient(context)::inspect),
+                stagingRoot, "test", availableBytes = {
+                    if (duringRollback && spaceChecks++ < 2) 1024L * 1024 * 1024 else 0
+                },
+            )
+            val failure = runCatching { bounded.restore(ByteArrayInputStream(archive), RestoreMode.REPLACE) }.exceptionOrNull()
+            assertTrue(failure is BackupFailure.LimitExceeded && failure.field == "restoreStorage")
+            assertEquals(before, repository.getAllNotebooks())
+            assertArrayEquals(originalAsset, assets.requireFile("asset.png").readBytes())
+            assertEquals(listOf("asset.png"), assets.files().map { it.name })
+            assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+        }
+    }
+
+    @Test
+    fun mergeChecksExistingTitlesBeforeInstallingAssets() = runTest {
+        populate(repository, assets, "x".repeat(2000), testPng(0xFF0000FF.toInt()))
+        val before = repository.getAllNotebooks()
+        val bounded = BackupImporter(
+            database, repository, assets,
+            BackupValidator(stagingRoot, PdfSandboxClient(context)::inspect, heapBytes = 128 * 1024),
+            stagingRoot, "test",
+        )
+        val failure = runCatching {
+            bounded.restore(ByteArrayInputStream(sourceArchive("y".repeat(2000))), RestoreMode.MERGE)
+        }.exceptionOrNull()
+        assertTrue(failure is BackupFailure.LimitExceeded && failure.field == "libraryMetadata")
+        assertEquals(before, repository.getAllNotebooks())
+        assertEquals(listOf("asset.png"), assets.files().map { it.name })
+        assertTrue(stagingRoot.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test
     fun mergeRemapsCollidingIdsAndPreservesExistingData() = runTest {
         populate(repository, assets, "Existing", testPng(0xFF0000FF.toInt()))
         val archive = sourceArchive("Imported")

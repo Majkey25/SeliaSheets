@@ -380,6 +380,42 @@ class BackupValidatorTest {
     }
 
     @Test
+    fun validInkFanoutIsRejectedBeforeThePageCanBePersisted() = runTest {
+        val payload = validTestStrokePayload()
+        val strokes = List(10) { index -> BackupStroke(
+            "stroke-$index", "page", index, payload.brushKind, payload.colorArgb, payload.size, payload.epsilon, payload.inputs,
+        ) }
+        assertFailure<BackupFailure.LimitExceeded>(
+            archiveWithChecksums(manifestBytes(1, 1, 0), records(notebook(), page(), *strokes.toTypedArray())),
+            BackupValidator(stagingRoot, pdfSandbox::inspect, heapBytes = 64 * 1024),
+        )
+    }
+
+    @Test
+    fun repeatedImageElementsChargeEveryPreviewAllocation() = runTest {
+        val images = List(4) { index -> BackupElement(
+            "image-$index", "page", index, "IMAGE", 0f, 0f, 20f, 10f, 0f, null, "image.png", null, null, null,
+        ) }
+        val content = listOf(
+            "manifest.json" to manifestBytes(1, 1, 1),
+            "records.jsonl" to records(notebook(), page(), *images.toTypedArray()),
+            "assets/image.png" to testPng(0xFFFF0000.toInt()),
+        )
+        assertFailure<BackupFailure.LimitExceeded>(
+            archive(content + ("checksums.json" to checksumBytes(content.associate { it.first to sha256(it.second) }))),
+            BackupValidator(stagingRoot, pdfSandbox::inspect, heapBytes = 48 * 1024),
+        )
+    }
+
+    @Test
+    fun individuallyValidTitlesCannotExhaustLibraryMetadata() = runTest {
+        assertFailure<BackupFailure.LimitExceeded>(
+            archiveWithChecksums(manifestBytes(1, 1, 0), records(notebook().copy(title = "x".repeat(100_000)), page())),
+            BackupValidator(stagingRoot, pdfSandbox::inspect, heapBytes = 1024 * 1024),
+        )
+    }
+
+    @Test
     fun corruptReferencedImageIsRejectedBeforeRestore() = runTest {
         val image = byteArrayOf(1, 2, 3)
         val content =

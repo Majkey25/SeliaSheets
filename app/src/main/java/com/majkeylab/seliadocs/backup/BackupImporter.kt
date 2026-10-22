@@ -13,6 +13,7 @@ import com.majkeylab.seliadocs.data.SeliaDocsDatabase
 import com.majkeylab.seliadocs.data.SeliaDocsRepository
 import com.majkeylab.seliadocs.data.StrokeEntity
 import java.io.File
+import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
@@ -31,6 +32,7 @@ internal class BackupImporter(
     private val stagingRoot: File,
     private val appVersion: String,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val availableBytes: () -> Long = { stagingRoot.usableSpace },
 ) {
     suspend fun restore(input: InputStream, mode: RestoreMode): RestoreSummary =
         LibraryMutationGate.withLock {
@@ -39,12 +41,23 @@ internal class BackupImporter(
                 try {
                     currentCoroutineContext().ensureActive()
                     withContext(NonCancellable + Dispatchers.IO) {
+                        val existingMetadata = if (mode == RestoreMode.MERGE) database.notebookDao().getNotebookMetadataBytes() else 0L
+                        val existingIndexBytes = if (mode == RestoreMode.MERGE) database.notebookDao().getLibraryIndexBytes() else 0L
+                        validator.checkLibrary(existingMetadata, existingIndexBytes, backup.index)
+                        // Keep space for copied assets, SQLite pages/WAL and filesystem headroom.
+                        val databaseBytes = database.openHelper.writableDatabase.path?.let { path ->
+                            File(path).length() + File("$path-wal").length()
+                        } ?: 0L
+                        val installationBytes = backup.assetFiles.values.sumOf(File::length) +
+                            backup.recordsFile.length() * 4 + databaseBytes * 2 + availableBytes() / 10
+                        requireStorage(installationBytes)
                         val mappings = createMappings(backup, mode)
                         val oldAssets = if (mode == RestoreMode.REPLACE) assets.files() else emptyList()
-                        val rollback = if (mode == RestoreMode.REPLACE) createRollback() else null
+                        val rollback = if (mode == RestoreMode.REPLACE) createRollback(installationBytes) else null
                         var installedAssets: List<File> = emptyList()
                         try {
                             installedAssets = installAssets(backup, mappings.assets)
+                            requireStorage(backup.recordsFile.length() * 4 + databaseBytes * 2)
                             insertRecords(backup.recordsFile, mappings, mode)
                         } catch (failure: Exception) {
                             installedAssets.forEach(File::delete)
@@ -77,7 +90,7 @@ internal class BackupImporter(
         val keepExisting = mode == RestoreMode.MERGE
         val existingNotebooks =
             if (keepExisting) {
-                repository.getAllNotebooks().mapTo(mutableSetOf(), NotebookEntity::id)
+                notebooks.getAllNotebookIds().toSet()
             } else {
                 emptySet()
             }
@@ -126,13 +139,28 @@ internal class BackupImporter(
         throw BackupFailure.RestoreFailed(IllegalStateException("Unique restore ID unavailable"))
     }
 
-    private suspend fun createRollback(): File {
+    private fun requireStorage(bytes: Long) {
+        if (bytes < 0 || availableBytes() < bytes) throw BackupFailure.LimitExceeded("restoreStorage")
+    }
+
+    private suspend fun createRollback(reservedBytes: Long): File {
         if ((!stagingRoot.isDirectory && !stagingRoot.mkdirs()) || !stagingRoot.canWrite()) {
             throw BackupFailure.RestoreFailed(IOException("Rollback storage unavailable"))
         }
         val file = File(stagingRoot, "rollback-${idFactory()}.seliasheets")
         try {
-            file.outputStream().buffered().use { output ->
+            val bounded = object : FilterOutputStream(file.outputStream()) {
+                override fun write(value: Int) {
+                    requireStorage(reservedBytes + 1)
+                    out.write(value)
+                }
+
+                override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                    requireStorage(reservedBytes + length)
+                    out.write(bytes, offset, length)
+                }
+            }
+            bounded.buffered().use { output ->
                 BackupExporter(repository, assets, appVersion).export(BackupScope.Library, output)
             }
             return file
