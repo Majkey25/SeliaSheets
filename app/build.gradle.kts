@@ -26,8 +26,8 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 26
-        versionName = "0.10.0-beta.3"
+        versionCode = 27
+        versionName = "0.10.0-beta.4"
         testInstrumentationRunner = "com.majkeylab.seliadocs.SeliaSheetsTestRunner"
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
