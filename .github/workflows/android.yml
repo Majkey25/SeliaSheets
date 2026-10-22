@@ -125,6 +125,7 @@ jobs:
           target: google_apis_ps16k
           arch: x86_64
           profile: pixel_tablet
+          cores: 4
           ram-size: 4096
           disk-size: 8G
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -partition-size 4096 -grpc 8556 -grpc-use-token
