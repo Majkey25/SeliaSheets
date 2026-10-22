@@ -21,6 +21,25 @@ internal interface NotebookDao {
     @Query("SELECT * FROM notebooks ORDER BY createdAt, id")
     suspend fun getAllNotebooks(): List<NotebookEntity>
 
+    @Query("SELECT id FROM notebooks")
+    suspend fun getAllNotebookIds(): List<String>
+
+    @Query("SELECT COALESCE(SUM(1024 + 2 * length(CAST(title AS BLOB))), 0) FROM notebooks")
+    suspend fun getNotebookMetadataBytes(): Long
+
+    @Query("""
+        SELECT COALESCE(SUM(1024 + 2 * idBytes), 0) FROM (
+            SELECT length(CAST(id AS BLOB)) AS idBytes FROM notebooks
+            UNION ALL SELECT length(CAST(id AS BLOB)) FROM chapters
+            UNION ALL SELECT length(CAST(id AS BLOB)) FROM pdf_sources
+            UNION ALL SELECT length(CAST(id AS BLOB)) FROM pages
+            UNION ALL SELECT length(CAST(id AS BLOB)) FROM strokes
+            UNION ALL SELECT length(CAST(id AS BLOB)) + COALESCE(length(CAST(sourcePageId AS BLOB)), 0) FROM elements
+            UNION ALL SELECT length(CAST(id AS BLOB)) FROM blocks
+        )
+    """)
+    suspend fun getLibraryIndexBytes(): Long
+
     @Query("SELECT * FROM notebooks WHERE id = :id")
     fun observeNotebook(id: String): Flow<NotebookEntity?>
 

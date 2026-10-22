@@ -1149,6 +1149,7 @@ internal class EditorViewModel(
                     currentCoroutineContext().ensureActive()
                     controls.value = controls.value.copy(searchResults = matches.toList())
                     val sources = repository.getPdfSources(notebookId).associateBy { it.id }
+                    val pdfMatches = mutableMapOf<Pair<String, Int>, Result<List<PdfTextSearchMatch>>>()
                     for (page in repository.getPages(notebookId)) {
                         currentCoroutineContext().ensureActive()
                         if (matches.size >= NOTEBOOK_SEARCH_LIMIT) {
@@ -1158,7 +1159,13 @@ internal class EditorViewModel(
                         val sourceId = page.pdfSourceId ?: continue
                         try {
                             val source = requireNotNull(sources[sourceId])
-                            val found = pdfPageSearcher(assets.requireFile(source.assetId), requireNotNull(page.pdfPageIndex), normalized, includeImageOcr)
+                            val index = requireNotNull(page.pdfPageIndex)
+                            val found = pdfMatches.getOrPut(source.assetId to index) {
+                                runCatching {
+                                    pdfPageSearcher(assets.requireFile(source.assetId), index, normalized, includeImageOcr)
+                                        .take(NOTEBOOK_SEARCH_LIMIT)
+                                }
+                            }.getOrThrow()
                             currentCoroutineContext().ensureActive()
                             for (match in found.take(NOTEBOOK_SEARCH_LIMIT - matches.size)) {
                                 matches += NotebookSearchResult(

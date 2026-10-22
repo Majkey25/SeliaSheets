@@ -100,6 +100,41 @@ class NotebookSearchFlowTest {
         }
     }
 
+    @Test fun duplicatedPdfPageReusesSearchAndPreservesBothDestinations() = runBlocking {
+        var calls = 0
+        fixture({ _, _, _, _ ->
+            calls++
+            listOf(PdfTextSearchMatch(bounds, true))
+        }) { editor, notebook, pages ->
+            val duplicate = repository.getPages(notebook).last()
+            SeliaDocsDatabase.get(application).notebookDao().updatePage(duplicate.copy(pdfPageIndex = 0))
+            withContext(Dispatchers.Main) { editor.searchPageText("term") }
+            val result = withTimeout(10_000) { editor.state.first { it.searchQuery == "term" && !it.searching } }
+            assertEquals(1, calls)
+            assertEquals(pages, result.searchResults.map { it.page.pageId })
+            assertTrue(result.searchResults.all { it.pdfMatch?.isOcr == true })
+        }
+    }
+
+    @Test fun duplicatedPdfPageDoesNotRepeatFailedOrEmptySearch() = runBlocking {
+        for (fail in listOf(false, true)) {
+            var calls = 0
+            fixture({ _, _, _, _ ->
+                calls++
+                if (fail) throw IllegalStateException("Unreadable PDF")
+                emptyList()
+            }) { editor, notebook, _ ->
+                val duplicate = repository.getPages(notebook).last()
+                SeliaDocsDatabase.get(application).notebookDao().updatePage(duplicate.copy(pdfPageIndex = 0))
+                withContext(Dispatchers.Main) { editor.searchPageText("term") }
+                val result = withTimeout(10_000) { editor.state.first { it.searchQuery == "term" && !it.searching } }
+                assertEquals(1, calls)
+                assertTrue(result.searchResults.isEmpty())
+                assertEquals(fail, result.searchMessage != null)
+            }
+        }
+    }
+
     @Test fun canceledSlowPdfQueryCannotOverwriteNewerResults() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()

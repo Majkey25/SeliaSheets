@@ -18,8 +18,14 @@ Converted slides are rasterized PDF backgrounds. Their text is searchable throug
 
 PowerPoint layout can differ because of font substitution and renderer compatibility. Export from PowerPoint to PDF first when exact layout matters. Macro-enabled or encrypted presentations, external dependencies, audio/video, animated images, and unsupported vector media are rejected. Supported raster media inside slides includes PNG, JPEG, WebP, and BMP, subject to validation. Charts use their cached data; embedded Excel workbooks are not executed or edited.
 
+Chart caches are limited to 10,000 positions each and 100,000 positions across the presentation. Sparse indexes, empty positions, data-table rows, and repeated chart references count toward this limit. Export larger charts to PDF first.
+
 Legacy `.ppt`, `.doc`, Keynote, OpenDocument, spreadsheets, SVG, and arbitrary binary files are not general import formats. Do not rename their extensions to bypass the picker. Export them to a supported format first.
 
 PDF export is flattened. Use a `.seliasheets` backup to retain editable notebook annotations.
+
+Backup restore also checks combined metadata and page content against the device's memory budget. Many strokes, text elements, or image copies on one page can exceed that budget even when each item is valid. Split dense pages or restore smaller notebook exports on devices with less memory. Existing per-file limits still apply; PDF sources retain support for 256 MiB and 2,000 pages. Duplicate PDF pages remain supported and share search work.
+
+Restore staging uses at most one third of available storage, capped at 8 GiB. Before changing the library, restore reserves additional space for installed assets and database writes; replacement rollback files cannot consume that reserve. If a limit is exceeded, restore fails and removes its temporary files without replacing existing notebooks.
 
 Image annotations do not play animations: GIF and animated WebP use the first frame; PNG uses the native decoder's still image. Original image bytes are retained in backups. Import and restore reject incomplete image data through Android's [strict image decoder](https://developer.android.com/reference/android/graphics/ImageDecoder).

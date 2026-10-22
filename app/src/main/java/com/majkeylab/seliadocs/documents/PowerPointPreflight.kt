@@ -30,6 +30,9 @@ internal object PowerPointPreflight {
     const val MAX_SLIDES = 100
     const val MAX_IMAGE_PIXELS = 32_000_000L
     private const val MAX_XML_EVENTS = 500_000
+    // A populated point uses at least five XML events. Sparse caches must cost as much.
+    private const val MAX_CHART_POINTS = MAX_XML_EVENTS / 5
+    private const val MAX_CHART_CACHE_POINTS = 10_000
     private const val MAX_XML_DEPTH = 64
     private const val PML = "http://schemas.openxmlformats.org/presentationml/2006/main"
     private const val REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -99,6 +102,10 @@ internal object PowerPointPreflight {
         var rootMain: String? = null
         var imagePixels = 0L
         var fontBytes = 0
+        var chartPoints = 0L
+        val chartPartPoints = mutableMapOf<String, Long>()
+        val chartReferences = mutableMapOf<Pair<String, String>, Int>()
+        val chartRelationships = mutableMapOf<Pair<String, String>, String>()
         val slideIds = linkedSetOf<String>()
         val slideParts = hashSetOf<String>()
         val slideRelationships = mutableMapOf<String, String>()
@@ -135,7 +142,41 @@ internal object PowerPointPreflight {
                     if (fontBytes > 16 * 1024 * 1024) invalid("PPTX embedded fonts exceed 16 MiB")
                 }
                 name.endsWith(".xml", true) || type.endsWith("+xml") || type in setOf("application/xml", "text/xml") -> {
+                    val caches = mutableMapOf<Int, Int>()
+                    val elements = mutableMapOf<Int, String>()
+                    var partPoints = 0L
+                    var largestCache = 0
+                    var seriesCount = 0
                     parseXml(bytes, budget) { parser ->
+                        elements[parser.depth] = parser.name
+                        if (parser.name == "ser") seriesCount++
+                        if (parser.name == "chart") parser.getAttributeValue(REL, "id")?.let { id ->
+                            val key = name to id
+                            chartReferences[key] = (chartReferences[key] ?: 0) + 1
+                        }
+                        caches.keys.removeAll { it >= parser.depth }
+                        if (parser.name in setOf("numCache", "numLit", "strCache", "strLit", "multiLvlStrCache", "lvl", "ser")) {
+                            caches[parser.depth] = 0
+                        }
+                        val pointStyle = parser.name == "idx" && elements[parser.depth - 1] == "dPt" && elements[parser.depth - 2] == "ser"
+                        val cacheDepth = parser.depth - if (pointStyle) 2 else 1
+                        val previous = caches[cacheDepth]
+                        if (previous != null && (pointStyle || parser.name in setOf("ptCount", "pt"))) {
+                            val count = if (parser.name == "ptCount") {
+                                parser.required("val").toIntOrNull() ?: invalid("Invalid chart point count")
+                            } else {
+                                val index = parser.required(if (pointStyle) "val" else "idx").toIntOrNull() ?: invalid("Invalid chart point index")
+                                if (index !in 0 until MAX_CHART_CACHE_POINTS) invalid("Chart point index is too large")
+                                index + 1
+                            }
+                            if (count !in 0..MAX_CHART_CACHE_POINTS) invalid("Chart cache is too large")
+                            val growth = maxOf(previous, count) - previous
+                            caches[cacheDepth] = previous + growth
+                            partPoints += growth
+                            largestCache = maxOf(largestCache, count)
+                            chartPoints += growth
+                            if (chartPoints > MAX_CHART_POINTS) invalid("PPTX chart caches exceed the point budget")
+                        }
                         if (parser.name in ACTIVE_ELEMENTS) invalid("PPTX contains unsupported active or audio/video content")
                         if (type == MAIN_TYPE) presentation(name, parser)
                         if (type == SLIDE_TYPE && parser.depth == 1) {
@@ -143,6 +184,11 @@ internal object PowerPointPreflight {
                             slideParts += name
                         }
                     }
+                    // Data tables expand every series to the category width, including empty series.
+                    val renderedPoints = maxOf(partPoints, largestCache.toLong() * seriesCount)
+                    chartPoints += renderedPoints - partPoints
+                    if (chartPoints > MAX_CHART_POINTS) invalid("PPTX chart caches exceed the point budget")
+                    chartPartPoints[name] = renderedPoints
                 }
                 else -> invalid("Unsupported PPTX part type: $type")
             }
@@ -198,6 +244,7 @@ internal object PowerPointPreflight {
                         rootMain = path
                     }
                     "$REL/slide" -> if (source == "ppt/presentation.xml") slideRelationships[id] = path
+                    "$REL/chart" -> chartRelationships[source to id] = path
                     "$REL/package" -> {
                         if (types.forPart(source) != CHART_TYPE || types.forPart(path) != WORKBOOK_TYPE) invalid("Embedded Office objects are unsupported")
                         workbookRelationships += path
@@ -213,6 +260,13 @@ internal object PowerPointPreflight {
             val orderedParts = slideIds.map { slideRelationships[it] ?: invalid("Missing presentation slide") }
             if (orderedParts.toSet().size != orderedParts.size || orderedParts.toSet() != slideParts) invalid("Ambiguous presentation slide list")
             if (workbookParts != workbookRelationships) invalid("Unreferenced embedded Office document")
+            val uses = mutableMapOf<String, Long>()
+            chartReferences.forEach { (reference, count) ->
+                val target = chartRelationships[reference] ?: invalid("Missing chart relationship")
+                uses[target] = (uses[target] ?: 0) + count
+            }
+            val renderedPoints = chartPartPoints.entries.sumOf { (part, points) -> points * maxOf(1L, uses[part] ?: 0) }
+            if (renderedPoints > MAX_CHART_POINTS) invalid("PPTX chart references exceed the point budget")
             return PowerPointMetadata(width, height, slideIds.size)
         }
     }
