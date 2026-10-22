@@ -44,6 +44,9 @@ internal class BackupImporter(
                         val existingMetadata = if (mode == RestoreMode.MERGE) database.notebookDao().getNotebookMetadataBytes() else 0L
                         val existingIndexBytes = if (mode == RestoreMode.MERGE) database.notebookDao().getLibraryIndexBytes() else 0L
                         validator.checkLibrary(existingMetadata, existingIndexBytes, backup.index)
+                        if ((!stagingRoot.isDirectory && !stagingRoot.mkdirs()) || !stagingRoot.canWrite()) {
+                            throw BackupFailure.RestoreFailed(IOException("Rollback storage unavailable"))
+                        }
                         // Keep space for copied assets, SQLite pages/WAL and filesystem headroom.
                         val databaseBytes = database.openHelper.writableDatabase.path?.let { path ->
                             File(path).length() + File("$path-wal").length()
@@ -144,9 +147,6 @@ internal class BackupImporter(
     }
 
     private suspend fun createRollback(reservedBytes: Long): File {
-        if ((!stagingRoot.isDirectory && !stagingRoot.mkdirs()) || !stagingRoot.canWrite()) {
-            throw BackupFailure.RestoreFailed(IOException("Rollback storage unavailable"))
-        }
         val file = File(stagingRoot, "rollback-${idFactory()}.seliasheets")
         try {
             val bounded = object : FilterOutputStream(file.outputStream()) {

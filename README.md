@@ -13,7 +13,7 @@ SeliaSheets is a private, offline-first Android notebook for students. It combin
 
 Download `0.10.0-beta.4`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.0-beta.4/SeliaSheets-0.10.0-beta.4.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.0-beta.4/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.0-beta.4).
 
-This update refreshes the Android build tools and coroutine libraries. It retains the backup memory and disk checks, PowerPoint chart limits, and repeated PDF search protection introduced in `0.10.0-beta.3`; see [supported import formats and limits](docs/IMPORT_FORMATS.md).
+This update refreshes the Android build tools and coroutine libraries and prepares restore storage before checking disk capacity. It retains the backup memory and disk checks, PowerPoint chart limits, and repeated PDF search protection introduced in `0.10.0-beta.3`; see [supported import formats and limits](docs/IMPORT_FORMATS.md).
 
 Google Play Alpha code 25 was submitted on October 13, 2026; approval and Store availability are pending. The GitHub APK and Google Play app use different signing keys. Keep the same distribution channel when updating to preserve your installation and data.
 
