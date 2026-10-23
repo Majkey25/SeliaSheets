@@ -110,6 +110,30 @@ class BackupImporterTest {
     }
 
     @Test
+    fun mergeAndReplaceCreateFreshRestoreStorageBeforeCheckingSpace() = runTest {
+        populate(repository, assets, "Existing", testPng(0xFF0000FF.toInt()))
+        val archive = sourceArchive("Imported")
+        for (mode in listOf(RestoreMode.MERGE, RestoreMode.REPLACE)) {
+            val restoreRoot = File(stagingRoot, "restore-$mode")
+            assertFalse(restoreRoot.exists())
+            val fresh = BackupImporter(
+                database, repository, assets,
+                BackupValidator(File(stagingRoot, "validation"), PdfSandboxClient(context)::inspect),
+                restoreRoot, "test",
+            )
+
+            fresh.restore(ByteArrayInputStream(archive), mode)
+
+            assertTrue(restoreRoot.isDirectory)
+            val notebooks = repository.getAllNotebooks()
+            assertEquals(if (mode == RestoreMode.MERGE) 2 else 1, notebooks.size)
+            val imported = notebooks.single { it.title == "Imported" }
+            assertEquals("Imported page text", repository.loadNotebook(imported.id).blocks.single().text)
+            assertTrue(restoreRoot.listFiles().orEmpty().isEmpty())
+        }
+    }
+
+    @Test
     fun responsivePenExportValidationAndRestorePreserveLegacyInk() = runTest {
         val legacy = validTestStrokePayload()
         val responsive = legacy.copy(brushKind = BrushKind.RESPONSIVE_PEN.name)

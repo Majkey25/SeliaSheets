@@ -26,8 +26,8 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 26
-        versionName = "0.10.0-beta.3"
+        versionCode = 27
+        versionName = "0.10.0-beta.4"
         testInstrumentationRunner = "com.majkeylab.seliadocs.SeliaSheetsTestRunner"
         manifestPlaceholders["appLabel"] = "@string/app_name"
     }
@@ -114,7 +114,7 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.12.0")
     implementation("androidx.compose.foundation:foundation:1.12.0")
     implementation("androidx.compose.material3:material3:1.4.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     ksp("androidx.room:room-compiler:2.8.4")
 
     testImplementation("junit:junit:4.13.2")
@@ -124,7 +124,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
-    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.0")
     debugImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") {
         because("Room migration tests need the serialization 1.8 ABI in the target APK")

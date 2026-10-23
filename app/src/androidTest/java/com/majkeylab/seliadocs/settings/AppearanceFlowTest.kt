@@ -65,9 +65,15 @@ class AppearanceFlowTest {
             runBlocking { repository.update { it.resetAppearance().copy(theme = AppTheme.LIGHT, penWidth = 9f) } }
             openAppearance()
             rule.onNodeWithTag("settings-list").performScrollToNode(hasContentDescription("Dark color palette: Midnight"))
-            rule.onNodeWithContentDescription("Dark color palette: Midnight").performClick().assertIsSelected()
+            rule.onNodeWithContentDescription("Dark color palette: Midnight").performClick()
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithContentDescription("Dark color palette: Midnight").assertIsSelected() }.isSuccess
+            }
             rule.onNodeWithTag("settings-list").performScrollToNode(hasContentDescription("Light color palette: Custom"))
-            rule.onNodeWithContentDescription("Light color palette: Custom").performClick().assertIsSelected()
+            rule.onNodeWithContentDescription("Light color palette: Custom").performClick()
+            rule.waitUntil(5_000) {
+                runCatching { rule.onNodeWithContentDescription("Light color palette: Custom").assertIsSelected() }.isSuccess
+            }
             rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Accent"))
             rule.onNodeWithText("Accent").performClick()
             rule.onNodeWithTag("theme-color-hex").performTextReplacement("#zzzzzz")
