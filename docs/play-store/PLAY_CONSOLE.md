@@ -9,7 +9,7 @@
 - Free or paid: Free
 - Category: Productivity
 - Contact email: `majkeylab@gmail.com`
-- Privacy policy: `https://majkey25.github.io/SeliaSheets/privacy/`
+- Privacy policy: `https://majkey25.github.io/SeliaSheets/play/privacy/`
 
 ## Declarations
 

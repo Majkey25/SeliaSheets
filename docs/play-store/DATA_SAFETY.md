@@ -38,4 +38,4 @@ Google's [ML Kit disclosure](https://developers.google.com/ml-kit/android-data-d
 
 ## Policy URL
 
-https://majkey25.github.io/SeliaSheets/privacy/
+https://majkey25.github.io/SeliaSheets/play/privacy/
