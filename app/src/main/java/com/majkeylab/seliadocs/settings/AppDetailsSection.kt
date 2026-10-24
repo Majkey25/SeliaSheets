@@ -39,7 +39,11 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal const val PRIVACY_URL = "https://majkey25.github.io/SeliaSheets/privacy/"
+internal val PRIVACY_URL = if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) {
+    "https://majkey25.github.io/SeliaSheets/privacy/"
+} else {
+    "https://majkey25.github.io/SeliaSheets/play/privacy/"
+}
 internal val SOURCE_URL = "https://github.com/Majkey25/SeliaSheets" +
     if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) "" else "/tree/main/app/src"
 

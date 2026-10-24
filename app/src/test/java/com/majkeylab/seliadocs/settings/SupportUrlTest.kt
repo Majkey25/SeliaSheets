@@ -20,4 +20,14 @@ class SupportUrlTest {
         }
         assertEquals(expected, SOURCE_URL)
     }
+
+    @Test
+    fun privacyLinkUsesTheSelectedDistributionChannel() {
+        val expected = if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) {
+            "https://majkey25.github.io/SeliaSheets/privacy/"
+        } else {
+            "https://majkey25.github.io/SeliaSheets/play/privacy/"
+        }
+        assertEquals(expected, PRIVACY_URL)
+    }
 }

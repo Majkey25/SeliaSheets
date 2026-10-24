@@ -66,8 +66,8 @@ The recognition wording above is checked against signed release `0.10.0-beta.2`,
 ## Contact
 
 - Email: majkeylab@gmail.com
-- Website: https://github.com/Majkey25/SeliaSheets
-- Privacy policy: https://majkey25.github.io/SeliaSheets/privacy/
+- Website: https://majkey25.github.io/SeliaSheets/play/privacy/
+- Privacy policy: https://majkey25.github.io/SeliaSheets/play/privacy/
 
 ## Release notes
 
