@@ -2,6 +2,13 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.0-beta.5] - 2026-10-24
+
+### Fixed
+
+- Remove external donation actions from Google Play builds while preserving them in GitHub APKs.
+- Open the source directory directly from Play builds, keeping privacy and license links available.
+
 ## [0.10.0-beta.2] - 2026-10-13
 
 ### Added

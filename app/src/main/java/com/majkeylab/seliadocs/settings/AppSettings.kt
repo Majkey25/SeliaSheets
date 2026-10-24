@@ -1,5 +1,6 @@
 package com.majkeylab.seliadocs.settings
 
+import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.data.PageOrientation
 import com.majkeylab.seliadocs.data.PaperTemplate
 import com.majkeylab.seliadocs.data.CoverColor
@@ -54,4 +55,4 @@ internal data class AppSettings(
         )
 }
 
-internal const val SUPPORT_URL = "https://www.buymeacoffee.com/majkey"
+internal val SUPPORT_URL = if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) "https://www.buymeacoffee.com/majkey" else ""

@@ -47,8 +47,12 @@ class SettingsFlowTest {
 
         rule.onNodeWithTag("settings-list").performScrollToNode(hasText(version))
         rule.onNodeWithText(version).assertIsDisplayed()
-        rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Support this app → Buy Me a Coffee"))
-        rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
+        if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) {
+            rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Support this app → Buy Me a Coffee"))
+            rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
+        } else {
+            rule.onNodeWithText("Support this app → Buy Me a Coffee").assertDoesNotExist()
+        }
         rule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("open-source-licenses"))
         rule.onNodeWithTag("open-source-licenses").performClick()
         rule.waitUntil(timeoutMillis = 5_000) {
