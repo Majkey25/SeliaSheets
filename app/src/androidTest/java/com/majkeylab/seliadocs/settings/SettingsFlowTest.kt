@@ -1,5 +1,8 @@
 package com.majkeylab.seliadocs.settings
 
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +26,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.majkeylab.seliadocs.BuildConfig
 import com.majkeylab.seliadocs.MainActivity
 import com.majkeylab.seliadocs.ui.SeliaDocsTheme
@@ -52,6 +56,29 @@ class SettingsFlowTest {
             rule.onNodeWithText("Support this app → Buy Me a Coffee").assertIsDisplayed()
         } else {
             rule.onNodeWithText("Support this app → Buy Me a Coffee").assertDoesNotExist()
+        }
+        rule.onNodeWithTag("settings-list").performScrollToNode(hasText("Privacy policy"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var openedUrl: String? = null
+        val monitor = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_VIEW) return null
+                openedUrl = intent.dataString
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        instrumentation.addMonitor(monitor)
+        try {
+            rule.onNodeWithText("Privacy policy").performClick()
+            rule.waitForIdle()
+            val expectedUrl = if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) {
+                "https://majkey25.github.io/SeliaSheets/privacy/"
+            } else {
+                "https://majkey25.github.io/SeliaSheets/play/privacy/"
+            }
+            assertEquals(expectedUrl, openedUrl)
+        } finally {
+            instrumentation.removeMonitor(monitor)
         }
         rule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("open-source-licenses"))
         rule.onNodeWithTag("open-source-licenses").performClick()
