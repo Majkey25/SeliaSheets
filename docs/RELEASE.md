@@ -38,4 +38,12 @@ jarsigner -verify -verbose -certs app\build\outputs\bundle\release\app-release.a
 Get-FileHash -Algorithm SHA256 app\build\outputs\apk\release\app-release.apk, app\build\outputs\bundle\release\app-release.aab
 ```
 
-Verify the package, version code, version name, target SDK, one expected signer, and SHA-256 hashes. Create beta tags from the merged `main` commit and publish them as GitHub prereleases. Attach `app-release.apk`, `app-release.aab`, and `SHA256SUMS`.
+Verify the package, version code, version name, target SDK, one expected signer, and SHA-256 hashes. Create beta tags from the merged `main` commit and publish them as GitHub prereleases.
+
+## Distribution channels
+
+Release builds default to `-PdistributionChannel=play`, which removes the external donation button and action. Upload only this channel's signed `app-release.aab` to Google Play. A GitHub-channel bundle is rejected by the build.
+
+Build the signed GitHub installation APK separately with `:app:assembleRelease -PdistributionChannel=github` and the same signing properties. Attach that APK and its checksum to GitHub Releases so the optional support button remains available there. The APK output path is shared, so copy and hash each channel's output before the next build.
+
+Debug builds retain donations by default. Pass `-PdistributionChannel=play` to debug builds and instrumentation tests when verifying the Play settings screen. `SettingsFlowTest.appDetailsShowsVersionAndSupport` checks the selected channel while keeping version and license access covered.

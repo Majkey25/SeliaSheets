@@ -40,7 +40,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal const val PRIVACY_URL = "https://majkey25.github.io/SeliaSheets/privacy/"
-internal const val SOURCE_URL = "https://github.com/Majkey25/SeliaSheets"
+internal val SOURCE_URL = "https://github.com/Majkey25/SeliaSheets" +
+    if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) "" else "/tree/main/app/src"
 
 @Composable
 internal fun AppDetailsSection() {
@@ -74,10 +75,12 @@ internal fun AppDetailsSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 10.dp),
         )
-        Button(
+        if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) Button(
             onClick = {
-                Toast.makeText(context, supportNotice, Toast.LENGTH_SHORT).show()
-                uriHandler.openUri(SUPPORT_URL)
+                if (BuildConfig.EXTERNAL_DONATIONS_ENABLED) {
+                    Toast.makeText(context, supportNotice, Toast.LENGTH_SHORT).show()
+                    uriHandler.openUri(SUPPORT_URL)
+                }
             },
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             border = BorderStroke(1.dp, Color(0xFF111111)),

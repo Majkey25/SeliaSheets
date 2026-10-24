@@ -18,6 +18,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val distributionChannel = providers.gradleProperty("distributionChannel").orNull
+require(distributionChannel == null || distributionChannel in setOf("play", "github")) {
+    "distributionChannel must be play or github"
+}
+
 android {
     namespace = "com.majkeylab.seliadocs"
     compileSdk = 37
@@ -26,10 +31,11 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 27
-        versionName = "0.10.0-beta.4"
+        versionCode = 28
+        versionName = "0.10.0-beta.5"
         testInstrumentationRunner = "com.majkeylab.seliadocs.SeliaSheetsTestRunner"
         manifestPlaceholders["appLabel"] = "@string/app_name"
+        buildConfigField("boolean", "EXTERNAL_DONATIONS_ENABLED", (distributionChannel == "github").toString())
     }
 
     buildFeatures {
@@ -56,6 +62,7 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "EXTERNAL_DONATIONS_ENABLED", (distributionChannel != "play").toString())
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             manifestPlaceholders["appLabel"] = "SeliaSheets Debug"
@@ -78,6 +85,11 @@ android {
     sourceSets {
         getByName("androidTest").assets.directories.add("$projectDir/schemas")
     }
+}
+
+tasks.matching { it.name == "packageReleaseBundle" }.configureEach {
+    val githubChannel = distributionChannel == "github"
+    doFirst { check(!githubChannel) { "Google Play bundles must use distributionChannel=play" } }
 }
 
 kotlin {
