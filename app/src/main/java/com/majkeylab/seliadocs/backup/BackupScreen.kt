@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -177,8 +178,8 @@ internal fun BackupScreen(
                         detail =
                             stringResource(
                                 R.string.backup_library_count,
-                                state.notebooks,
-                                state.pages,
+                                pluralStringResource(R.plurals.backup_notebook_count, state.notebooks, state.notebooks),
+                                pluralStringResource(R.plurals.backup_page_count, state.pages, state.pages),
                             ),
                     ) {
                         Text(

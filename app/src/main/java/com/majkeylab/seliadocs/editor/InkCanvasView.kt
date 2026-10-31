@@ -84,6 +84,7 @@ internal class InkCanvasView @JvmOverloads constructor(
     private var pendingCommit: CompletableDeferred<Unit>? = null
     private val gesturePoints = mutableListOf<CanvasPoint>()
     private val identity = Matrix()
+    private val viewportInputTransform = Matrix()
     private val liveBounds = Rect()
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -213,12 +214,10 @@ internal class InkCanvasView @JvmOverloads constructor(
         super.onLayout(changed, left, top, right, bottom)
         inProgressView.layout(liveBounds.left, liveBounds.top, liveBounds.right, liveBounds.bottom)
         // Zoom moves the viewport over the page without reallocating the live render buffers.
-        val inputTransform = Matrix().apply {
-            setTranslate(-liveBounds.left.toFloat(), -liveBounds.top.toFloat())
-        }
+        viewportInputTransform.setTranslate(-liveBounds.left.toFloat(), -liveBounds.top.toFloat())
         // Ink queues a render action even when its transform setter receives the same matrix.
-        if (inProgressView.motionEventToViewTransform != inputTransform) {
-            inProgressView.motionEventToViewTransform = inputTransform
+        if (inProgressView.motionEventToViewTransform != viewportInputTransform) {
+            inProgressView.motionEventToViewTransform = viewportInputTransform
         }
         // Separate rectangles avoid the even-odd CLEAR-path failure observed on Huawei Android 10.
         inProgressView.maskPath = Path().apply {
