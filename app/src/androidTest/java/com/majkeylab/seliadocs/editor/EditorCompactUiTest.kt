@@ -656,6 +656,21 @@ class EditorCompactUiTest {
                 throw AssertionError("Inline editor did not open the native keyboard. ${nativeWindowDiagnostics()}", failure)
             }
             editor.assertIsDisplayed().assertIsEnabled()
+            if (toolbar == "compact") {
+                val root = editor.fetchSemanticsNode().root as View
+                val location = IntArray(2)
+                val visible = android.graphics.Rect()
+                rule.runOnIdle {
+                    root.getLocationOnScreen(location)
+                    root.getWindowVisibleDisplayFrame(visible)
+                }
+                for (tag in listOf("compact-tool-pen", "compact-insert")) {
+                    val bounds = rule.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled()
+                        .fetchSemanticsNode().boundsInRoot
+                    assertTrue("$tag is behind the keyboard: $bounds vs $visible",
+                        bounds.bottom + location[1] <= visible.bottom + 1f)
+                }
+            }
         }
         editor.performTextInput(draft)
         val (editorBounds, editorPageBounds) = settledPageGeometry(hasTestTag("inline-text-editor"))

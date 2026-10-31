@@ -13,6 +13,7 @@ import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -46,10 +47,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.CompletableDeferred
 
 class PageViewportFlowTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun resizingPdfKeepsItsImageUntilTheReplacementIsReady() {
+        var shorter by mutableStateOf(false)
+        val calls = AtomicInteger()
+        val release = CompletableDeferred<Unit>()
+        renderPage(
+            EditorTool.PEN,
+            page = PageEntity("pdf-resize", "notebook", 0, PaperTemplate.BLANK.name, 595, 842,
+                pdfSourceId = "source", pdfPageIndex = 0),
+            loadPdfPage = { _, _, _ ->
+                if (calls.incrementAndGet() > 1) release.await()
+                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).asImageBitmap()
+            },
+            modifier = Modifier.layout { measurable, constraints ->
+                val height = (constraints.maxHeight * if (shorter) 0.5f else 1f).toInt()
+                val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = height))
+                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+            },
+        )
+        compose.onNodeWithTag("pdf-rendered-page").assertIsDisplayed()
+        try {
+            compose.runOnIdle { shorter = true }
+            compose.waitUntil(5_000) { calls.get() >= 2 }
+            compose.onNodeWithTag("pdf-rendered-page").assertIsDisplayed()
+            compose.onNodeWithTag("pdf-render-loading").assertDoesNotExist()
+        } finally {
+            release.complete(Unit)
+        }
+    }
 
     @Test
     fun highlighterIsVisibleBeforeLiftAndAfterHandoffWithoutChangingTools() {

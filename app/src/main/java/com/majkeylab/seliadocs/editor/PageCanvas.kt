@@ -625,7 +625,7 @@ private fun Paper(
                                 pdfHeight,
                                 pdfRenderAttempt,
                             ) {
-                                value = null
+                                if (value?.isSuccess == true) delay(150) else value = null
                                 value =
                                     runCatching {
                                         requireNotNull(loadPdfPage(page.id, pdfWidth, pdfHeight))

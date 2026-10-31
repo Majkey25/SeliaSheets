@@ -4,7 +4,13 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.majkeylab.seliadocs.MainActivity
 import com.majkeylab.seliadocs.settings.AppSettings
@@ -18,6 +24,39 @@ import org.junit.runner.RunWith
 class CreateNotebookDialogTest {
     val rule = createAndroidComposeRule<MainActivity>()
     @get:Rule val appReady = com.majkeylab.seliadocs.readyAppRule(rule)
+
+    @Test
+    fun keyboardLeavesNotebookActionsAndOptionsReachable() {
+        var created = false
+        rule.activity.setContent {
+            SeliaDocsTheme(darkTheme = false) {
+                CreateNotebookDialog(AppSettings(), {}, { created = true })
+            }
+        }
+        val name = rule.onNodeWithContentDescription("Notebook name")
+        name.performClick().performTextInput("Keyboard notebook")
+        val root = name.fetchSemanticsNode().root as android.view.View
+        try {
+            rule.waitUntil(10_000) {
+                rule.runOnIdle {
+                    ViewCompat.getRootWindowInsets(root)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                }
+            }
+            rule.onNodeWithTag("notebook-orientation-options").performScrollTo().assertIsDisplayed()
+            val create = rule.onNodeWithText("Create notebook").assertIsDisplayed()
+            val bounds = create.fetchSemanticsNode().boundsInRoot
+            rule.runOnIdle {
+                val location = IntArray(2).also(root::getLocationOnScreen)
+                val visible = android.graphics.Rect().also(root::getWindowVisibleDisplayFrame)
+                assertTrue("Create button is behind the keyboard: $bounds vs $visible",
+                    bounds.bottom + location[1] <= visible.bottom + 1f)
+            }
+            create.performClick()
+            rule.runOnIdle { assertTrue(created) }
+        } finally {
+            androidx.test.espresso.Espresso.closeSoftKeyboard()
+        }
+    }
 
     @Test
     fun orientationChoicesStayInsideDialogSection() {
