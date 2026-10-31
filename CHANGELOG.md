@@ -2,6 +2,14 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.1] - 2026-10-31
+
+### Fixed
+
+- Keep the drawing tools and notebook creation actions above the phone keyboard.
+- Keep the current PDF image visible while resizing and avoid rendering intermediate resize frames.
+- Preserve the last page thumbnail when an obsolete preview load is cancelled.
+
 ## [0.10.0-beta.5] - 2026-10-24
 
 ### Fixed

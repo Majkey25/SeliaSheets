@@ -68,6 +68,7 @@ import com.majkeylab.seliadocs.data.ElementKind
 import com.majkeylab.seliadocs.data.PageEntity
 import com.majkeylab.seliadocs.data.PaperTemplate
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun PageLocationBar(
@@ -370,7 +371,9 @@ private fun PageMiniature(
 ) {
     val preview by
         produceState<PagePreviewData?>(null, page.id, revision) {
-            value = runCatching { loadPreview(page.id) }.getOrNull()
+            value = runCatching { loadPreview(page.id) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull()
         }
     val description = stringResource(R.string.page_preview_description, page.pageIndex + 1)
     Surface(

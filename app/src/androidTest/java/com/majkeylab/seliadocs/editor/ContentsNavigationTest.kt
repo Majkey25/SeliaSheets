@@ -21,6 +21,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
 import com.majkeylab.seliadocs.data.ChapterEntity
 import com.majkeylab.seliadocs.data.PageEntity
+import com.majkeylab.seliadocs.data.BlockEntity
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.awaitCancellation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -31,6 +34,28 @@ class ContentsNavigationTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
     private val pages = List(4) { index ->
         PageEntity("page-$index", "book", index, "BLANK", 595, 842, title = "Sheet ${index + 1}", bookmarked = index == 2)
+    }
+
+    @Test
+    fun cancellingAnObsoletePreviewDoesNotBlankTheLastPreview() {
+        val revision = mutableStateOf(0L)
+        val calls = AtomicInteger()
+        show(
+            state = { EditorUiState(pages = listOf(pages.first().copy(updatedAt = revision.value))) },
+            loadPreview = { pageId ->
+                if (calls.incrementAndGet() > 1) awaitCancellation()
+                PagePreviewData(emptyList(), emptyList(), listOf(
+                    BlockEntity("preview", pageId, 0, "TEXT", "Stable preview", false, 0, "LEFT", null),
+                ))
+            },
+        )
+        compose.waitUntil(5_000) { calls.get() == 1 }
+        compose.onNodeWithText("Stable preview").assertIsDisplayed()
+        compose.runOnIdle { revision.value = 1L }
+        compose.waitUntil(5_000) { calls.get() == 2 }
+        compose.runOnIdle { revision.value = 2L }
+        compose.waitUntil(5_000) { calls.get() == 3 }
+        compose.onNodeWithText("Stable preview").assertIsDisplayed()
     }
 
     @Test
@@ -196,11 +221,12 @@ class ContentsNavigationTest {
         onSelect: (String) -> Unit = {},
         onMove: (String, Int) -> Unit = { _, _ -> },
         enabled: () -> Boolean = { true },
+        loadPreview: suspend (String) -> PagePreviewData = { PagePreviewData(emptyList(), emptyList(), emptyList()) },
     ) {
         compose.setContent {
             MaterialTheme {
                 ContentsPanel(state(), onSelect, {}, {}, { _, _ -> }, { _, _ -> }, { _, _ -> }, onMove, {}, {},
-                    loadPagePreview = { PagePreviewData(emptyList(), emptyList(), emptyList()) }, enabled = enabled())
+                    loadPagePreview = loadPreview, enabled = enabled())
             }
         }
     }

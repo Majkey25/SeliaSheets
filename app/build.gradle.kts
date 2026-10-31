@@ -31,8 +31,8 @@ android {
         applicationId = "com.majkeylab.seliadocs"
         minSdk = 29
         targetSdk = 37
-        versionCode = 28
-        versionName = "0.10.0-beta.5"
+        versionCode = 29
+        versionName = "0.10.1"
         testInstrumentationRunner = "com.majkeylab.seliadocs.SeliaSheetsTestRunner"
         manifestPlaceholders["appLabel"] = "@string/app_name"
         buildConfigField("boolean", "EXTERNAL_DONATIONS_ENABLED", (distributionChannel == "github").toString())
