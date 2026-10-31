@@ -2,6 +2,13 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.2] - 2026-10-31
+
+### Changed
+
+- Use the current AndroidX window API for edge-to-edge display, preserving navigation-button contrast and theme-aware system icons.
+- Update the hash-locked CI packaging dependency to address GHSA-xmj3-9gf7-h52w. Python tooling is not included in the Android app.
+
 ## [0.10.1] - 2026-10-31
 
 ### Fixed
