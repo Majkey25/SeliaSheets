@@ -11,9 +11,9 @@
 
 SeliaSheets is a private, offline-first Android notebook for students. It combines ordered paper pages, AndroidX Ink, full-page typing, chapters, imported PDFs, images, smart shapes, local arithmetic, and editable backups.
 
-Download `0.10.2`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.2/SeliaSheets-0.10.2.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.2/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.2).
+Download `0.10.3`: [Android APK](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.3/SeliaSheets-0.10.3.apk) · [Checksums](https://github.com/Majkey25/SeliaSheets/releases/download/v0.10.3/SHA256SUMS) · [Release notes](https://github.com/Majkey25/SeliaSheets/releases/tag/v0.10.3).
 
-This release adopts the current AndroidX window API and preserves the keyboard and PDF-preview fixes from 0.10.1. See [supported import formats and limits](docs/IMPORT_FORMATS.md).
+This release reduces temporary ink-layout allocations and corrects notebook/page counts in the backup summary. It includes the window, keyboard and PDF-preview fixes from earlier releases. See [supported import formats and limits](docs/IMPORT_FORMATS.md).
 
 Google Play distribution depends on its review and testing track. The GitHub APK and Google Play app use different signing keys. Keep the same distribution channel when updating to preserve your installation and data.
 

@@ -2,6 +2,13 @@
 
 All notable changes to SeliaSheets are documented here.
 
+## [0.10.3] - 2026-10-31
+
+### Fixed
+
+- Reuse the ink viewport transformation matrix during layout while preserving the native renderer's independent snapshots.
+- Show singular notebook and page counts correctly in the backup summary.
+
 ## [0.10.2] - 2026-10-31
 
 ### Changed

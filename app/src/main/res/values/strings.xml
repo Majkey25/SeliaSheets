@@ -265,7 +265,15 @@
     <string name="backup_restore_summary">Move editable notebooks between devices</string>
     <string name="backup_intro">Create one editable SeliaSheets backup with notebook covers, pages, ink, text, images, shapes, and math.</string>
     <string name="backup_entire_library">Entire library</string>
-    <string name="backup_library_count">%1$d notebooks · %2$d pages</string>
+    <string name="backup_library_count">%1$s · %2$s</string>
+    <plurals name="backup_notebook_count">
+        <item quantity="one">%1$d notebook</item>
+        <item quantity="other">%1$d notebooks</item>
+    </plurals>
+    <plurals name="backup_page_count">
+        <item quantity="one">%1$d page</item>
+        <item quantity="other">%1$d pages</item>
+    </plurals>
     <string name="backup_export_hint">Saved as a .seliasheets file. Choose any folder or cloud provider available on this device.</string>
     <string name="export_library">Export library</string>
     <string name="restore_backup">Restore a backup</string>
