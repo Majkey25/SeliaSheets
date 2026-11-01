@@ -102,7 +102,7 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-val inkVersion = "1.1.0-alpha07"
+val inkVersion = "1.1.0-alpha10"
 
 dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
