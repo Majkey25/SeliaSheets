@@ -102,10 +102,10 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-val inkVersion = "1.1.0-alpha07"
+val inkVersion = "1.1.0-alpha11"
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
@@ -117,27 +117,27 @@ dependencies {
     implementation("androidx.input:input-motionprediction:1.0.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") {
+    implementation("com.squareup.okhttp3:okhttp:5.5.1") {
         because("ML Kit's OkHttp 3.12.1 is affected by CVE-2021-0341")
     }
-    implementation("androidx.datastore:datastore-preferences:1.2.1")
-    implementation("androidx.room:room-ktx:2.8.4")
-    implementation("androidx.room:room-runtime:2.8.4")
-    implementation("androidx.compose.ui:ui:1.12.0")
-    implementation("androidx.compose.foundation:foundation:1.12.0")
+    implementation("androidx.datastore:datastore-preferences:1.3.0")
+    implementation("androidx.room:room-ktx:2.8.5")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.compose.ui:ui:1.12.1")
+    implementation("androidx.compose.foundation:foundation:1.12.1")
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    ksp("androidx.room:room-compiler:2.8.4")
+    ksp("androidx.room:room-compiler:2.8.5")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
-    androidTestImplementation("androidx.room:room-testing:2.8.4")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.0")
+    androidTestImplementation("androidx.room:room-testing:2.8.5")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.12.1")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.12.1")
     debugImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1") {
         because("Room migration tests need the serialization 1.8 ABI in the target APK")
     }

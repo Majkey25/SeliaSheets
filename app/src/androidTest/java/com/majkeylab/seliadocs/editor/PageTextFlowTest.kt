@@ -368,21 +368,26 @@ class PageTextFlowTest {
         compose.runOnIdle { root.getLocationOnScreen(location) }
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.waitForIdle(100, 2_000)
-        val screenshot = requireNotNull(automation.takeScreenshot())
         val samples = mutableListOf<Point>()
-        try {
-            val left = (location[0] + bounds.left).roundToInt()
-            val top = (location[1] + bounds.top).roundToInt()
-            for (y in top until top + layout.getLineBottom(0).roundToInt()) {
-                for (x in left until left + layout.getLineRight(0).roundToInt()) {
-                    val pixel = screenshot.getPixel(x, y)
-                    if (Color.red(pixel) < 80 && Color.green(pixel) < 80 && Color.blue(pixel) < 80) {
-                        samples += Point(x, y)
+        // Native frames may arrive after Compose and accessibility become idle.
+        compose.waitUntil(5_000) {
+            val screenshot = automation.takeScreenshot() ?: return@waitUntil false
+            samples.clear()
+            try {
+                val left = (location[0] + bounds.left).roundToInt()
+                val top = (location[1] + bounds.top).roundToInt()
+                for (y in top until top + layout.getLineBottom(0).roundToInt()) {
+                    for (x in left until left + layout.getLineRight(0).roundToInt()) {
+                        val pixel = screenshot.getPixel(x, y)
+                        if (Color.red(pixel) < 80 && Color.green(pixel) < 80 && Color.blue(pixel) < 80) {
+                            samples += Point(x, y)
+                        }
                     }
                 }
+            } finally {
+                screenshot.recycle()
             }
-        } finally {
-            screenshot.recycle()
+            samples.size >= 12
         }
         assertTrue("Stored page text must appear in the native window", samples.size >= 12)
         fun bluePixels(): Int {
