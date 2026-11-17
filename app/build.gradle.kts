@@ -117,7 +117,7 @@ dependencies {
     implementation("androidx.input:input-motionprediction:1.0.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") {
+    implementation("com.squareup.okhttp3:okhttp:5.5.1") {
         because("ML Kit's OkHttp 3.12.1 is affected by CVE-2021-0341")
     }
     implementation("androidx.datastore:datastore-preferences:1.3.0")
